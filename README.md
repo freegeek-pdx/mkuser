@@ -43,7 +43,7 @@ If ANY options or parameters are invalid, the user or package WILL NOT be create
 Instead, the invalid option errors and errors from other checks will be shown.
 
 When creating a user on the current system (not using the `--package` option), you will be prompted for confirmation before the user is created.<br/>
-To NOT be prompted for confirmation (such as when run within a script), you must specify `--do-not-confirm` (`-F`) or `--suppress-status-messages` (`-q`).
+To NOT be prompted for confirmation (such as when run within a script), you must specify `--do-not-confirm` (`-F`) or `--suppress-status-messages` (`-q`) or `--stdin-password`.
 
 <br/>
 
@@ -79,7 +79,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > While there is no explicit length limit, there is a combined byte length limit of the account name, full name, login shell, and home folder path.<br/>
 > If the combined byte length of these 4 attributes is over *1010 bytes*, the full name will not load in the "Log Out" menu item of the "Apple" menu.<br/>
 > While this is not a serious issue, it does indicate a bug or limitation within some part of macOS that we do not want to trigger.<br/>
-> `mkuser` will do this math for you and show an error with all of the byte length as well as how many bytes need to be removed for these 4 attributes to fit within the combined 1010 byte length limitation.<br/>
+> `mkuser` will do this math for you and show an error with all of the byte lengths as well as how many bytes need to be removed for these 4 attributes to fit within the combined 1010 byte length limitation.<br/>
 > This 1010 byte length limit should not be hit under normal circumstances, so you will generally not need to worry about hitting this limit.<br/>
 > For a bit more technical information about this issue from my testing, search for *1010 bytes* within the source of this script.
 >
@@ -122,7 +122,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--login-shell, --user-shell, --shell, -s` < *existing path* >
 
-> The login shell must be the path to an existing executable file.<br/>
+> The login shell must be the path to an existing executable file, or a valid command name that can be resolved using `which` with default search paths.<br/>
 > If omitted, "/bin/zsh" will be used on macOS 10.15 Catalina and newer and "/bin/bash" will be used on macOS 10.14 Mojave and older.
 
 <br/>
@@ -132,7 +132,8 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 #### `--password, --pass, -p` < *string* >
 
 > The password must be at least 4 characters and 511 bytes or less.<br/>
-> Except, when enabling auto-login, the maximum limit is 251 bytes.<br/>
+> Except, when enabling auto-login, the maximum limit is 251 bytes and when specifying a Secure Token admin to grant the new user a Secure Token, the maximum limit is 128 bytes.<br/>
+> For the most compatiblity, passwords should be 128 bytes or less.<br/>
 > Also, blank/empty passwords are allowed when FileVault IS NOT enabled.<br/>
 > There are no limitations on the characters allowed in the password, except that it cannot contain line breaks.<br/>
 > If omitted, blank/empty password will be specified.
@@ -140,6 +141,13 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > **BLANK/EMPTY PASSWORD NOTES:**<br/>
 > Blank/empty passwords are not allowed by macOS when FileVault is enabled.<br/>
 > When FileVault is not enabled, a user with a blank/empty password WILL be able to log in and authenticate GUI prompts, but WILL NOT be able to authenticate "Terminal" commands like `sudo`, `su`, or `login`, for example.
+>
+> **SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES:**<br/>
+> To grant the new user a Secure Token, the user and existing Secure Token admin passwords must be passed to `sysadminctl -secureTokenOn`.<br/>
+> To do this in the most secure way possible (so that they are never visible in the process list), the passwords are NOT passed directly as arguments but are instead passed using the command line prompt options (via `expect`).<br/>
+> But, the `sysadminctl -secureTokenOn` command line password prompts fail to accept passwords over 128 bytes for the user as well as the Secure Token admin even if the passwords are correct.<br/>
+> Since `mkuser` strives to handle passwords in the most secure ways possible, password lengths for the user (and Secure Token admin) are limited to 128 bytes when granting a Secure Token so that the passwords can be passed to `sysadminctl -secureTokenOn` in a secure way that never makes them visible in the process list.<br/>
+> If you need to make a Secure Token account that has a longer password for any reason, you can do so manually after creating a non-Secure Token account with `mkuser` by insecurely passing the passwords directly to `sysadminctl -secureTokenOn` as arguments since longer passwords are properly accepted when passed that way.
 >
 > **AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES:**<br/>
 > Auto-login simply does not work with passwords longer than 251 bytes.<br/>
@@ -155,18 +163,19 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > For fun, I tested logging in via login window with passwords up to 10,000 bytes (typed via an Arduino) and unlocking "System Preferences" panes with passwords up to 150,000 bytes (copy-and-pasted).<br/>
 > Longer passwords took overly long for the Arduino to type or macOS to paste.
 >
-> **PASSWORD IN PACKAGE NOTES:**<br/>
-> When outputting a user creation package (with the `--package` option), the specified password will be securely obfuscated within the package in such a way that the password can only be deobfuscated by the specific and unique script generated during package creation and only when run during the package installation process.<br/>
-> For more information about how the password is securely obfuscated within the package, read the comments within the code of this script starting at: *OBFUSCATE PASSWORD INTO RUN-ONLY APPLESCRIPT*<br/>
-> Also, when the password is deobfuscated during package installation, it will NOT be visible in the process list because it will be passed via stdin using `--stdin-password` regardless of how the password was specified when creating the package.
+> **PASSWORDS IN PACKAGE NOTES:**<br/>
+> When outputting a user creation package (with the `--package` option), the specified password (along with the existing Secure Token admin password, if specified) will be securely obfuscated within the package in such a way that the passwords can only be deobfuscated by the specific and unique script generated during package creation and only when run during the package installation process.<br/>
+> For more information about how passwords are securely obfuscated within the package, read the comments within the code of this script starting at: *OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT*<br/>
+> Also, when the passwords are deobfuscated during package installation, they will NOT be visible in the process list because they will be passed via "stdin" using `--stdin-password` (and `--fd3-secure-token-admin-password`) regardless of how the passwords were specified when creating the package.
 
 <br/>
 
 #### `--stdin-password, --stdin-pass, --sp` < *no parameter* (stdin) >
 
-> Include this option with no parameter to pass the password via stdin using a pipe (`|`) or here-string (`<<<`), etc.<br/>
-> Passing the password via stdin instead of directly with the `--password` option hides the password from the process list.<br/>
-> The help information for the `--password` option above also applies to passwords passed via stdin.
+> Include this option with no parameter to pass the password via "stdin" using a pipe (`|`) or here-string (`<<<`), etc.<br/>
+> Passing the password via "stdin" instead of directly with the `--password` option hides the password from the process list.<br/>
+> The help information for the `--password` option above also applies to passwords passed via "stdin".<br/>
+> **NOTICE:** Specifying `--stdin-password` ALSO enables `--do-not-confirm` since accepting "stdin" disrupts the ability to use other command line inputs.
 
 <br/>
 
@@ -401,43 +410,85 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > On Apple Silicon Macs, users that do not have a Secure Token cannot be Volume Owners, which means they will not be able to approve system updates (among other things).
 >
 > **macOS 11 Big Sur AND NEWER FIRST SECURE TOKEN NOTES:**<br/>
-> On macOS 11 Big Sur and newer, the first Secure Token is granted to the first Administrator or Standard user when their password is set, regardless of their UID.<br/>
+> On macOS 11 Big Sur and newer, the first Secure Token is granted to the first administrator or standard user when their password is set, regardless of their UID.<br/>
 > This essentially means the first Secure Token is granted right when the first user is created.<br/>
 > This is different from previous versions of macOS which would grant the first Secure Token upon first login or authentication.<br/>
 > Since this behavior is more aggressive than previous first Secure Token behavior, a new way has been added to selectively prevent a user from being granted the first Secure Token.<br/>
 > This is done by adding a special tag to the AuthenticationAuthority attribute in the user record before the users password has been set.<br/>
 > While `mkuser` includes this option and takes care of the necessary timing, it's worth noting that when creating users with `sysadminctl -addUser` it's actually impossible to prevent a Secure Token in this way since the password is always set during that user creation process, even if it's just a blank/empty password.<br/>
 > When users are created with this tag in their AuthenticationAuthority, the first user that does not have this special tag will get the first Secure Token when their password is set (basically, upon creation).<br/>
-> In general, you will want to make sure the the first user being granted a Secure Token is also an Administrator so that they are allowed to do all possible operations on macOS (especially on T2 and Apple Silicon Macs).
+> In general, you will want to make sure the the first user being granted a Secure Token is also an administrator so that they are allowed to do all possible operations on macOS (especially on T2 and Apple Silicon Macs).
 >
 > **macOS 10.15 Catalina FIRST SECURE TOKEN NOTES:**<br/>
-> On macOS 10.15 Catalina, the first Secure Token is granted to the first Administrator (not Standard user) to login or authenticate, regardless of their UID.<br/>
-> Even though `mkuser` will always verify the password using `dscl . -authonly` during the user creation process (which is an authentication that could trigger granting the first Secure Token), this authentication happens before the user is added to the "admin" group (if they are configured to be an Administrator).<br/>
-> This means that users will never be an Administrator during this authentication within the `mkuser` process and therefore will not be granted the first Secure Token at that moment.<br/>
-> The first Secure Token will then be granted by macOS to the first Administrator to login or authenticate after `mkuser` has finished.<br/>
+> On macOS 10.15 Catalina, the first Secure Token is granted to the first administrator (not standard user) to login or authenticate, regardless of their UID.<br/>
+> Even though `mkuser` will always verify the password using `dscl . -authonly` during the user creation process (which is an authentication that could trigger granting the first Secure Token), this authentication happens before the user is added to the "admin" group (if they are configured to be an administrator).<br/>
+> This means that users will never be an administrator during this authentication within the `mkuser` process and therefore will not be granted the first Secure Token at that moment.<br/>
+> The first Secure Token will then be granted by macOS to the first administrator to login or authenticate after `mkuser` has finished.<br/>
 > This is the same first Secure Token behavior that can be expected from any other user creation method that I'm aware of.<br/>
-> If for some reason you want to immediately grant an Administrator created by `mkuser` the first Secure Token, you can manually run `dscl . -authonly` after `mkuser` has finished.
+> If for some reason you want to immediately grant an administrator created by `mkuser` the first Secure Token, you can manually run `dscl . -authonly` after `mkuser` has finished.
 >
 > **macOS 10.14 Mojave AND macOS 10.13 High Sierra FIRST SECURE TOKEN NOTES:**<br/>
 > The following information only applies to macOS on an APFS volume (and not HFS+) as Secure Tokens are exclusively an APFS feature.<br/>
 > The Secure Token behavior is slightly different on macOS 10.14 Mojave and macOS 10.13 High Sierra than it is on new versions of macOS.<br/>
 > Also, `mkuser`'s process has an effect on the default macOS behavior of granting the first Secure Token.<br/>
-> Basically, the first Secure Token is granted to the first Administrator or Standard user to login or authenticate which has a UID of 500 or greater if and only if they are the only user with a UID of 500 or greater.<br/>
+> Basically, the first Secure Token is granted to the first administrator or standard user to login or authenticate which has a UID of 500 or greater if and only if they are the only user with a UID of 500 or greater.<br/>
 > This means that if multiple users with UIDs of 500 or greater were to be created before any of them logged in or authenticated, no first Secure Token would be granted automatically by macOS (which is not a great situation to get into by accident).<br/>
 > But, `mkuser` simplifies this complexity since the password will always be verified during the user creation process using `dscl . -authonly`, which means the users first authentication actually happens during the `mkuser` user creation process.<br/>
 > Therefore, when using `mkuser`, the first Secure Token will always be granted to the first user created with a UID of 500 or greater when their password is verified during the `mkuser` process.<br/>
 > If you do not want the first user you are creating with `mkuser` to be granted the first Secure Token, such as for a management account, simply set their UID below 500 and macOS will not grant them the first Secure Token when their password is verified by `mkuser`.<br/>
 > Then, the first user created by `mkuser` with a UID of 500 or greater or the first user created by going through first boot Setup Assistant will get the first Secure Token as intended.<br/>
 > You can also simply adjust the order of users created to be sure the user with a UID of 500 or greater that you want to be granted the first Secure Token is created first.<br/>
-> In general, you will want to make sure the first user being granted a Secure Token is also an Administrator so that they are allowed to do all possible operations on macOS, such as grant other users a Secure Token.
+> In general, you will want to make sure the first user being granted a Secure Token is also an administrator so that they are allowed to do all possible operations on macOS, such as grant other users a Secure Token.
 >
 > **ALL VERSIONS OF macOS SECURE TOKEN NOTES:**<br/>
 > Once the first Secure Token has been granted, any subsequent users created by `mkuser` or by going through first boot Setup Assistant will not automatically be granted a Secure Token by macOS since the first Secure Token has already been granted.<br/>
 > If you're using `mkuser` to create users before going through Setup Assistant, and you want the user created by first boot Setup Assistant to be granted the first Secure Token, be sure to take the necessary steps for each version of macOS (as outline above) to ensure any users created by `mkuser` are not granted the first Secure Token.<br/>
-> Once the first Secure Token has been granted by macOS, you must use `sysadminctl -secureTokenOn` to grant other users a Secure Token and authenticate the command with an existing Secure Token Administrator either interactively or by passing their credentials with the `-adminUser` and `-adminPassword` options.<br/>
-> Users created in the "Users & Groups" pane of the "System Preferences" will only get a Secure Token when the pane has been unlocked by an existing Secure Token Administrator.<br/>
-> Similarly, users created using `sysadminctl -addUser` will only get a Secure Token when the command is authenticated with an existing Secure Token Administrator (the same way as when using the `sysadminctl -secureTokenOn` option).<br/>
+> Once the first Secure Token has been granted by macOS, you must use `sysadminctl -secureTokenOn` to grant other users a Secure Token and authenticate the command with an existing Secure Token administrator either interactively or by passing their credentials with the `-adminUser` and `-adminPassword` options.<br/>
+> Or, `mkuser` can securely take care of this for you when creating new users if you pass an existing Secure Token admins credentials using the `--secure-token-admin-account-name` option along with one of the three different Secure Token admin password options below.<br/>
+> See the *SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES* and the *PASSWORDS IN PACKAGE NOTES* in help information for the `--password` option above for more information about how passwords are handled securely by `mkuser`, all of which also apply to Secure Token admin passwords.<br/>
+> Users created in the "Users & Groups" pane of the "System Preferences" will only get a Secure Token when the pane has been unlocked by an existing Secure Token administrator.<br/>
+> Similarly, users created using `sysadminctl -addUser` will only get a Secure Token when the command is authenticated with an existing Secure Token administrator (the same way as when using the `sysadminctl -secureTokenOn` option).<br/>
 > The only exception to this subsequent Secure Token behavior is when utilizing MDM with a Bootstrap Token.
+
+<br/>
+
+#### `--secure-token-admin-account-name, --st-admin-name, --st-admin-user, --st-name` < *string* >
+
+> Specify an existing Secure Token administrator account name (not full name) along with their password (using one of the options below) to be used to grant the new user a Secure Token.<br/>
+> This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+<br/>
+
+#### `--secure-token-admin-password, --st-admin-pass, --st-pass` < *string* >
+
+> The password must be at least 4 characters and 128 bytes or less, or a blank/empty password.<br/>
+> The password will be validated to be correct for the specified `--secure-token-admin-account-name`.<br/>
+> If omitted, blank/empty password will be specified.<br/>
+> This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+>
+> See *SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES* in help information for the `--password` option above for more information on that limitation, and about how the password is passed to `sysadminctl -secureTokenOn` in a secure way that does not reveal it in the process list.
+>
+> See *PASSWORDS IN PACKAGE NOTES* in help information for the `--password` option above for more information about how the Secure Token admin password is securely obfuscated within a package.
+
+<br/>
+
+#### `--fd3-secure-token-admin-password, --fd3-st-admin-pass, --fd3-st-pass` < *no parameter* (fd3) >
+
+> Include this option with no parameter to pass the Secure Token admin password via file descriptor 3 (fd3), using an "fd3" here-string (`3<<<`).<br/>
+> If you haven't used "fd3" here-strings before, it looks like this: `mkuser [OPTIONS] --fd3-secure-token-admin-password [OPTIONS] 3<<< '<PASS>'`<br/>
+> Passing the password via "fd3" instead of directly with the `--secure-token-admin-password` option hides the password from the process list.<br/>
+> The help information for the `--secure-token-admin-password` option above also applies to Secure Token admin passwords passed via "fd3".<br/>
+> This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+<br/>
+
+#### `--secure-token-admin-password-prompt, --st-admin-pass-prompt, --st-pass-prompt` < *no parameter* >
+
+> Include this option with no parameter to be prompted for the Secure Token admin password on the command line before creating the user or package.<br/>
+> This option allows you to specify a Secure Token admin password without it being saved in your command line history as well as hides the password from the process list.<br/>
+> The help information for the `--secure-token-admin-password` option above also applies to Secure Token admin passwords entered via command line prompt.<br/>
+> This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.<br/>
+> **NOTICE:** This option cannot be used when `--stdin-password` is specified since accepting "stdin" disrupts the ability to use other command line inputs.
 
 <br/>
 
@@ -459,7 +510,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > This is here as a seperate option for convenience and information.<br/>
 > When the login shell is set to "/usr/bin/false", the user is will not show in the "Users & Groups" pane of the "System Preferences" and will also not show up in the non-FileVault login window list of users.
 >
-> If FileVault is enabled and one of these users is granted a Secure Token, they will show in the FileVault login window and can decrypt the drive, but then the non-FileVault login will be hit to login with another user.<br/>
+> If FileVault is enabled and one of these users is granted a Secure Token, they will show in the FileVault login window and can decrypt the volume, but then the non-FileVault login will be hit to login with another user.<br/>
 > Unlike hidden users, these user CANNOT be logged into using text input fields in the non-FileVault login window.<br/>
 > These users also CANNOT authenticate "Terminal" commands like `su`, or `login`.<br/>
 > And finally, these users CANNOT authenticate graphical prompts, such as unlocking "System Preferences" panes if they are in an admin.<br/>
@@ -527,14 +578,14 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > By default, `mkuser` prompts for confirmation on the command line before creating a user on the current system.<br/>
 > Include this option with no parameter to NOT prompt for confirmation.<br/>
 > This option is ignored when outputting a user creation package (with the `--package` option) since no user will be created on the current system.<br/>
-> **NOTICE:** Specifying `--suppress-status-messages` ALSO enables `--do-not-confirm`.
+> **NOTICE:** Specifying `--suppress-status-messages` OR `--stdin-password` ALSO enables `--do-not-confirm`.
 
 <br/>
 
 #### `--suppress-status-messages, --quiet, -q` < *no parameter* >
 
-> Include this option with no parameter to not output any status messages that would be sent to `stdout`.<br/>
-> Any errors and warning that are sent to `stderr` will still be outputted.<br/>
+> Include this option with no parameter to not output any status messages that would be sent to "stdout".<br/>
+> Any errors and warning that are sent to "stderr" will still be outputted.<br/>
 > **NOTICE:** Specifying `--suppress-status-messages` ALSO enables `--do-not-confirm`.
 
 <br/>
@@ -548,7 +599,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--version, -v` < *no parameter* >
 
-> Display the `mkuser` version.<br/>
+> Display the `mkuser` version, and also check for updates when connected to the internet and display the newest version if an update is available.<br/>
 > This option overrides all other options (including `--help`).
 
 <br/>

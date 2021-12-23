@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2021.11.30-1'
+	readonly MKUSER_VERSION='2021.12.22-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add /usr/libexec to PATH for easy access to PlistBuddy.
 
@@ -41,6 +41,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	user_shell=''
 
 	user_password=''
+	did_get_password_from_stdin=false
 	prompt_for_user_password=false
 	user_password_hint=''
 	set_prohibit_user_password_changes=false
@@ -60,6 +61,10 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	set_role_account=false
 	set_service_account=false
 	set_prevent_secure_token_on_big_sur_and_newer=false
+
+	st_admin_account_name=''
+	st_admin_password=''
+	prompt_for_st_admin_password=false
 
 	set_auto_login=false
 	skip_setup_assistant_on_first_boot=false
@@ -245,7 +250,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 								# System Preferences and "sysadminctl" DO NOT allow account names to start with "-", but Setup Assistant DOES. This script will not allow them for the following reasons...
 								# Account names to start with "-" should not really be allowed by macOS at all since they can be interpreted as options in command line tools instead of usernames, and some important tools have no way around that issue (while some do).
 								# For example, the "login" command sees an account name starting with a "-" as an (illegal) option, which causes Terminal to exit with an error from the "login" command and never get to the login shell.
-								# This is because Terminal run "login <username>" instead of "login -- <username>" which would work.
+								# This is because Terminal runs "login <username>" instead of "login -- <username>" which would work.
 								# Also, account names starting with "-" are totally unusable with "sysadminctl" (such as "sysadminctl -secureTokenOn") since it sees them as (invalid) options and there is no way (such as using "--") to make it recognize them as a username parameter that I could figure out.
 								# This affects a variety of other commands as well. For example, "id" can work with "id --" (like "login" can) but "dscacheutil -q user -a name" cannot recognize a username starting with a "-" as anything other than an (invalid) option (like "sysadminctl" does).
 							fi
@@ -450,20 +455,15 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
 							has_invalid_options=true
 						fi
+
+						do_not_confirm=true # Must set do_not_confirm to true if passing password via stdin since it disrupts being able to accept actual input.
+						did_get_password_from_stdin=true # Need to also track if got password from stdin since it also disrupts "--secure-token-admin-password-prompt" which will be prevented when passing password via stdin.
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" because no stdin detected."
+						>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" because no \"stdin\" detected."
 						has_invalid_options=true
 					fi
 
-					if $IS_PACKAGE && [[ -z "${user_password}" ]]; then # Packages always use "--stdin-password" after deobfuscating the password.
-						# If is package installation with "--stdin-password" option but stdin is empty,
-						# that means an error occurred when retrieving the obfuscated password,
-						# so exit with error instead of incorrectly creating a user with blank/empty password.
-						# NOTE: This is a redundant check that should not be necessary since this will also be checked before calling this function from the "postinstall" of a package.
-
-						>&2 echo "mkuser ERROR ${error_code}: Failed to retrieve user password from package (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-						return "${error_code}"
-					fi
+					# Allow explicity blank/empty value since passwords can be blank/empty.
 					;;
 				--password-prompt|--pass-prompt|--pp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					prompt_for_user_password=true
@@ -660,6 +660,76 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
+				--secure-token-admin-account-name|--st-admin-name|--st-admin-user|--st-name) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+					if [[ -n "$1" ]]; then
+						if [[ "$1" != '-'* ]]; then # See comments below about not allowing account names starting with "-".
+							if [[ -z "${st_admin_account_name}" ]]; then
+								if [[ "$1" =~ ^[${a_z}${DIGITS}_]+[${a_z}${DIGITS}_.-]*$ ]]; then # The Secure Token admin will be verified to exist (and be an admin with a Secure Token) below, but at least validate that it's all lowercase letters, numbers, hyphen/minus, underscore, or period characters (and doesn't start with a period or hyphen/minus).
+									st_admin_account_name="$1"
+									valid_options_for_package+=( "${this_option}" "${st_admin_account_name}" )
+								else
+									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must only contain lowercase letters, numbers, hyphen/minus (-), underscore (_), or period (.) characters (and cannot start with a period)."
+									has_invalid_options=true
+								fi
+							else
+								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								has_invalid_options=true
+							fi
+
+							shift
+						else
+							>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+							has_invalid_options=true
+
+							# System Preferences and "sysadminctl" DO NOT allow account names to start with "-", but Setup Assistant DOES.
+							# Regardless, they are not usable for our needs here since account names starting with "-" are totally unusable with "sysadminctl" (such as "sysadminctl -secureTokenOn") since it sees them as (invalid) options and there is no way (such as using "--") to make it recognize them as a username parameter that I could figure out.
+						fi
+					else
+						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to NOT grant the new user a Secure Token."
+						has_invalid_options=true
+					fi
+					;;
+				--secure-token-admin-password|--st-admin-pass|--st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+					if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--secure-token-admin-password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
+						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite password if already set with "--fd3-secure-token-admin-password" (or multiple "--secure-token-admin-password" options specified).
+							if [[ "$1" != *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
+								st_admin_password="$1"
+								# Do not include "--secure-token-admin-password" in valid_options_for_package because it will be modified to obfuscate the password within a package and then passed with "--fd3-secure-token-admin-password" after being deobfuscated.
+							else
+								>&2 echo "mkuser ERROR ${error_code}: Secure Token admin password cannot contain line breaks."
+								has_invalid_options=true
+							fi
+						else
+							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+							has_invalid_options=true
+						fi
+
+						shift
+					fi # Allow explicity blank/empty value since a Secure Token admins passwords can be blank/empty. The password will be verified before usage though.
+					;;
+				--fd3-secure-token-admin-password|--fd3-st-admin-pass|--fd3-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+					if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd3-secure-token-admin-password" options specified).
+						if read -u 3 -r st_admin_password 2> /dev/null; then # Optionally get password from fd3 so that the password is never visible in the process list (will validate the password is 4 characters or more).
+							# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package since it will always be added to package installations which include an obfuscated password (after the password has been deobfuscated).
+
+							if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
+								>&2 echo "mkuser ERROR ${error_code}: Secure Token admin password cannot contain line breaks."
+								has_invalid_options=true
+							fi
+						else # Show error if file descriptor 3 (fd3) was not specified (via 3<<< here-string).
+							>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" because no file descriptor 3 (fd3) detected, specify with \"3<<<\" here-string. If you are running this command manually in Terminal and using \"sudo\", \"fd3\" may be getting directed to \"sudo\" instead of \"mkuser\"."
+							has_invalid_options=true
+						fi
+					else
+						>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+						has_invalid_options=true
+					fi
+
+					# Allow explicity blank/empty value since a Secure Token admins passwords can be blank/empty. The password will be verified before usage though.
+					;;
+				--secure-token-admin-password-prompt|--st-admin-pass-prompt|--st-pass-prompt) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+					prompt_for_st_admin_password=true
+					;;
 				--automatic-login|--auto-login|-A) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if ! $set_auto_login; then
 						set_auto_login=true
@@ -831,7 +901,26 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	if $show_version; then
-		echo -e "mkuser: version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://github.com/freegeek-pdx/mkuser"
+		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://github.com/freegeek-pdx/mkuser\n\nUpdate Check: "
+
+		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
+			latest_version_json="$(curl -m 5 -sL "https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest" 2> /dev/null)"
+			if [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
+				# Parse JSON with "jsc" (could use JXA, but "jsc" loads faster and the ObjC bridge of JXA is not needed): https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
+				# Also, use "find" to get the exact "jsc" path since the binary was moved between macOS 10.14 Mojave and macOS 10.15 Catalina (and want to be future-proof in case it move again): https://gist.github.com/ctkjose/03d14236a55c4b85cb8d6e6156c57b13
+				latest_version="$("$(find /System/Library/Frameworks/JavaScriptCore.framework -iname jsc)" -e "print(JSON.parse(\`${latest_version_json}\`).tag_name)")"
+				if [[ "${latest_version}" == "${MKUSER_VERSION}" ]]; then
+					echo 'Up-to-Date'
+				else
+					echo "Version ${latest_version} is Now Available!"
+				fi
+			else
+				echo 'Failed to Check for Updates (Internet Required)'
+			fi
+		else
+			echo 'Not Checking for Updates for Testing Version'
+		fi
+
 		return 0
 	elif $show_help; then
 		# Show help before checking if running as root or macOS version so that help can always be displayed.
@@ -896,7 +985,8 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
   When creating a user on the current system (not using the ${ansi_bold}--package${clear_ansi} option),
     you will be prompted for confirmation before the user is created.
   To NOT be prompted for confirmation (such as when run within a script),
-    you must specify ${ansi_bold}--do-not-confirm${clear_ansi} (${ansi_bold}-F${clear_ansi}) or ${ansi_bold}--suppress-status-messages${clear_ansi} (${ansi_bold}-q${clear_ansi}).
+    you must specify ${ansi_bold}--do-not-confirm${clear_ansi} (${ansi_bold}-F${clear_ansi})
+    or ${ansi_bold}--suppress-status-messages${clear_ansi} (${ansi_bold}-q${clear_ansi}) or ${ansi_bold}--stdin-password${clear_ansi}.
 
 
 👤 ${ansi_bold}PRIMARY OPTIONS:${clear_ansi}
@@ -947,9 +1037,9 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       full name will not load in the \"Log Out\" menu item of the \"Apple\" menu.
     While this is not a serious issue, it does indicate a bug or limitation
       within some part of macOS that we do not want to trigger.
-    ${ansi_bold}mkuser${clear_ansi} will do this math for you and show an error with all of the byte
-      length as well as how many bytes need to be removed for these 4 attributes
-      to fit within the combined 1010 byte length limitation.
+    ${ansi_bold}mkuser${clear_ansi} will do this math for you and show an error with all of the
+      byte lengths as well as how many bytes need to be removed for these
+      4 attributes to fit within the combined 1010 byte length limitation.
     This 1010 byte length limit should not be hit under normal circumstances,
       so you will generally not need to worry about hitting this limit.
     For a bit more technical information about this issue from my testing,
@@ -1004,7 +1094,8 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
 
   ${ansi_bold}--login-shell, --user-shell, --shell, -s${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} >
 
-    The login shell must be the path to an existing executable file.
+    The login shell must be the path to an existing executable file, or a valid
+      command name that can be resolved using ${ansi_bold}which${clear_ansi} with default search paths.
     If omitted, \"/bin/zsh\" will be used on macOS 10.15 Catalina and newer
       and \"/bin/bash\" will be used on macOS 10.14 Mojave and older.
 
@@ -1014,7 +1105,10 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
   ${ansi_bold}--password, --pass, -p${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
     The password must be at least 4 characters and 511 bytes or less.
-    Except, when enabling auto-login, the maximum limit is 251 bytes.
+    Except, when enabling auto-login, the maximum limit is 251 bytes and when
+      specifying a Secure Token admin to grant the new user a Secure Token,
+      the maximum limit is 128 bytes.
+    For the most compatiblity, passwords should be 128 bytes or less.
     Also, blank/empty passwords are allowed when FileVault IS NOT enabled.
     There are no limitations on the characters allowed in the password,
       except that it cannot contain line breaks.
@@ -1025,6 +1119,26 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
     When FileVault is not enabled, a user with a blank/empty password
       WILL be able to log in and authenticate GUI prompts, but WILL NOT be able
       to authenticate \"Terminal\" commands like ${ansi_bold}sudo${clear_ansi}, ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}, for example.
+
+    ${ansi_bold}SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES:${clear_ansi}
+    To grant the new user a Secure Token, the user and existing Secure Token
+      admin passwords must be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}.
+    To do this in the most secure way possible (so that they are never visible
+      in the process list), the passwords are NOT passed directly as arguments
+      but are instead passed using the command line prompt options (via ${ansi_bold}expect${clear_ansi}).
+    But, the ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} command line password prompts fail to
+      accept passwords over 128 bytes for the user as well as the Secure Token
+      admin even if the passwords are correct.
+    Since ${ansi_bold}mkuser${clear_ansi} strives to handle passwords in the most secure ways possible,
+      password lengths for the user (and Secure Token admin) are limited to
+      128 bytes when granting a Secure Token so that the passwords can be passed
+      to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} in a secure way that never makes them
+      visible in the process list.
+    If you need to make a Secure Token account that has a longer password for
+      any reason, you can do so manually after creating a non-Secure Token
+      account with ${ansi_bold}mkuser${clear_ansi} by insecurely passing the passwords directly to
+      ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} as arguments since longer passwords are
+      properly accepted when passed that way.
 
     ${ansi_bold}AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES:${clear_ansi}
     Auto-login simply does not work with passwords longer than 251 bytes.
@@ -1054,29 +1168,32 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       panes with passwords up to 150,000 bytes (copy-and-pasted).
     Longer passwords took overly long for the Arduino to type or macOS to paste.
 
-    ${ansi_bold}PASSWORD IN PACKAGE NOTES:${clear_ansi}
-    When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option),
-      the specified password will be securely obfuscated within the package
-      in such a way that the password can only be deobfuscated by the specific
-      and unique script generated during package creation and only when run
-      during the package installation process.
-    For more information about how the password is securely obfuscated within
+    ${ansi_bold}PASSWORDS IN PACKAGE NOTES:${clear_ansi}
+    When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option), the
+      specified password (along with the existing Secure Token admin password,
+      if specified) will be securely obfuscated within the package in such a way
+      that the passwords can only be deobfuscated by the specific and unique
+      script generated during package creation and only when run during
+      the package installation process.
+    For more information about how passwords are securely obfuscated within
       the package, read the comments within the code of this script starting at:
-      ${ansi_underline}OBFUSCATE PASSWORD INTO RUN-ONLY APPLESCRIPT${clear_ansi}
-    Also, when the password is deobfuscated during package installation,
-      it will NOT be visible in the process list because it will be passed
-      via stdin using ${ansi_bold}--stdin-password${clear_ansi} regardless of how the password was
-      specified when creating the package.
+      ${ansi_underline}OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT${clear_ansi}
+    Also, when the passwords are deobfuscated during package installation,
+      they will NOT be visible in the process list because they will be passed
+      via \"stdin\" using ${ansi_bold}--stdin-password${clear_ansi} (and ${ansi_bold}--fd3-secure-token-admin-password${clear_ansi})
+      regardless of how the passwords were specified when creating the package.
 
 
   ${ansi_bold}--stdin-password, --stdin-pass, --sp${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} (stdin) >
 
-    Include this option with no parameter to pass the password via stdin
+    Include this option with no parameter to pass the password via \"stdin\"
       using a pipe (${ansi_bold}|${clear_ansi}) or here-string (${ansi_bold}<<<${clear_ansi}), etc.
-    Passing the password via stdin instead of directly with the ${ansi_bold}--password${clear_ansi}
+    Passing the password via \"stdin\" instead of directly with the ${ansi_bold}--password${clear_ansi}
       option hides the password from the process list.
     The help information for the ${ansi_bold}--password${clear_ansi} option above also applies to
-      passwords passed via stdin.
+      passwords passed via \"stdin\".
+    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--stdin-password${clear_ansi} ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi} since
+      accepting \"stdin\" disrupts the ability to use other command line inputs.
 
 
   ${ansi_bold}--password-prompt, --pass-prompt, --pp${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
@@ -1409,7 +1526,7 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
 
     ${ansi_bold}macOS 11 Big Sur AND NEWER FIRST SECURE TOKEN NOTES:${clear_ansi}
     On macOS 11 Big Sur and newer, the first Secure Token is granted to
-      the first Administrator or Standard user when their password is set,
+      the first administrator or standard user when their password is set,
       regardless of their UID.
     This essentially means the first Secure Token is granted right when the
       first user is created.
@@ -1429,26 +1546,26 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       the first user that does not have this special tag will get the first
       Secure Token when their password is set (basically, upon creation).
     In general, you will want to make sure the the first user being granted
-      a Secure Token is also an Administrator so that they are allowed to do all
+      a Secure Token is also an administrator so that they are allowed to do all
       possible operations on macOS (especially on T2 and Apple Silicon Macs).
 
     ${ansi_bold}macOS 10.15 Catalina FIRST SECURE TOKEN NOTES:${clear_ansi}
     On macOS 10.15 Catalina, the first Secure Token is granted to the first
-      Administrator (not Standard user) to login or authenticate,
+      administrator (not standard user) to login or authenticate,
       regardless of their UID.
     Even though ${ansi_bold}mkuser${clear_ansi} will always verify the password using ${ansi_bold}dscl . -authonly${clear_ansi}
       during the user creation process (which is an authentication that could
       trigger granting the first Secure Token), this authentication happens
       before the user is added to the \"admin\" group (if they are configured
-      to be an Administrator).
-    This means that users will never be an Administrator during this
+      to be an administrator).
+    This means that users will never be an administrator during this
       authentication within the ${ansi_bold}mkuser${clear_ansi} process and therefore will not be granted
       the first Secure Token at that moment.
     The first Secure Token will then be granted by macOS to the first
-      Administrator to login or authenticate after ${ansi_bold}mkuser${clear_ansi} has finished.
+      administrator to login or authenticate after ${ansi_bold}mkuser${clear_ansi} has finished.
     This is the same first Secure Token behavior that can be expected from any
       other user creation method that I'm aware of.
-    If for some reason you want to immediately grant an Administrator created by
+    If for some reason you want to immediately grant an administrator created by
       ${ansi_bold}mkuser${clear_ansi} the first Secure Token, you can manually run
       ${ansi_bold}dscl . -authonly${clear_ansi} after ${ansi_bold}mkuser${clear_ansi} has finished.
 
@@ -1459,8 +1576,8 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       and macOS 10.13 High Sierra than it is on new versions of macOS.
     Also, ${ansi_bold}mkuser${clear_ansi}'s process has an effect on the default macOS behavior of
       granting the first Secure Token.
-    Basically, the first Secure Token is granted to the first Administrator or
-      Standard user to login or authenticate which has a UID of 500 or greater
+    Basically, the first Secure Token is granted to the first administrator or
+      standard user to login or authenticate which has a UID of 500 or greater
       if and only if they are the only user with a UID of 500 or greater.
     This means that if multiple users with UIDs of 500 or greater were to be
       created before any of them logged in or authenticated,
@@ -1484,7 +1601,7 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       user with a UID of 500 or greater that you want to be granted the
       first Secure Token is created first.
     In general, you will want to make sure the first user being granted a
-      Secure Token is also an Administrator so that they are allowed to do all
+      Secure Token is also an administrator so that they are allowed to do all
       possible operations on macOS, such as grant other users a Secure Token.
 
     ${ansi_bold}ALL VERSIONS OF macOS SECURE TOKEN NOTES:${clear_ansi}
@@ -1499,18 +1616,84 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       ${ansi_bold}mkuser${clear_ansi} are not granted the first Secure Token.
     Once the first Secure Token has been granted by macOS, you must use
       ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} to grant other users a Secure Token and
-      authenticate the command with an existing Secure Token Administrator
+      authenticate the command with an existing Secure Token administrator
       either interactively or by passing their credentials with
       the ${ansi_bold}-adminUser${clear_ansi} and ${ansi_bold}-adminPassword${clear_ansi} options.
+    Or, ${ansi_bold}mkuser${clear_ansi} can securely take care of this for you when creating new
+      users if you pass an existing Secure Token admins credentials using the
+      ${ansi_bold}--secure-token-admin-account-name${clear_ansi} option along with one of the
+      three different Secure Token admin password options below.
+    See the ${ansi_underline}SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} and the
+      ${ansi_underline}PASSWORDS IN PACKAGE NOTES${clear_ansi} in help information for the ${ansi_bold}--password${clear_ansi} option
+      above for more information about how passwords are handled securely
+      by ${ansi_bold}mkuser${clear_ansi}, all of which also apply to Secure Token admin passwords.
     Users created in the \"Users & Groups\" pane of the \"System Preferences\"
       will only get a Secure Token when the pane has been unlocked by an
-      existing Secure Token Administrator.
+      existing Secure Token administrator.
     Similarly, users created using ${ansi_bold}sysadminctl -addUser${clear_ansi} will only get a
       Secure Token when the command is authenticated with an existing
-      Secure Token Administrator (the same way as when using
+      Secure Token administrator (the same way as when using
       the ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} option).
     The only exception to this subsequent Secure Token behavior
       is when utilizing MDM with a Bootstrap Token.
+
+
+  ${ansi_bold}--secure-token-admin-account-name, --st-admin-name, --st-admin-user, --st-name${clear_ansi}
+    < ${ansi_underline}string${clear_ansi} >
+
+    Specify an existing Secure Token administrator account name (not full name)
+      along with their password (using one of the options below)
+      to be used to grant the new user a Secure Token.
+    This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+
+  ${ansi_bold}--secure-token-admin-password, --st-admin-pass, --st-pass${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
+
+    The password must be at least 4 characters and 128 bytes or less,
+      or a blank/empty password.
+    The password will be validated to be correct for the
+      specified ${ansi_bold}--secure-token-admin-account-name${clear_ansi}.
+    If omitted, blank/empty password will be specified.
+    This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+    See ${ansi_underline}SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in help information
+      for the ${ansi_bold}--password${clear_ansi} option above for more information on that limitation,
+      and about how the password is passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}
+      in a secure way that does not reveal it in the process list.
+
+    See ${ansi_underline}PASSWORDS IN PACKAGE NOTES${clear_ansi} in help information for the ${ansi_bold}--password${clear_ansi} option
+      above for more information about how the Secure Token admin password
+      is securely obfuscated within a package.
+
+
+  ${ansi_bold}--fd3-secure-token-admin-password, --fd3-st-admin-pass, --fd3-st-pass${clear_ansi}
+    < ${ansi_underline}no parameter${clear_ansi} (fd3) >
+
+    Include this option with no parameter to pass the Secure Token admin
+      password via file descriptor 3 (fd3), using an \"fd3\" here-string (${ansi_bold}3<<<${clear_ansi}).
+    If you haven't used \"fd3\" here-strings before, it looks like this:
+      ${ansi_bold}mkuser [OPTIONS] --fd3-secure-token-admin-password [OPTIONS] ${ansi_underline}3<<< '<PASS>'${clear_ansi}
+    Passing the password via \"fd3\" instead of directly with the
+      ${ansi_bold}--secure-token-admin-password${clear_ansi} option hides the password
+      from the process list.
+    The help information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option above
+      also applies to Secure Token admin passwords passed via \"fd3\".
+    This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+
+  ${ansi_bold}--secure-token-admin-password-prompt, --st-admin-pass-prompt, --st-pass-prompt${clear_ansi}
+    < ${ansi_underline}no parameter${clear_ansi} >
+
+    Include this option with no parameter to be prompted for the Secure Token
+      admin password on the command line before creating the user or package.
+    This option allows you to specify a Secure Token admin password without it
+      being saved in your command line history as well as hides the password
+      from the process list.
+    The help information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option above also
+      applies to Secure Token admin passwords entered via command line prompt.
+    This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+    ${ansi_bold}NOTICE:${clear_ansi} This option cannot be used when ${ansi_bold}--stdin-password${clear_ansi} is specified since
+      accepting \"stdin\" disrupts the ability to use other command line inputs.
 
 
 🚪 ${ansi_bold}LOGIN OPTIONS:${clear_ansi}
@@ -1536,7 +1719,7 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
       also not show up in the non-FileVault login window list of users.
 
     If FileVault is enabled and one of these users is granted a Secure Token,
-      they will show in the FileVault login window and can decrypt the drive,
+      they will show in the FileVault login window and can decrypt the volume,
       but then the non-FileVault login will be hit to login with another user.
     Unlike hidden users, these user CANNOT be logged into using
       text input fields in the non-FileVault login window.
@@ -1626,14 +1809,15 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
     Include this option with no parameter to NOT prompt for confirmation.
     This option is ignored when outputting a user creation package (with the
       ${ansi_bold}--package${clear_ansi} option) since no user will be created on the current system.
-    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi}.
+    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} OR ${ansi_bold}--stdin-password${clear_ansi}
+      ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi}.
 
 
   ${ansi_bold}--suppress-status-messages, --quiet, -q${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to not output any status messages
-      that would be sent to ${ansi_bold}stdout${clear_ansi}.
-    Any errors and warning that are sent to ${ansi_bold}stderr${clear_ansi} will still be outputted.
+      that would be sent to \"stdout\".
+    Any errors and warning that are sent to \"stderr\" will still be outputted.
     ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi}.
 
 
@@ -1648,7 +1832,9 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
 
   ${ansi_bold}--version, -v${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
-    Display the ${ansi_bold}mkuser${clear_ansi} version (it's ${MKUSER_VERSION}).
+    Display the ${ansi_bold}mkuser${clear_ansi} version (it's ${MKUSER_VERSION}),
+      and also check for updates when connected to the internet
+      and display the newest version if an update is available.
     This option overrides all other options (including ${ansi_bold}--help${clear_ansi}).
 
 
@@ -1730,6 +1916,8 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	if ! $suppress_status_messages; then
 		echo 'mkuser: Validating specified options and parameters...'
 	fi
+
+	boot_volume_is_apfs="$([[ "$(PlistBuddy -c 'Print :FilesystemType' /dev/stdin <<< "$(diskutil info -plist /)" 2> /dev/null)" == 'apfs' ]] && echo 'true' || echo 'false')" # Need to check if boot volume is APFS to know whether or not a Secure Token can be granted.
 
 	if [[ -z "${user_account_name}" ]]; then
 		if [[ -n "${user_full_name}" ]]; then
@@ -1828,7 +2016,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	if $prompt_for_user_password; then
 		if $has_invalid_options; then
 			>&2 echo 'mkuser WARNING: NOT prompting for password since INVALID OPTIONS OR PARAMETERS are specified and user would not be created anyway.'
-		elif [[ -n "${user_password}" ]]; then
+		elif $did_get_password_from_stdin || [[ -n "${user_password}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"--password-prompt\" option because \"--password\" or \"--stdin-password\" or \"--no-password\" has already been specified."
 			return "${error_code}"
 		else
@@ -1838,7 +2026,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			echo -en "\nConfirm Password for New \"${user_account_name}\" User: "
 			read -rs confirmed_prompted_user_password
 
-			echo -e "\n"
+			echo -e '\n'
 
 			if [[ "${prompted_user_password}" == "${confirmed_prompted_user_password}" ]]; then
 				# I don't believe it's possible to include line breaks within a prompt like this, so we don't need to check for them to be disallowed.
@@ -1856,19 +2044,21 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContentDescription:en' /dev/stdin <<< "$(pwpolicy getaccountpolicies 2> /dev/null | grep -vx 'Getting global account policies')" 2> /dev/null
 
 	if [[ -z "${user_password}" ]]; then
-		if $make_package; then
-			# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user cannot be created on FileVault enabled Macs.
-			>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which are not allowed on FileVault-enabled Macs, so this user WILL NOT be created if you try to install this package on a FileVault-enabled Mac.'
-		elif [[ "$(fdesetup isactive)" == 'true' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Password cannot be blank/empty when FileVault is enabled."
-			return "${error_code}"
+		if ! $set_service_account; then # Service Accounts will have the password set to NO PASSWORD (*) which are allowed when FileVault is enabled.
+			if $make_package; then
+				# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user cannot be created on FileVault enabled Macs.
+				>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which are not allowed on FileVault-enabled Macs, so this user WILL NOT be created if you try to install this package on a FileVault-enabled Mac.'
+			elif [[ "$(fdesetup isactive)" == 'true' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}: Password cannot be blank/empty when FileVault is enabled."
+				return "${error_code}"
+			fi
 		fi
 
 		# Blank/empty passwords are not allowed when FileVault is enabled.
 		# System Preferences explicitly doesn't allow blank/empty passwords when FileVault is enabled and "sysadminctl" silently fails and sets NO password.
 		# When FileVault is enabled, the "dscl . -passwd "/Users/${user_account_name}" ''" command will error with: DS Error -14165 eDSAuthPasswordQualityCheckFailed
-		# and the user would get created with NO password (and not the intentional "*" no password, just no password at all) like that happens silently with "sysadminctl".
-	elif [[ -n "${user_password}" && "${user_password}" != '*' ]]; then
+		# and the user would get created with NO password (and not the intentional "*" no password, just no password at all) which also happens with "sysadminctl".
+	elif [[ "${user_password}" != '*' ]]; then
 		if (( ${#user_password} < 4 )); then
 			>&2 echo "mkuser ERROR ${error_code}: Password too short, it must be at least 4 characters or blank/empty password (unless FileVault is enabled, then blank/empty passwords are not allowed)."
 			return "${error_code}"
@@ -1878,11 +2068,16 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		user_password_byte_length="$(echo -n "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
 		user_password_byte_length="${user_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
-		if $set_auto_login && (( user_password_byte_length > 251 )); then
+		if ( $boot_volume_is_apfs || $make_package ) && [[ -n "${st_admin_account_name}" ]] && (( user_password_byte_length > 128 )); then # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
+			>&2 echo "mkuser ERROR ${error_code}: Cannot grant Secure Token while specifying a password over 128 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable Secure Token granting options. See \"--help\" for more information about this limitation."
+			return "${error_code}"
+
+			# Read "--help" information about why passwords longer than 128 bytes are not allowed when granting a Secure Token (it's because they don't work when passed to "sysadminctl -secureTokenOn" interactively). The described behavior was tested on Mojave, Big Sur, and Monterey.
+		elif $set_auto_login && (( user_password_byte_length > 251 )); then
 			>&2 echo "mkuser ERROR ${error_code}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 
-			# Read "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on Big Sur and High Sierra.
+			# Read "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on High Sierra and Big Sur.
 		elif (( user_password_byte_length > 511 )); then
 			>&2 echo "mkuser ERROR ${error_code}: Password too long, it must be 511 bytes or less. Specified password is ${user_password_byte_length} bytes long. See \"--help\" for more information about this limitation."
 			return "${error_code}"
@@ -1935,7 +2130,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid path, it contains \":\" (not allowed by macOS)."
 		return "${error_code}"
 	elif [[ "${user_home_path//[^\/]/}" == '/' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid path, it cannot be a folder at the root of the drive."
+		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid path, it cannot be a folder at the root of the volume."
 		return "${error_code}"
 	elif [[ "$(echo "${user_home_path}" | tr '[:upper:]' '[:lower:]')" == '/var/'* ]]; then
 		# Replace "/var/" with "/private/var/" so that the home folder path is not a symlink path.
@@ -2129,9 +2324,15 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if [[ -n "${user_shell}" ]]; then
 		if [[ ! -f "${user_shell}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Specified login shell file \"${user_shell}\" does not exist."
-			return "${error_code}"
-		elif [[ ! -x "${user_shell}" ]]; then
+			if possible_user_shell="$(which "${user_shell}" 2> /dev/null)"; then
+				user_shell="${possible_user_shell}" # Use "which" to allow user_shell to be specified by command name such as "bash" or "zsh" instead of only the actual full path.
+			else
+				>&2 echo "mkuser ERROR ${error_code}: Specified login shell file \"${user_shell}\" does not exist."
+				return "${error_code}"
+			fi
+		fi
+
+		if [[ ! -x "${user_shell}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}: Specified login shell file \"${user_shell}\" is not executable."
 			return "${error_code}"
 		fi
@@ -2159,6 +2360,10 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			user_shell_byte_length='8' # Default of "/bin/zsh" is 8 bytes.
 		fi
 	else
+		if ! $user_shell_is_false && ! grep -qxF "${user_shell_lowercased}" '/etc/shells'; then
+			>&2 echo "mkuser WARNING: Specified login shell file \"${user_shell}\" is not listed as an approved shell in the \"/etc/shells\" file. The specified login shell will still be set, but be aware that this may result in this user account not behaving properly or as expected in all situations."
+		fi
+
 		user_shell_byte_length="$(echo -n "${user_shell}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
 		user_shell_byte_length="${user_shell_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 
@@ -2192,6 +2397,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		# Through testing on High Sierra and Big Sur, I found that this combined length of these 4 attributes must be 1010 bytes or less for the full name to show in the "Log Out" menu item of the "Apple" menu.
 		# If the combined length of these 4 attributes is over than 1010 bytes, the user account still seems to work otherwise, but only "Log Out …" is shown in the "Apple" menu with no full name shown.
+		# My assumption here is that something internal and static is taking up another 13 or 14 bytes making the actual limit be 1023 or 1024 bytes since these limitations usually fall on or one byte below a base 2 byte range.
 
 		# On both High Sierra and Big Sur, the user seems to work properly like this until the combined length of these 4 attibutes together goes over 2034 bytes.
 		# If the combined length of these 4 attributes is over than 2034 bytes, the user will fail to login via login window and the "login" or "su" commands.
@@ -2199,6 +2405,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# And the "su" errors are "su (libpam.2.dylib): in pam_sm_acct_mgmt(): Unable to obtain the username." and "su (libpam.2.dylib): in pam_sm_acct_mgmt(): OpenDirectory - Unable to get pwd record." and "su: pam_acct_mgmt: authentication error".
 		# When attempting to login at the login window when the combined length of these 4 attributes is over than 2034 bytes, the password field just shakes as if the password is wrong, but I'm assuming the same "libpam" error is getting hit.
 		# When tested with FileVault and Recovery authentication, the combined length of these 4 attributes being over 2034 bytes was not an issue. After successful FileVault login, the non-FileVault login window would get hit since actual login still failed. And there seemed to be no issues unlocking in Recovery.
+		# As with the 1010 byte limit, my assumption is something is taking the same 13 or 14 bytes making this actual limit be 2047 or 2048 bytes since these limitations usually fall on or one byte below a base 2 byte range.
 
 		# Regardless of this issue logging in the combined length of these 4 attributes is over than 2034 bytes, we want to make 100% fully functional accounts.
 		# While the full name not showing the "Log Out" menu item of the "Apple" menu is not a serious issue, it does indicate a bug or limitation within some part of macOS that we do not want to trigger.
@@ -2217,7 +2424,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			return "${error_code}"
 
 			# Do not try to set picture that is over 1 MB (and exit with error).
-			# This check was inspired by code shared by @simonandersen: https://macadmins.slack.com/archives/C07MGJ2SD/p1621271235165000?thread_ts=1621186749.143600&cid=C07MGJ2SD
+			# This check was inspired by code shared by Simon Andersen: https://macadmins.slack.com/archives/C07MGJ2SD/p1621271235165000?thread_ts=1621186749.143600&cid=C07MGJ2SD
 		fi
 	fi
 	(( error_code ++ ))
@@ -2239,6 +2446,280 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			return "${error_code}"
 		elif $do_not_create_home_folder; then
 			>&2 echo "mkuser ERROR ${error_code}: The home folder is set to the special \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\" folder. Remove the invalid \"--do-not-create-home-folder\" for this case."
+			return "${error_code}"
+		fi
+	fi
+	(( error_code ++ ))
+
+	if [[ -n "${st_admin_account_name}" ]]; then
+		# Check that Secure Token admin exist BEFORE prompting for Secure Token admin password so that it's not needlessly prompted if the specified Secure Token admin doesn't exist.
+
+		if ! $boot_volume_is_apfs && ! $make_package; then # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
+			>&2 echo 'mkuser WARNING: IGNORING "--secure-token-admin-account-name" since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
+			st_admin_account_name='' # Clear specified st_admin_account_name so that Secure Token granting code during user creation will never be run.
+		elif $set_prevent_secure_token_on_big_sur_and_newer; then
+			>&2 echo "mkuser ERROR ${error_code}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--prevent-secure-token-on-big-sur-and-newer\". Remove one or the other of these options."
+			return "${error_code}"
+		elif [[ "${st_admin_account_name}" == "${user_account_name}" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" cannot be same as the new user \"--account-name\"."
+			return "${error_code}"
+		elif ! $make_package; then # Only check that the Secure Token admin exists if not making a package which may run on another system.
+			if ! dscl . -read "/Users/${st_admin_account_name}" RecordName &> /dev/null || ! id -- "${st_admin_account_name}" &> /dev/null; then
+				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" does not exist."
+				return "${error_code}"
+			elif [[ "$(dsmemberutil checkmembership -U "${st_admin_account_name}" -G 'admin' 2> /dev/null)" != 'user is a member of the group' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" is not an administrator."
+				return "${error_code}"
+			fi
+
+			# DO NOT check if the specified Secure Token admin has a Secure Token YET in case we're running on Catalina and they are the first admin created which may not have been granted the first Secure Token yet.
+			# In this case on Catalina, the first admin will be granted the first Secure Token AFTER their password is verified below (using "dscl . -authonly").
+			# So, we will confirm that they have a Secure Token AFTER their password has been verified to allow for the situation on Catalina where multiple users are being created by mkuser before going through Setup Assistant
+			# and all of them are intended to get Secure Tokens from the first admin created by mkuser (which, again, will not get the first Secure Token on Catalina until after their first authentication).
+		fi
+	fi
+	(( error_code ++ ))
+
+	if $prompt_for_st_admin_password && [[ "${user_password}" != '*' ]]; then # Do not prompt for ST admin password if NO USER PASSWORD is set since that will error below anyways.
+		if ! $boot_volume_is_apfs && ! $make_package; then # Secure Token can only be granted if boot volume is APFS (but still prompt if making a package since it could be run on another system).
+			>&2 echo 'mkuser WARNING: NOT prompting for Secure Token admin password since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
+		elif $has_invalid_options; then
+			>&2 echo 'mkuser WARNING: NOT prompting for Secure Token admin password since INVALID OPTIONS OR PARAMETERS are specified and user would not be created anyway.'
+		elif $did_get_password_from_stdin; then
+			>&2 echo "mkuser ERROR ${error_code}: CANNOT prompt for Secure Token admin password since user password was passed via stdin. Use another option to specify the user password or the Secure Token admin password. See \"--help\" for more information about this limitation."
+			return "${error_code}"
+		elif [[ -n "${st_admin_password}" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"--secure-token-admin-password-prompt\" option because \"--secure-token-admin-password\" or \"--fd3-secure-token-admin-password\" has already been specified."
+			return "${error_code}"
+		elif [[ -z "${st_admin_account_name}" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}: CANNOT prompt for Secure Token admin password since \"--secure-token-admin-account-name\" is not specified."
+			return "${error_code}"
+		else
+			echo -en "\nSpecify Password for Secure Token Admin \"${st_admin_account_name}\": "
+			read -rs prompted_st_admin_password
+
+			echo -en "\nConfirm Password for Secure Token Admin \"${st_admin_account_name}\": "
+			read -rs confirmed_prompted_st_admin_password
+
+			echo -e '\n'
+
+			if [[ "${prompted_st_admin_password}" == "${confirmed_prompted_st_admin_password}" ]]; then
+				# I don't believe it's possible to include line breaks within a prompt like this, so we don't need to check for them to be disallowed.
+				st_admin_password="${prompted_st_admin_password}"
+			else
+				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" passwords did not match."
+				return "${error_code}"
+			fi
+		fi
+	fi
+	(( error_code ++ ))
+
+	mkuser_verify_password() { # $1 = Account Name, $2 = Password
+		# THIS mkuser_verify_password FUNCTION WILL BE USED TO VERIFY THE SECURE TOKEN ADMIN PASSWORD NOW, AS WELL AS THE NEW USERS PASSWORD AFTER USER CREATION.
+
+		# Verify password using "expect" so that the password is not passed as a parameter which would make it visible in the process list.
+		# Based on code in: https://github.com/franton/Mac-Patcher-and-Upgrader/blob/main/Jamf%20Pro%20Scripts/cached%20pkg%20installer.sh#L506
+		# And inspired by: https://macadmins.slack.com/archives/C07MGJ2SD/p1622135673245500?thread_ts=1621917478.117600&cid=C07MGJ2SD
+		# expect's "send" command must have "-- " before the password string to not error if the password starts with "-" which would make send interpret it as an (invalid) option.
+
+		if [[ -z "$1" ]]; then # $2 (password) can be an empty string.
+			return 1
+		fi
+
+		local password_byte_length
+		password_byte_length="$(echo -n "$2" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+
+		local password_escaped_for_expect="${2//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
+		password_escaped_for_expect="${password_escaped_for_expect//\"/\\\"}" # escape any double quote (") characters within the password so they do not prematurely end the password string passed to "send".
+
+		local verify_password_output
+		local verify_password_exit_code='-1' # Make sure verification fails if no authenticaion is run.
+
+		if (( password_byte_length <= 128 )); then
+			# Oddly, using "dscl . -authonly" *interactively* (via "expect" in this case) always fails with passwords that are over 128 bytes.
+			# Also, all CLI interactive password prompts (including the "read -rs" prompts in this script) DO NOT accept 1024 bytes or more, which would cause "expect" to simply timeout.
+			# These password lengths (and any password length) DOES NOT fail when passing the password to "dscl . -authonly" directly as an argument.
+			# This behavior was tested and confirmed on both Big Sur and High Sierra.
+			# But, passing the password directly as an argument is not secure since that would momentarily make the password visible in the process list.
+
+			local verify_password_dscl_authonly_attempt
+			for (( verify_password_dscl_authonly_attempt = 1; verify_password_dscl_authonly_attempt <= 3; verify_password_dscl_authonly_attempt ++ )); do
+				# "expect" has a 10 second timeout by default, which should be more than enough but I saw the secondary "login" verification timeout once.
+				# We could set a longer timeout, but instead re-try up to 3 times if the command timed out because
+				# that likely means something went wrong with that execution that a longer timeout wouldn't fix.
+
+				verify_password_output="$(expect << DSCL_AUTHONLY_EXPECT_EOF
+spawn dscl . -authonly "$1"
+expect {
+	"Password:" {
+		send -- "${password_escaped_for_expect}\r"
+		exp_continue
+	}
+	timeout {
+		exit 255
+	}
+}
+DSCL_AUTHONLY_EXPECT_EOF
+)"
+
+				verify_password_exit_code="$?"
+
+				if (( verify_password_exit_code == 255 )); then
+					>&2 echo "mkuser WARNING: Attempt ${verify_password_dscl_authonly_attempt} of 3 to verify ${user_full_and_account_name_display:-\"$1\"} user password timed out."
+				else
+					break
+				fi
+			done
+		elif [[ "$(dsmemberutil checkmembership -U "$1" -G 'admin' 2> /dev/null)" == 'user is a member of the group' ]]; then
+			# This WOULD only be used for verifying the Secure Token admin password and never for new user password verification since a new user will never be set as an admin when the password is being verified (see comments before this verification is run for the new user for more info).
+			# This technique works with passwords of any length (tested with a variety lengths in from 129 up to 10,000 characters).
+			# BUT, THIS CONDITION SHOULD NEVER GET HIT SINCE SECURE TOKEN ADMIN PASSWORDS OVER 128 BYTES ARE NOT ALLOWED SINCE DO NOT WORK WHEN PASSED INTERACTIVELY (SECURELY) VIA "sysadminctl -secureTokenOn".
+			# Regardless, leaving this here for information and possible testing needs.
+
+			if ! $suppress_status_messages; then
+				echo "mkuser: Verifying ${user_full_and_account_name_display:-\"$1\"} user password with admin technique..."
+			fi
+
+			# MUST pass "osascript" contents as here-doc to NOT reveal anything in the process list.
+			# MUST ALSO run "osascript" as authenticating user if running as root so that it will not always pass authentication no matter what.
+
+			local osascript_command_asuser_or_not='osascript'
+			if [[ "${EUID:-$(id -u)}" == '0' ]]; then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a Standard user (which cannot run "sudo" commands).
+				authenticating_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/$1" UniqueID 2> /dev/null)" 2> /dev/null)"
+				osascript_command_asuser_or_not="launchctl asuser ${authenticating_user_uid} sudo -u $1 osascript"
+			fi
+
+			# osascript_command_asuser_or_not MUST NOT be quoted to execute the possible "launchctl asuser", "sudo -u", and "osascript" commands together properly.
+			verify_password_output="$(${osascript_command_asuser_or_not} << OSASCRIPT_VERIFY_PASSWORD_EOF 2>&1
+do shell script "echo 'MKUSER PASSWORD VERIFIED'" user name "$1" password "${password_escaped_for_expect}" with administrator privileges
+OSASCRIPT_VERIFY_PASSWORD_EOF
+)"
+
+			verify_password_exit_code="$?"
+		elif [[ "${EUID:-$(id -u)}" == '0' ]] && (( password_byte_length <= 511 )); then # Editing the "/etc/nologin" requires running as root.
+			# Would never get this far when not running as root (when verifying a Secure Token admin password, which is limited to 128 bytes) but better to check and error cleanly that fail poorly if every used in other scenarios.
+
+			# As a backup solution to verifying passwords over 128 bytes without revealing it in the process list, I found that I could use the "login" command via "expect".
+			# But, I do not want the user to actually be logged in and if their login shell is set to "/usr/bin/false" they would not get logged in anyway.
+			# To workaround both of these issues, I am utilizing the special "/etc/nologin" file (see "man login" for more information).
+			# Basically, when the "/etc/nologin" exists, "login" will just dislay its contents to the user and exit when login would have succeeded.
+			# We can use this functionality perfectly for our needs by setting the contents of "/etc/nologin" to a specific string, and then check
+			# for that string using "expect" to verify that the password was correct and the login would have succeeded without actually logging in.
+			# This backup solution using the "login" command was tested and verified on both Big Sur and High Sierra.
+
+			# NOTE: This backup solution using the "login" command WOULD FAIL for passwords over 511 bytes, if they were allowed.
+			# But, passwords over 511 bytes are not allowed because of the fact that they cannot be securely verified.
+			# If the password is over 511 bytes, the "login" (or "su") command would fail with the following error in Console:
+			# opendirectoryd: ODRecordVerifyPassword failed with result ODErrorCredentialsInvalid
+			# This error behavior was tested and confirmed on both Big Sur and High Sierra.
+			# THIS IS WHY PASSWORDS OVER 511 BYTES ARE NOT ALLOWED.
+
+			if ! $suppress_status_messages; then
+				echo "mkuser: Verifying ${user_full_and_account_name_display:-\"$1\"} user password with secondary technique..."
+			fi
+
+			if [[ -e '/etc/nologin' && "$(cat '/etc/nologin' 2> /dev/null)" != 'MKUSER PASSWORD VERIFIED' ]]; then
+				# If for some reason a custom "/etc/nologin" file already exists, move it temporarily to create our specific "/etc/nologin" file and then move it back when done verifying the password.
+				mv -f '/etc/nologin' '/etc/nologin-MKUSER-ORIGINAL'
+			fi
+
+			rm -rf '/etc/nologin'
+			echo 'MKUSER PASSWORD VERIFIED' > '/etc/nologin'
+
+			if [[ -f '/etc/nologin' && "$(cat '/etc/nologin')" == 'MKUSER PASSWORD VERIFIED' ]]; then
+				local verify_password_login_attempt
+				for (( verify_password_login_attempt = 1; verify_password_login_attempt <= 3; verify_password_login_attempt ++ )); do
+					# See comments above "expect" code for "spawn dscl . -authonly" verification for why we
+					# are doing up to 3 re-attempts if a timeout happens instead of setting a longer timeout.
+
+					verify_password_output="$(expect << LOGIN_EXPECT_EOF
+spawn login -- "$1"
+expect {
+	"Password:" {
+		send -- "${password_escaped_for_expect}\r"
+		exp_continue
+	}
+	"MKUSER PASSWORD VERIFIED" {
+		exit 0
+	}
+	"Login incorrect" {
+		exit 1
+	}
+	timeout {
+		exit 255
+	}
+}
+LOGIN_EXPECT_EOF
+)"
+
+					verify_password_exit_code="$?"
+
+					if (( verify_password_exit_code == 255 )); then
+						>&2 echo "mkuser WARNING: Attempt ${verify_password_login_attempt} of 3 to verify ${user_full_and_account_name_display:-\"$1\"} user password with secondary technique timed out."
+					else
+						break
+					fi
+				done
+
+				rm -rf '/etc/nologin'
+				if [[ -e '/etc/nologin-MKUSER-ORIGINAL' ]]; then
+					mv -f '/etc/nologin-MKUSER-ORIGINAL' '/etc/nologin'
+				fi
+			else
+				>&2 echo "mkuser WARNING: Unable to verify ${user_full_and_account_name_display:-\"$1\"} user password with secondary technique. Failed to write \"/etc/nologin\" contents (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+			fi
+		else
+			# THIS CONDITION SHOULD NEVER GET HIT SINCE PASSWORDS OVER 511 BYTES ARE NOT ALLOWED.
+
+			>&2 echo "mkuser WARNING: Cannot securely verify ${user_full_and_account_name_display:-\"$1\"} user password (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+
+			# The only way to verify passwords (for standard users) over 511 bytes would be by passing it directly to "dscl . -authonly" as an argument.
+			# This is not secure since passing the password as an argument would make it visible in the process list, but that is the only way I know how to verify the passwords over 511 bytes.
+			# Regardless, leaving this code here (but commented out) for information and possible testing needs.
+
+			#if ! $suppress_status_messages; then
+			#	echo "mkuser: Verifying ${user_full_and_account_name_display:-\"$1\"} user password with INSECURE fallback technique..."
+			#fi
+
+			#verify_password_output="$(dscl . -authonly "$1" "$2")"
+			#verify_password_exit_code="$?"
+		fi
+
+		if (( verify_password_exit_code != 0 )) || [[ "${verify_password_output}" == *'DS Error:'* || "${verify_password_output}" == *'Login incorrect'* || "${verify_password_output}" == *'password was incorrect'* ]]; then
+			return 1
+		fi
+
+		return 0
+	}
+
+	if $boot_volume_is_apfs || $make_package; then  # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
+		if [[ -n "${st_admin_account_name}" ]]; then
+			st_admin_password_byte_length="$(echo -n "${st_admin_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+			st_admin_password_byte_length="${st_admin_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
+
+			if [[ "${user_password}" == '*' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--no-password\" (or \"--password '*'\"). You must specify a user password to be able to grant the new user a Secure Token."
+				return "${error_code}"
+			elif [[ -n "${st_admin_password}" ]] && (( ${#st_admin_password} < 4 )); then # A Secure Token admin passwords could be blank, but it will be verified below before continuing.
+				>&2 echo "mkuser ERROR ${error_code}: Password for Secure Token admin \"${st_admin_account_name}\" is too short, it must be at least 4 characters or blank/empty password."
+				return "${error_code}"
+			elif (( st_admin_password_byte_length > 128 )); then
+				>&2 echo "mkuser ERROR ${error_code}: Password for Secure Token admin \"${st_admin_account_name}\" is too long, it must be 128 bytes or less to be able to SECURELY grant the new user a Secure Token. Specified Secure Token admin password is ${st_admin_password_byte_length} bytes long. Specify a Secure Token admin with a shorter password or remove the unusable Secure Token granting options. See \"--help\" for more information about this limitation."
+				return "${error_code}"
+			elif ( ! $IS_PACKAGE || ! $check_only ) && ! $make_package; then
+				if ! mkuser_verify_password "${st_admin_account_name}" "${st_admin_password}"; then # Do not check Secure Token admin password when only doing the initial check from a package or when creating a package (since the admin may not exist on this system).
+					>&2 echo "mkuser ERROR ${error_code}: Password verification failed for Secure Token admin \"${st_admin_account_name}\"."
+					return "${error_code}"
+				fi
+
+				# Make sure the specified Secure Token admin has a Secure Token AFTER the password has been verified (the reasons for this are described the comments above in the first round of st_admin_account_name checks).
+				if [[ "$(sysadminctl -secureTokenStatus "${st_admin_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- $(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${st_admin_account_name}" GeneratedUID 2> /dev/null)" 2> /dev/null)"$'\n'* ]]; then # DO NOT bother also checking "fdesetup list" since that requires running as root and these checks are thorough enough and could happen before running as root.
+					>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" does not have a Secure Token."
+					return "${error_code}"
+				fi
+			fi
+		elif [[ -n "${st_admin_password}" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}: You must specify \"--secure-token-admin-account-name\" along with the Secure Token admin password."
 			return "${error_code}"
 		fi
 	fi
@@ -2292,7 +2773,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# Also, packages can be made without running as root so only check root if not making a package or during package installation.
 		# When a package is made, all of options to create the package will be used to create the user, except the packaging options will be removed (so that it creates a user instead of making another package),
 		# and the picture file will be stored within the package and the option will be updated to point to the location the picture will be extracted to.
-		# Also, the password will be obfuscated (see below for more information about password obfuscation).
+		# Also, the passwords will be obfuscated (see below for more information about passwords obfuscation).
 
 		if $IS_PACKAGE; then
 			>&2 echo "mkuser ERROR ${error_code}: Not creating package since this is running from a package (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
@@ -2394,13 +2875,13 @@ print_mkuser_function {
 		fi
 
 		# Even though we are making a "nopayload" package (which has only scripts and does not write a package receipt),
-		# we may still need to include a picture or password deobfucation script in the package.
+		# we may still need to include a picture or passwords deobfuscation script in the package.
 		# To avoid having to include actual resources (which would require not being a "nopayload" package and would write a package receipt),
 		# we can include resources as compressed or encrypted base64 text within the "preinstall" script and have that script extract those files manually.
 		# While these files could be extracted to an environment variable path such as INSTALLER_TEMP (accessible by any user) or INSTALLER_SECURE_TEMP (only accessible by root),
 		# we would not know those paths right now during package creation since they are randomized at install time.
-		# Since the password deobfuscation script is restricted to only running from a specific path for security, it's most convenient to create our own unique path to extract our package resources to.
-		# You can read more about the security built into the password deobfuscation script in the OBFUSCATE PASSWORD INTO RUN-ONLY APPLESCRIPT comments below.
+		# Since the passwords deobfuscation script is restricted to only running from a specific path for security, it's most convenient to create our own unique path to extract our package resources to.
+		# You can read more about the security built into the passwords deobfuscation script in the OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT comments below.
 		extracted_resources_dir="/private/tmp/${pkg_identifier:0:255-${#package_unique_id}-1}+${package_unique_id}" # Make sure the folder name never goes over the macOS 255 byte max since the pkg_identifier can be up to 248 bytes which would be over 255 bytes with the package_unique_id included.
 
 		# DO NOT to anything specific to the "postinstall" script in the following block since this header will be copied for the "preinstall" script as well.
@@ -2456,9 +2937,9 @@ if [[ "\$1" != 'check-only-from-preinstall' && "\$3" != '/' ]]; then # This shou
 fi
 PACKAGE_POSTINSTALL_EOF
 
-		if [[ -f "${user_picture_path}" || -n "${user_password}" ]]; then
+		if [[ -f "${user_picture_path}" || -n "${user_password}" || -n "${st_admin_account_name}" ]]; then
 			# Package "preinstall" will only be created to contain and extract base64 encoded gzip compressed text of picture
-			# and encrypted gzip compressed text of the password deobfuscation script since this is a "nopayload" package
+			# and encrypted gzip compressed text of the passwords deobfuscation script since this is a "nopayload" package
 			# and we do not want any explicit resources included which would make the pkg write a receipt.
 
 			ditto "${package_scripts_dir}/postinstall" "${package_scripts_dir}/preinstall" # Start "preinstall" with same header of "postinstall" which includes volume check and display alert function.
@@ -2481,7 +2962,7 @@ echo 'mkuser PREINSTALL PACKAGE: Creating extracted resources directory...'
 if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 	rm -rf '${extracted_resources_dir}'
 	mkdir -p '${extracted_resources_dir}' # Create extracted_resources_dir and make sure it's only accessible
-	chmod 000 '${extracted_resources_dir}' # by root since it could contain the password deobfuscation script.
+	chmod 000 '${extracted_resources_dir}' # by root since it could contain the passwords deobfuscation script.
 else
 	package_error='PACKAGE ERROR: Extracted resources directory path is not correct (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
 	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
@@ -2558,75 +3039,113 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 fi
 PACKAGE_POSTINSTALL_EOF
 
-		# Create long random filename between to be used for the password script file so that the checksum of "postinstall" is always unique (which is verified during password deobfuscation).
-		password_deobfuscation_script_file_random_name="$(openssl rand -hex 125).pswd" # This will be a 250 character hex string with a 5 character extension of ".pswd" resulting in the max allowed length of 255 characters.
+		# Create long random filename between to be used for the passwords deobfuscation script file so that the checksum of "postinstall" is always unique (which is verified during passwords deobfuscation).
+		passwords_deobfuscation_script_file_random_name="$(openssl rand -hex 125).pswd" # This will be a 250 character hex string with a 5 character extension of ".pswd" resulting in the max allowed length of 255 characters.
 
-		if [[ -n "${user_password}" ]]; then
-			# See (last paragraph) of OBFUSCATE PASSWORD INTO RUN-ONLY APPLESCRIPT comments below for explanation of how the password is being (securely) deobfuscated in the following code.
-			# Only attempt to deobfuscate the password after checking that the specified user could be created (to not deobfuscate when user creation would fail anyway).
+		if [[ -n "${user_password}" || -n "${st_admin_account_name}" ]]; then
+			# See (last paragraph) of OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT comments below for explanation of how the passwords are being (securely) deobfuscated in the following code.
+			# Only attempt to deobfuscate the passwords after checking that the specified user could be created (to not deobfuscate when user creation would fail anyway).
 
 			cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
-echo 'mkuser POSTINSTALL PACKAGE: Deobfuscating user password...'
+echo 'mkuser POSTINSTALL PACKAGE: Deobfuscating passwords...'
 
-password_deobfuscation_script_file_path='${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}'
+passwords_deobfuscation_script_file_path='${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}'
 
-if [[ ! -f "\${password_deobfuscation_script_file_path}" ]]; then
+if [[ ! -f "\${passwords_deobfuscation_script_file_path}" ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
 
-	package_error='PACKAGE ERROR: Password deobfuscation script in package does not exist (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
+	package_error='PACKAGE ERROR: Passwords deobfuscation script in package does not exist (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
 	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser POSTINSTALL \${package_error}"
 	exit 1
 fi
 
-encrypted_password_keys="\$(osascript "\${password_deobfuscation_script_file_path}")"
+wrapped_encrypted_passwords_and_key="\$(osascript "\${passwords_deobfuscation_script_file_path}")"
 
-if [[ "\${password_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; then
-	rm -f "\${password_deobfuscation_script_file_path}"
+if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; then
+	rm -f "\${passwords_deobfuscation_script_file_path}"
 fi
 
-decrypted_password="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${encrypted_password_keys%$'\n'*}" 3<<< "\${encrypted_password_keys#*$'\n'}")"
-
-openssl_decrypt_password_return_code="\$?"
-
-if (( openssl_decrypt_password_return_code != 0)); then
+if ! encrypted_passwords_and_keys="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" 3<<< "\${wrapped_encrypted_passwords_and_key##*$'\n'}")" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
 
-	package_error="PACKAGE ERROR: \"openssl\" (to decrypt password) failed with non-zero exit code of \${openssl_decrypt_password_return_code} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+	package_error="PACKAGE ERROR: Failed to decrypt wrapped passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser POSTINSTALL \${package_error}"
 	exit 1
 fi
 
-if [[ -z "\${decrypted_password}" ]]; then
+decrypted_user_password=''
+decrypted_st_admin_password=''
+
+got_decrypted_user_password=false # Must track if actually decrypted passwords rather than checking if the resulting password is not an empty string since an empty string could be a valid decrypted password.
+got_decrypted_st_admin_password=false
+for this_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
+	for that_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
+		if [[ "\${this_encrypted_password_or_key}" != "\${that_encrypted_password_or_key}" && "\${this_encrypted_password_or_key}" == 'EP:'* && "\${that_encrypted_password_or_key}" == 'EK:'* ]]; then
+			this_encrypted_password="\${this_encrypted_password_or_key:3}"
+			this_encryption_key="\${that_encrypted_password_or_key:3}"
+
+			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${this_encrypted_password}" 3<<< "${user_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
+				decrypted_user_password="\${possible_decrypted_user_password:3}"
+				got_decrypted_user_password=true
+			fi
+
+			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${this_encrypted_password}" 3<<< "${st_admin_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
+				decrypted_st_admin_password="\${possible_decrypted_st_admin_password:3}"
+				got_decrypted_st_admin_password=true
+			fi
+
+			if \$got_decrypted_user_password && \$got_decrypted_st_admin_password; then
+				break
+			fi
+		fi
+	done
+
+	if \$got_decrypted_user_password && \$got_decrypted_st_admin_password; then
+		break
+	fi
+done
+
+if ! \$got_decrypted_user_password || ! \$got_decrypted_st_admin_password; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
 
-	package_error='PACKAGE ERROR: Decrypted password is an empty string (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
+	package_error="PACKAGE ERROR: Failed to decrypt new user or Secure Token admin passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser POSTINSTALL \${package_error}"
 	exit 1
 fi
 
 echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
-
-mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password <<< "\${decrypted_password}" 2>&1)"
 PACKAGE_POSTINSTALL_EOF
+			if [[ -n "${st_admin_account_name}" ]]; then
+				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
+
+mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password --fd3-secure-token-admin-password <<< "\${decrypted_user_password}" 3<<< "\${decrypted_st_admin_password}" 2>&1)"
+PACKAGE_POSTINSTALL_EOF
+			else
+				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
+
+mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password <<< "\${decrypted_user_password}" 2>&1)"
+PACKAGE_POSTINSTALL_EOF
+			fi
 		else
 			cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
+
 echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
 
 mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm 2>&1)"
 PACKAGE_POSTINSTALL_EOF
 		fi
 
-		# MUST create *WHOLE* "postinstall" file *BEFORE* creating password obfuscation script so that the checksum of the "postinstall" file can be used as a factor for the password deobfuscation to be allowed.
+		# MUST create *WHOLE* "postinstall" file *BEFORE* creating passwords deobfuscation script so that the checksum of the "postinstall" file can be used as a factor for the passwords deobfuscation to be allowed.
 		cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
 mkuser_return_code="\$?"
@@ -2652,69 +3171,78 @@ PACKAGE_POSTINSTALL_EOF
 
 		chmod +x "${package_scripts_dir}/postinstall"
 
-		if [[ -n "${user_password}" ]]; then
-			# OBFUSCATE PASSWORD INTO RUN-ONLY APPLESCRIPT
+		if [[ -n "${user_password}" || -n "${st_admin_account_name}" ]]; then # st_admin_password will also be obfuscated, but that will only ever be set if st_admin_account_name is set, but user_password or st_admin_password could possibly be valid empty strings.
+			# OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT
 			# This *must* be done *after* the "postinstall" is fully written since the "postinstall" checksum will be hard-coded into the script to validate for deobfuscation.
 
-			# Even though encryption is being used, this is just *OBFUSCATION* since the decryption key will be *included* within the resulting run-only AppleScript
-			# which will also have all of the strings within it obfuscated (including the encrypted password and password encryption key). This is not for *true* encryption,
-			# it's just to make sure the password is not directly visible within the "postinstall" script or any package resources or ever written to disk or visible in the
-			# process list and to hopefully make it *extremely* tedious and time consuming for someone to try to extract the encrypted password and password encryption key.
+			# The following information about password obfuscation applies to both the new user password and the existing Secure Token admin password (if present).
 
-			# This run-only AppleScript (referred to as the "password deobfucation script") will only output the encrypted password and password encryption key stored within
+			# Even though encryption is being used, this is just *OBFUSCATION* since the encryption key will be *included* within the resulting run-only AppleScript
+			# which will also have all of the strings within it obfuscated (including the encrypted passwords and passwords encryption key). This is not for *true* encryption,
+			# it's just to make sure the passwords are not directly visible within the "postinstall" script or any package resources or ever written to disk or visible in the
+			# process list and to hopefully make it *extremely* tedious and time consuming for someone to try to extract the encrypted passwords and passwords encryption key.
+
+			# This run-only AppleScript (referred to as the "passwords deobfuscation script") will only output the encrypted passwords and passwords encryption key stored within
 			# it under very specific circumstances (ie. during the package installation) and only when run by a unique "postinstall" script (by matching checksums).
-			# Each time a "postinstall" script is created, it will be unique because it will contains the specific random filename of the password deobfucation script.
+			# Each time a "postinstall" script is created, it will be unique because it will contains the specific random filename of the passwords deobfuscation script.
 			# One way to think of this is that it is *kind of* encryption, but rather than needing a text password to decrypt it, the "password" is the act of running the script
 			# via the unique "postinstall" during a package installation process. This is just a metaphor, again, I do not consider this to be any kind of true encryption.
-			# I believe this would be very hard if not impossible to spoof (i.e. make the script output the encrypted password and password encryption key under different circumstances)
-			# because of all of the checks being done, including verifying the checksum of the "postinstall" script which ran the password deobfucation script as well as verifying that
+			# I believe this would be very hard if not impossible to spoof (i.e. make the script output the encrypted passwords and passwords encryption key under different circumstances)
+			# because of all of the checks being done, including verifying the checksum of the "postinstall" script which ran the passwords deobfuscation script as well as verifying that
 			# the "postinstall" script is being run during a package installation (by verifying that is is a child process of PackageKit). That means someone could not simply extract
-			# the password deobfucation script and "postinstall" script and try to edit it to output the encrypted password and password encryption key or the plain text password since
-			# the encrypted password and password encryption key will not be returned since the checksum will not match the hard-coded checksum when the script was created, etc.
-			# THAT BEING SAID, I GIVE *NO GUARANTEE* THAT SOMEONE COULDN'T FIGURE OUT HOW TO MAKE THE SCRIPT OUTPUT THE PASSWORD IF THEY TRIED HARD ENOUGH!
+			# the passwords deobfuscation script and "postinstall" script and try to edit it to output the encrypted passwords and passwords encryption key since the
+			# encrypted passwords and passwords encryption key will not be returned since the checksum will not match the hard-coded checksum when the script was created, etc.
+			# THAT BEING SAID, I GIVE *NO GUARANTEE* THAT SOMEONE COULDN'T FIGURE OUT HOW TO MAKE THE SCRIPT OUTPUT THE PASSWORDS IF THEY TRIED HARD ENOUGH!
 
-			# In regards to actually extracting the password deobfucation script from the package, since this will be a "nopayload" package which does not write a pacakge reciept,
-			# the password deobfucation script is actually stored as encrypted gzip compressed text within a "preinstall" script rather than as easily extractable package resources.
-			# This allows the package to store resources while still being a "nopayload" package. Because of storing the password deobfucation script in this way, it actually adds
-			# another layer of tedium for someone who would be trying to get at the password deobfucation script for the purpose of trying to extract the password.
-			# Rather than just storing the password deobfucation script as base64 encoding the gzip compressed text like the picture, it is encrypted using the checksum of the
-			# specific "postinstall" script as the decryption key. Again, this is not for *true* encryption since the checksum of the specific "postinstall" could be
-			# easily retrieved to manually decrypt the password deobfucation script, it was just another layer of obfuscation that is simple for the package code to extract,
-			# but would add more tedium for someone trying to even begin attempting to extract the password.
+			# In regards to actually extracting the passwords deobfuscation script from the package, since this will be a "nopayload" package which does not write a pacakge reciept,
+			# the passwords deobfuscation script is actually stored as encrypted gzip compressed text within a "preinstall" script rather than as easily extractable package resources.
+			# This allows the package to store resources while still being a "nopayload" package. Because of storing the passwords deobfuscation script in this way, it actually adds
+			# another layer of tedium for someone who would be trying to get at the passwords deobfuscation script for the purpose of trying to extract the passwords.
+			# Rather than just storing the passwords deobfuscation script as base64 encoding the gzip compressed text like the picture, it is encrypted using the checksum of the
+			# specific "postinstall" script as the encryption key. Again, this is not for *true* encryption since the checksum of the specific "postinstall" could be
+			# easily retrieved to manually decrypt the passwords deobfuscation script, it was just another layer of obfuscation that is simple for the package code to extract,
+			# but would add more tedium for someone trying to even begin attempting to extract the passwords.
 
-			# The other way someone may try to get the encrypted password and password encryption key out of the password deobfucation script would be to try to decompile
+			# The other way someone may try to get the encrypted passwords and passwords encryption key out of the passwords deobfuscation script would be to try to decompile
 			# and then decypher the contents. Simply opening the run-only script in TextEdit or the like would be useless since every single string is obfuscated
 			# by a random huge caesar shift which pushes all the characters out of the range of regular rendered characters and the number the characters are shifted
 			# by is a random amount each time a package is created. If someone were to use other more sophisticated means to try to decompile and decypher the contents
-			# of this password deobfucation script, I cannot guarantee that they wouldn't be able to do it (but I don't know how to do it). I hope that it would be very tedious
-			# and time consuming and that it would not even be easy to write a script that could extract the encrypted password and password encryption key from any
-			# and all password deobfucation scripts created this way since they are randomized each time they are created.
+			# of this passwords deobfuscation script, I cannot guarantee that they wouldn't be able to do it (but I don't know how to do it). I hope that it would be very
+			# tedious and time consuming and that it would not even be easy to write a script that could extract the encrypted passwords and passwords encryption key from
+			# any and all passwords deobfuscation scripts created this way since they are randomized each time they are created.
 			# THAT BEING SAID, REGARDLESSS OF HOW COMPLEX IT MAY BE, THIS IS JUST *OBFUSCATION* AND I GIVE *NO GUARANTEE* THAT
-			# SOMEONE COULDN'T FIGURE OUT HOW TO EXTRACT THE ENCRYPTED PASSWORD AND PASSWORD ENCRYPTION KEY IF THEY TRIED HARD ENOUGH!
+			# SOMEONE COULDN'T FIGURE OUT HOW TO EXTRACT THE ENCRYPTED PASSWORDS AND PASSWORDS ENCRYPTION KEY IF THEY TRIED HARD ENOUGH!
 
-			# The point of all of this is that *hopefully* even when someone knows how this password deobfucation script (which contains the obfuscated encrypted password and
-			# password encryption key) is created, they could not get it back out since once it is put into a package it is unique and "locked" to that package. I believe
-			# that it would require a high level of skill and knowledge to be able to even begin to know how to go about trying to extract the encrypted password and password
-			# encryption key from this password deobfucation script. As I have said, I give *no guarantee* that it is not possible to retrieve the encrypted password and password
-			# encryption key contained within this password deobfucation script one way or another, but I hope that it would not be easy or possible to do by hand and would require that
-			# someone spend a decent amount of time and energy and probably would have to write scripts and/or programs to help extract this sensitive data. This should give some
-			# piece of mind that the encrypted password and password encryption key is not easily extractable by the novice user. My hope is that someone would need to have a
-			# strong desire as well as decent knowledge of shell scripting, AppleScript, packages, macOS, etc to even attempt to extract the encrypted password and password
+			# The point of all of this is that *hopefully* even when someone knows how this passwords deobfuscation script (which contains the obfuscated encrypted passwords and
+			# passwords encryption key) is created, they could not get it back out since once it is put into a package it is unique and "locked" to that package. I believe
+			# that it would require a high level of skill and knowledge to be able to even begin to know how to go about trying to extract the encrypted passwords and passwords
+			# encryption key from this passwords deobfuscation script. As I have said, I give *no guarantee* that it is not possible to retrieve the encrypted passwords and passwords
+			# encryption key contained within this passwords deobfuscation script one way or another, but I hope that it would not be easy or possible to do by hand and would require
+			# that someone spend a decent amount of time and energy and probably would have to write scripts and/or programs to help extract this sensitive data. This should give some
+			# piece of mind that the encrypted passwords and passwords encryption key are not easily extractable by the novice user. My hope is that someone would need to have a
+			# strong desire as well as decent knowledge of shell scripting, AppleScript, packages, macOS, etc to even attempt to extract the encrypted passwords and passwords
 			# encryption key and even then I hope that it would not be obvious, easy, or straightforward to do.
 
-			# After the encrypted password and password encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retreive the actual plain text
-			# password. The way that this "openssl" command uses bash "here-strings" instead of passing the encrypted password and password encryption key as regular parameters means that
-			# the encrypted password and password encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
-			# installation process to be able to retrieve the encrypted password and password encryption key in plain text. And as I said before, if someone were to try to make a copy of
-			# this script and edit it to output the plain text password, that modified script would not be able to retrieve the encrypted password and password encryption key since the
-			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the password deobfucation script and it would therefore not return anything.
-			# It may seem less secure to do the password decryption within the "postinstall" script in this way instead of within the password deobfucation script, but that is not actually
-			# the case since if the "openssl" decryption command was run within the password deobfucation script it would be run via "do shell script" which would make the entire uninterpreted
-			# command visible in the process list like "sh -c openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< ENCRYPTED-PASSWORD 3<<< PASSWORD-ENCRYPTION-KEY" which clearly renders the ability
+			# After the encrypted passwords and passwords encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retreive the actual plain text
+			# passwords. The way that this "openssl" command uses bash "here-strings" instead of passing the encrypted passwords and passwords encryption key as regular parameters means that
+			# the encrypted passwords and passwords encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
+			# installation process to be able to retrieve the encrypted passwords and passwords encryption key in plain text. And as I said before, if someone were to try to make a copy of
+			# this script and edit it to output the plain text passwords, that modified script would not be able to retrieve the encrypted passwords and passwords encryption key since the
+			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords deobfuscation script and it would therefore not return anything.
+			# It may seem less secure to do the passwords decryption within the "postinstall" script in this way instead of within the passwords deobfuscation script, but that is not actually
+			# the case since if the "openssl" decryption command was run within the passwords deobfuscation script it would be run via "do shell script" which would make the entire uninterpreted
+			# command visible in the process list like "sh -c openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< ENCRYPTED-PASSWORDS 3<<< PASSWORDS-ENCRYPTION-KEY" which clearly renders the ability
 			# of the here-strings to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
 			# process because of how AppleScript executes commands with "do shell script". So, it is actually more secure to run the "openssl" command in the "postinstall" script which
-			# ensures that the encrypted password and password encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
+			# ensures that the encrypted passwords and passwords encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
 			# here-strings which are interpreted by bash and are not ever displayed in the process list.
+
+			# Since writing the description above (which is still accurate), another layer of encryption has been added to each password stored within the encrypted passwords inside the passwords deobfuscation script.
+			# Instead of the plain text passwords being retrieved by passing the encrypted passwords and passwords encryption key (returned by the passwords deobfuscation script) to "openssl",
+			# the passwords are each encrypted individually and the actual encryption keys are included along with other fake encrypted strings and fake encryption keys in a random order (as described below).
+			# This set of real and fake encrypted passwords and passwords encryption keys are what will be returned by the initial decryption in the "postinstall" script
+			# and then must be iterated through, attempting decryption with each possible combination to find the correct password for each account name (as described below).
+			# This creates a sort of "wrapped" encryption, but since all of the encryption keys are still included in the results, this is still just complex obfuscation.
 
 
 			# In the future, I may be able to do an even more secure method of saving the encrypted password by generating the ShadowHashData and saving that to be passed to dsimport directly:
@@ -2727,16 +3255,55 @@ PACKAGE_POSTINSTALL_EOF
 				# package as well instead of generating it on-the-fly since the password would no longer be available during user creation.
 				# This would also mean passwords couldn't be verified. Also, I believe including a kcpassword file would be less secure than the
 				# current password obfuscation method since it is relatively common knowledge and easy to extract a password from a kcpassword file.
+				# ALSO, ANY PASSED SECURE TOKEN ADMIN PASSWORD WOULD STILL NEED TO BE OBFUSCATED WITH THE CURRENT TECHNIQUE.
 
 
-			# User creation via package with password deobfuscation:
+			# User creation via package with passwords deobfuscation:
 				# Tested via "startosinstall --installpackage" on 10.13, 10.14, 10.15, 11
 				# Tested via first boot LaunchDaemon using "installer -pkg" on 10.13, 10.14, 10.15, 11
-				# Tested via "Installer" app in full OS on 10.13, 10.14, 10.15, 11
+				# Tested via "Installer" app in full OS on 10.13, 10.14, 10.15, 11, 12
+
 
 			if ! $suppress_status_messages; then
-				echo 'mkuser: Obfuscating password for package...'
+				echo 'mkuser: Obfuscating passwords for package...'
 			fi
+
+
+			# Encrypt each password with a random key between 200 and 300 characters that also has the relevant account name added to the beginning.
+			# These random encryption keys (without the account name at the beginning) will be included in the contents (which will also be encrypted by the random wrapping passwords encryption key)
+			# along with 8 other random encryption keys that are not correct AND 8 other random encrypted "passwords" between 0 and 100 characters.
+			# The encrypted strings will start with "EP:" (Encrypted Password) and the encryption keys will start with "EK:" (Encryption Key) to make the loop faster to not attempt decrypt encryption keys or decrypt passwords using other encrypted passwords.
+			# I don't think this reduces any obfuscation since it'd already be pretty visually clear (by length and salt prefix) which are the keys and which are the encrypted strings anyways.
+			# This means there will be a total of 10 encrypted strings and 10 encryption keys in random order so that it will not be clear what are the actual encrypted passwords and what are the random encrypted string.
+			# Each encrypted string will attempt decrypted by trying all the encryption key lines with the account name at the beginning until one works.
+			# To know the decryption worked, the encrypted passwords will also be prefixed with "DP:" (Decrypted Password) so that we can check for that consistent prefix since failed decryptions can still result in gibberish output.
+			# We will know which account name the password is for by the fact that it was decrypted using that account name at the beginning of the encryption key.
+			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retreived as an empty string after decryption.
+
+			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
+			encrypted_user_password="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "DP:${user_password}" 3<<< "${user_account_name}${user_password_encryption_key}")"
+
+			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
+			encrypted_st_admin_password="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "DP:${st_admin_password}" 3<<< "${st_admin_account_name}${st_admin_password_encryption_key}")"
+
+			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
+EP:${encrypted_user_password}
+EK:${st_admin_password_encryption_key}
+EP:${encrypted_st_admin_password}"
+
+			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
+				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
+EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
+EP:$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]')" 3<<< "$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')")"
+			done
+
+			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
+
+			# Create random wrapping passwords encryption key between 500 and 600 characters (the following numbers are for base64 lengths).
+			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
+
+			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
+			wrapped_encrypted_passwords="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" 3<<< "${wrapping_passwords_encryption_key}")"
 
 			# Every variable name set within the script will be randomized each time it is created.
 			# Each previously used random variable name will also be kept track of to ensure there are no duplicate random variable names.
@@ -2802,57 +3369,51 @@ OBFUSCATE_STRING_OSASCRIPT_EOF
 				# since that would require a subshell inside the function which is equivalent to just calling the function with a subshell.
 			}
 
-			# This random deobfuscate function name needs to be set before preparing the encrypted password chunk variables.
+			# This random deobfuscate function name needs to be set before preparing the encrypted passwords chunk variables.
 			mkuser_set_new_random_variable_name
 			deobfuscate_string_func="${this_random_variable_name}"
 
-			# Create random password encryption key between 500 and 552 characters (the following numbers are for base64 lengths).
-			password_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 414)" | tr -d '[:space:]')"
-
-			# Break password encryption key into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
-			password_encryption_key_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the password encryption key within the script.
+			# Break passwords encryption key into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
+			wrapping_passwords_encryption_key_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the passwords encryption key within the script.
 			for (( random_variable_name_index = 0; random_variable_name_index < 7; random_variable_name_index ++ )); do
 				mkuser_set_new_random_variable_name
-				password_encryption_key_chunk_variable_names+=( "${this_random_variable_name}" )
+				wrapping_passwords_encryption_key_chunk_variable_names+=( "${this_random_variable_name}" )
 			done
 
-			password_encryption_key_chunk_length="$(( ${#password_encryption_key} / 7 ))"
+			wrapping_passwords_encryption_key_chunk_length="$(( ${#wrapping_passwords_encryption_key} / 7 ))"
 
 			# Since it's not easy to shuffle an array, create a string separated by lines to be able to shuffle with "sort -R" and then set those shuffled lines to an array.
-			password_encryption_key_chunk_var_assignments_shuffled=()
-			while IFS='' read -r password_encryption_key_chunk_var_assignments_shuffled_line; do
-				password_encryption_key_chunk_var_assignments_shuffled+=( "${password_encryption_key_chunk_var_assignments_shuffled_line}" )
-			done <<< "$(echo "set ${password_encryption_key_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${password_encryption_key:0:${password_encryption_key_chunk_length}}")\")
-set ${password_encryption_key_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${password_encryption_key:${password_encryption_key_chunk_length}:${password_encryption_key_chunk_length}}" | rev)")\")
-set ${password_encryption_key_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${password_encryption_key:$(( password_encryption_key_chunk_length * 2 )):${password_encryption_key_chunk_length}}")\")
-set ${password_encryption_key_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${password_encryption_key:$(( password_encryption_key_chunk_length * 3 )):${password_encryption_key_chunk_length}}" | rev)")\")
-set ${password_encryption_key_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${password_encryption_key:$(( password_encryption_key_chunk_length * 4 )):${password_encryption_key_chunk_length}}")\")
-set ${password_encryption_key_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${password_encryption_key:$(( password_encryption_key_chunk_length * 5 )):${password_encryption_key_chunk_length}}" | rev)")\")
-set ${password_encryption_key_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${password_encryption_key:$(( password_encryption_key_chunk_length * 6 ))}")\")" | sort -R)"
+			wrapping_passwords_encryption_key_chunk_var_assignments_shuffled=()
+			while IFS='' read -r wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line; do
+				wrapping_passwords_encryption_key_chunk_var_assignments_shuffled+=( "${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line}" )
+			done <<< "$(echo "set ${wrapping_passwords_encryption_key_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:0:${wrapping_passwords_encryption_key_chunk_length}}")\")
+set ${wrapping_passwords_encryption_key_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:${wrapping_passwords_encryption_key_chunk_length}:${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
+set ${wrapping_passwords_encryption_key_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 2 )):${wrapping_passwords_encryption_key_chunk_length}}")\")
+set ${wrapping_passwords_encryption_key_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 3 )):${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
+set ${wrapping_passwords_encryption_key_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 4 )):${wrapping_passwords_encryption_key_chunk_length}}")\")
+set ${wrapping_passwords_encryption_key_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 5 )):${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
+set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 6 ))}")\")" | sort -R)"
 
-			# Encrypt password using the random key.
-			encrypted_password="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "${user_password}" 3<<< "${password_encryption_key}")"
-
-			# Break encrypted password into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
-			encrypted_password_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the encrypted password key within the script.
+			# Break encrypted passwords into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
+			wrapped_encrypted_passwords_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the encrypted passwords key within the script.
 			for (( random_variable_name_index = 0; random_variable_name_index < 7; random_variable_name_index ++ )); do
 				mkuser_set_new_random_variable_name
-				encrypted_password_chunk_variable_names+=( "${this_random_variable_name}" )
+				wrapped_encrypted_passwords_chunk_variable_names+=( "${this_random_variable_name}" )
 			done
 
-			encrypted_password_chunk_length="$(( ${#encrypted_password} / 7 ))"
+			wrapped_encrypted_passwords_chunk_length="$(( ${#wrapped_encrypted_passwords} / 7 ))"
 
 			# Since it's not easy to shuffle an array, create a string separated by lines to be able to shuffle with "sort -R" and then set those shuffled lines to an array.
-			encrypted_password_chunk_var_assignments_shuffled=()
-			while IFS='' read -r encrypted_password_chunk_var_assignments_shuffled_line; do
-				encrypted_password_chunk_var_assignments_shuffled+=( "${encrypted_password_chunk_var_assignments_shuffled_line}" )
-			done <<< "$(echo "set ${encrypted_password_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${encrypted_password:0:${encrypted_password_chunk_length}}")\")
-set ${encrypted_password_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${encrypted_password:${encrypted_password_chunk_length}:${encrypted_password_chunk_length}}" | rev)")\")
-set ${encrypted_password_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${encrypted_password:$(( encrypted_password_chunk_length * 2 )):${encrypted_password_chunk_length}}")\")
-set ${encrypted_password_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${encrypted_password:$(( encrypted_password_chunk_length * 3 )):${encrypted_password_chunk_length}}" | rev)")\")
-set ${encrypted_password_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${encrypted_password:$(( encrypted_password_chunk_length * 4 )):${encrypted_password_chunk_length}}")\")
-set ${encrypted_password_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${encrypted_password:$(( encrypted_password_chunk_length * 5 )):${encrypted_password_chunk_length}}" | rev)")\")
-set ${encrypted_password_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${encrypted_password:$(( encrypted_password_chunk_length * 6 ))}")\")" | sort -R)"
+			wrapped_encrypted_passwords_chunk_var_assignments_shuffled=()
+			while IFS='' read -r wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line; do
+				wrapped_encrypted_passwords_chunk_var_assignments_shuffled+=( "${wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line}" )
+			done <<< "$(echo "set ${wrapped_encrypted_passwords_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:0:${wrapped_encrypted_passwords_chunk_length}}")\")
+set ${wrapped_encrypted_passwords_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:${wrapped_encrypted_passwords_chunk_length}:${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
+set ${wrapped_encrypted_passwords_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 2 )):${wrapped_encrypted_passwords_chunk_length}}")\")
+set ${wrapped_encrypted_passwords_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 3 )):${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
+set ${wrapped_encrypted_passwords_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 4 )):${wrapped_encrypted_passwords_chunk_length}}")\")
+set ${wrapped_encrypted_passwords_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 5 )):${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
+set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 6 ))}")\")" | sort -R)"
 
 			# Get checksum of "postinstall" script to be verified within the script.
 			postinstall_checksum="$(shasum -a 512 "${package_scripts_dir}/postinstall" | cut -d ' ' -f 1)"
@@ -2866,9 +3427,9 @@ set ${encrypted_password_chunk_variable_names[6]} to ${deobfuscate_string_func}(
 			intended_grandparent_process_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
-			encrypted_password_var="${this_random_variable_name}"
+			wrapped_encrypted_passwords_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			password_encryption_key_var="${this_random_variable_name}"
+			wrapping_passwords_encryption_key_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
 			obfuscated_string_var="${this_random_variable_name}"
@@ -2878,28 +3439,28 @@ set ${encrypted_password_chunk_variable_names[6]} to ${deobfuscate_string_func}(
 			this_obfuscated_char_var="${this_random_variable_name}"
 
 			# Compile file with ".scpt" extension since "osacompile" uses the extension to determine what type of file to create.
-			# The compiled script will be renamed to password_deobfuscation_script_file_random_name with the ".pswd" extension after creation.
-			osacompile -x -o "${package_tmp_dir}/password-deobfuscation.scpt" << PACKAGE_PASSWORD_OSACOMPILE_EOF
+			# The compiled script will be renamed to passwords_deobfuscation_script_file_random_name with the ".pswd" extension after creation.
+			osacompile -x -o "${package_tmp_dir}/passwords-deobfuscation.scpt" << PACKAGE_PASSWORD_OSACOMPILE_EOF
 use AppleScript version "2.4"
 use scripting additions
-${password_encryption_key_chunk_var_assignments_shuffled[0]}
+${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
 if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then
-	${encrypted_password_chunk_var_assignments_shuffled[0]}
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
 	if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then
-		${encrypted_password_chunk_var_assignments_shuffled[1]}
-		((${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}")") as POSIX file) as alias)
-		${password_encryption_key_chunk_var_assignments_shuffled[1]}
-		if (((POSIX path of (path to me)) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}")")) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
-			${password_encryption_key_chunk_var_assignments_shuffled[2]}
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
+		((${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")") as POSIX file) as alias)
+		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
+		if (((POSIX path of (path to me)) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
+			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
 			set ${parent_script_path_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$PPID -o ppid=) -o command= | cut -d ' ' -f 2")"))
-			${encrypted_password_chunk_var_assignments_shuffled[2]}
+			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
 			set ${intended_parent_script_path_var} to ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
 			if ((${intended_parent_script_path_var} is equal to ${parent_script_path_var}) or (${intended_parent_script_path_var} is equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then -- parent_script_path_var may start with /tmp/ symlink instead of /private/tmp/.
-				${password_encryption_key_chunk_var_assignments_shuffled[3]}
+				${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
 				if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is equal to ((first word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'shasum -a 512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then
-					${encrypted_password_chunk_var_assignments_shuffled[3]}
+					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
 					set ${intended_grandparent_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
-					${encrypted_password_chunk_var_assignments_shuffled[4]}
+					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
 					considering numeric strings
 						if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
 							set ${intended_grandparent_process_var} to (${intended_grandparent_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
@@ -2907,19 +3468,19 @@ if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -
 							set ${intended_grandparent_process_var} to (${intended_grandparent_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
 						end if
 					end considering
-					${password_encryption_key_chunk_var_assignments_shuffled[4]}
+					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
 					if (${intended_grandparent_process_var} is equal to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$(ps -p \$PPID -o ppid=) -o ppid=) -o command=")"))) then
-						${encrypted_password_chunk_var_assignments_shuffled[5]}
+						${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
 						try
 							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_grandparent_process_var})) -- Make sure the only running instance of...
 						on error
-							${password_encryption_key_chunk_var_assignments_shuffled[5]}
+							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
 							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_grandparent_process_var})) -- grandparent process is an ancestor of this process.
-							${encrypted_password_chunk_var_assignments_shuffled[6]}
-							set ${encrypted_password_var} to (${encrypted_password_chunk_variable_names[0]} & ((reverse of (characters of ${encrypted_password_chunk_variable_names[1]})) as text) & ${encrypted_password_chunk_variable_names[2]} & ((reverse of (characters of ${encrypted_password_chunk_variable_names[3]})) as text) & ${encrypted_password_chunk_variable_names[4]} & ((reverse of (characters of ${encrypted_password_chunk_variable_names[5]})) as text) & ${encrypted_password_chunk_variable_names[6]})
-							${password_encryption_key_chunk_var_assignments_shuffled[6]}
-							set ${password_encryption_key_var} to (${password_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${password_encryption_key_chunk_variable_names[1]})) as text) & ${password_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${password_encryption_key_chunk_variable_names[3]})) as text) & ${password_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${password_encryption_key_chunk_variable_names[5]})) as text) & ${password_encryption_key_chunk_variable_names[6]})
-							return (${encrypted_password_var} & "\n" & ${password_encryption_key_var})
+							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
+							set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
+							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
+							set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
+							return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
 						end try
 					end if
 				end if
@@ -2941,35 +3502,35 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 			osacompile_exit_code="$?"
 
-			if (( "$osacompile_exit_code" != 0 )) || [[ ! -f "${package_tmp_dir}/password-deobfuscation.scpt" ]]; then
+			if (( "$osacompile_exit_code" != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
 				rm -rf "${package_scripts_dir}"
 
-				>&2 echo "mkuser ERROR ${error_code}: \"osacompile\" (for password obfuscation within package) failed with non-zero exit code of ${osacompile_exit_code}."
+				>&2 echo "mkuser ERROR ${error_code}: \"osacompile\" (for passwords obfuscation within package) failed with non-zero exit code of ${osacompile_exit_code}."
 				return "${error_code}"
 			fi
 
-			# Save the password deobfuscation script as encrypted gzip compressed text inside of the "preinstall" script to be extracted to a file manually in "extracted_resources_dir" since this package will be a "nopayload" package and we do not want to include any actual package resources.
-			# Instead just base64 encoding the gzip compressed text like the picture, the password deobfuscation script is also encrypted using the checksum of the specific "postinstall" script as the decryption key.
-			# This does not really add any specific security, but it makes things a bit more annoying for anyone trying to even begin attempting to extract the password (which, as described above, would still be incredibly difficult even after getting the "scpt" file decrypted and saved into a file).
+			# Save the passwords deobfuscation script as encrypted gzip compressed text inside of the "preinstall" script to be extracted to a file manually in "extracted_resources_dir" since this package will be a "nopayload" package and we do not want to include any actual package resources.
+			# Instead just base64 encoding the gzip compressed text like the picture, the passwords deobfuscation script is also encrypted using the checksum of the specific "postinstall" script as the encryption key.
+			# This does not really add any specific security, but it makes things a bit more annoying for anyone trying to even begin attempting to extract the passwords (which, as described above, would still be incredibly difficult even after getting the "scpt" file decrypted and saved into a file).
 			cat << PACKAGE_PREINSTALL_EOF >> "${package_scripts_dir}/preinstall"
 
-echo 'mkuser PREINSTALL PACKAGE: Extracting password deobfuscation script...'
+echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< '$(gzip -9 -c "${package_tmp_dir}/password-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -salt -pass fd:3 3<<< "${postinstall_checksum}")' 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}' ]]; then
+if ! openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -salt -pass fd:3 3<<< "${postinstall_checksum}")' 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
 
-	package_error='PACKAGE ERROR: Failed to decrypt password deobfuscation script (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
+	package_error='PACKAGE ERROR: Failed to decrypt passwords deobfuscation script (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
 	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser PREINSTALL \${package_error}"
 	exit 1
 fi
 
-chmod 000 '${extracted_resources_dir}/${password_deobfuscation_script_file_random_name}' # Make password deobfuscation script only accessible by root.
+chmod 000 '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' # Make passwords deobfuscation script only accessible by root.
 PACKAGE_PREINSTALL_EOF
 
-			rm -rf "${package_tmp_dir}/password-deobfuscation.scpt"
+			rm -rf "${package_tmp_dir}/passwords-deobfuscation.scpt"
 		fi
 
 		if [[ -f "${package_scripts_dir}/preinstall" ]]; then
@@ -3085,7 +3646,7 @@ PACKAGE_PREINSTALL_EOF
 		# I wish I didn't have to repeat the following settings summary that is basically the same as the "--check-only" output, but I want it to be rich text
 		# with styling for the package welcome info, and there are a few other differences in this output because of not knowing what system it will be installed on.
 		# I did try doing all of this RTF text in HTML, which worked fine, but the RTF visibly loads much faster (or at least loads before the window is shown) so sticking with that even though the syntax is less familiar to me.
-		# domains enable_localSystem=true: Set domains to only allow installation on current system drive. This make it not possible to change the installation location, which is what we want.
+		# domains enable_localSystem=true: Set domains to only allow installation on current system volume. This make it not possible to change the installation location, which is what we want.
 		# volume-check allowed-os-versions os-version min=10.13.0: Do not allow package installation on older than macOS 10.13 High Sierra, which is what the script is tested with and will error if run on older versions.
 		# Originally inserted each of these lines into distribution.xml with "sed", but it would fails if welcome or conclusion HTML strings got too long.
 
@@ -3128,6 +3689,7 @@ $(head -2 "${package_distribution_xml_output_path}")
 \b Role Account:\b0  \i ${set_role_account}\i0 \line
 \b Service Account:\b0  \i ${set_service_account}\i0 \line
 \b Prevent Secure Token on Big Sur and Newer:\b0  \i ${set_prevent_secure_token_on_big_sur_and_newer}\i0 \line
+\b Grant Secure Token from Existing Admin:\b0  \i $([[ -n "${st_admin_account_name}" ]] && echo "true\i0  (from \"${st_admin_account_name}\")" || echo 'false\i0 ')\line
 \line
 \uc0\u55357 \u57002  \ul Login Settings\ul0 \line
 \b Automatic Login:\b0  \i ${set_auto_login}\i0 $($set_auto_login && echo ' (if FileVault is not enabled)')\line
@@ -3159,11 +3721,11 @@ CUSTOM_DISTRIBUTION_XML_OEF
 		# Previously setup a stripped down "check only" version of "mkuser" to run during the "installation-check" in the Installer JS,
 		# but this required <options allow-external-scripts="yes"/> which is not considered super secure since it must be allowed to run
 		# when the package is opened in the "Installer" app, but it was a cool way to be able to quickly check if the user creation would
-		# fail and to present the error graphically without needing "Installer" to prompt for Administrator privileges to be able to run the
+		# fail and to present the error graphically without needing "Installer" to prompt for administrator privileges to be able to run the
 		# actual "preinstall"/"postinstall" scripts.
 		# But, "productbuild" in macOS 12 Monterey warns that <options allow-external-scripts="yes"/> is deprecated and packages that use it
 		# won't be able to be installed in a future version of macOS so decided to get rid of that checking.
-		# Now, all the checks happen in "preinstall"/"postinstall" after Administrator privileges are granted, but I still figured out
+		# Now, all the checks happen in "preinstall"/"postinstall" after administrator privileges are granted, but I still figured out
 		# how to make those checks present graphical alerts when the installation is being done through the GUI "Installer" app and no
 		# resources are extracted or user creation is actually attempted when the initial "check only" run of "mkuser" fails.
 
@@ -3274,7 +3836,7 @@ CUSTOM_DISTRIBUTION_XML_OEF
 	# UIDs CAN BE REPRESENTED IN DIFFERENT FORMS (this also applieds to GIDs)
 	# When viewing UIDs/GIDs in "dscacheutil", they are always displays in their signed 32-bit integer form (-2147483648 through 2147483647).
 	# While the "id" command always displays their UNsigned 32-bit integer form (0 through 4294967295).
-	# And "dscl" displays the actual assign UID integer which has no actual range limit and could be any integer that would map back to a UID in the 32-bit range (this is also the value stored directly in the dslocal plist files).
+	# And "dscl" displays the actual assigned UID integer which has no actual range limit and could be any integer that would map back to a UID in the 32-bit range (this is also the value stored directly in the dslocal plist files).
 	# Even though any actual UID could be assigned to a user via "dscl", both "id" and "dscacheutil" stop converting them to their 32-bit integer form if they are outside of the signed *64-bit* integer range of -9223372036854775808 (equivalent to signed 32-bit "0") through 9223372036854775807 (equivalent to signed 32-bit "-1").
 	# Any actual UID lower than the signed 64-bit integer minimum is also interpreted as 0 by "dscacheutil" and anything higher than the signed 64-bit integer maximum is interpreted as -1 by "dscacheutil".
 	# The "id" command also maxes out at the signed 64-bit integer range. If something is below it, it is interprested as the UNsigned 32-bit miniumum of 0 and above gets interpreted as the UNsigned 32-bit maximum of 4294967295.
@@ -3297,6 +3859,7 @@ CUSTOM_DISTRIBUTION_XML_OEF
 	# While AD UIDs should generally be limited to the signed 32-bit integer range because of how the Active Directory plugin assigns UIDs (https://themacwrangler.wordpress.com/2016/11/29/reversing-the-ad-plugin-uid-algorithm/ & https://community.jamf.com/t5/jamf-pro/very-bad-active-directory-bug-in-osx/td-p/76831)
 	# which will always be in the signed 32-bit integer range (and could even assign multiple users the same UID), it is still possible for the UID of an AD user to be assigned in different ways which could be in any range and may need to be converted into the signed 32-bit integer range.
 	# So, even though it's likely increadibly rare, this conversions is still important for all possible edge cases. Thanks so Simon Andersen and Thomas Esser for helping me understand and test these limitations and behaviors.
+	# Also, here is an example of LDAP assigning UIDs outside of the signed 32-bit interger range: https://www.rskgroup.org/macos/no-login-window-icon-if-your-uid-is-too-large
 
 	# You can query an AD user that has not logged in yet directly with "dscacheutil -q user -a name" to get their signed 32-bit integer UID, but that will also needlessly load them into the Directory Services (DS) cache.
 	# Since we don't want to excessively cache possibly tons of AD users that have not logged in before, we could only do this for users whose UIDs are outside of the signed 32-bit integer range.
@@ -3444,7 +4007,9 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 
 		# Start at the first UID that macOS assigns by default (501) and check for unused UIDs and use the lowest unused UID.
 		# This is mirrors the same behavior as "sysadminctl" and System Preferences, while "dscl" does not assign any default UID.
-		# Oddly, after 501 has been assigned, "sysadminctl" seems to always skip 502 and go straight to 503 (as well as skip all of 701-899 and then increment by 2's in the 900 range) but we will not replicated that very odd behavior.
+		# Oddly, after 501 has been assigned, "sysadminctl" seems to always skip 502 and go straight to 503 as well as skip all of 701-899 and then increment by 2's after 900 but we will not replicate that very odd (and incorrect?) behavior.
+		# Thanks to Simon Andersen for discovering this weird UID assignment behavior after UID 700.
+		# In at least macOS Monterey 12.1, "sysadminctl" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
 
 		starting_uid="$( ( $set_role_account || $set_service_account ) && echo '200' || echo '501' )" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
 		user_uid="${starting_uid}"
@@ -3459,7 +4024,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 		done
 		unset IFS
 
-		max_allowed_uid="$($set_role_account && echo '400' || echo '2147483647' )" # If a UID is being dynamically assigned to a Role Account (and NOT a Service Account), check that it didn't go above 400 in case UIDs 200-400 have all already been assigned. Otherwise, just make sure it's not over the signed 32-bit integer maximum.
+		max_allowed_uid="$($set_role_account && echo '400' || echo '2147483647')" # If a UID is being dynamically assigned to a Role Account (and NOT a Service Account), check that it didn't go above 400 in case UIDs 200-400 have all already been assigned. Otherwise, just make sure it's not over the signed 32-bit integer maximum.
 		if (( user_uid > max_allowed_uid )); then
 			>&2 echo "mkuser ERROR ${error_code}: $($set_role_account && echo 'Role Account ')User IDs cannot be over ${max_allowed_uid}, all User IDs in the range ${starting_uid}-${max_allowed_uid} already been assigned."
 			return "${error_code}"
@@ -3676,6 +4241,7 @@ Sharing Only Account: ${set_sharing_only_account}
 Role Account: ${set_role_account}
 Service Account: ${set_service_account}
 Prevent Secure Token on Big Sur and Newer: ${set_prevent_secure_token_on_big_sur_and_newer}
+Grant Secure Token from Existing Admin: $([[ -n "${st_admin_account_name}" ]] && echo "true (from \"${st_admin_account_name}\")" || echo 'false')
 
 LOGIN SETTINGS
 Automatic Login: ${set_auto_login}
@@ -3746,7 +4312,7 @@ Check \"--help\" for detailed information about each available option."
 	dsimport_record_attributes=( 'RecordName' 'Password' 'UniqueID' 'PrimaryGroupID' 'RealName' 'NFSHomeDirectory' 'UserShell' 'GeneratedUID' 'AuthenticationHint' )
 	dsimport_record_values=( "${user_account_name}" "${user_password}" "${user_uid}" "${user_gid}" "${user_full_name}" "${user_home_path}" "${user_shell}" "${user_guid}" "${user_password_hint}" )
 
-	# Note: If "user_password" is a empty string, it will be ignored by "dsimport" and no password will be set (preventing login).
+	# NOTE: If "user_password" is a empty string, it will be ignored by "dsimport" and no password will be set (preventing login).
 	# In this case, the password will be set to an empty string after the user has been created using "dscl . -passwd".
 
 	# The only other values that could be empty in the array above are "user_gid", "user_guid", or "user_password_hint" and it's fine if they are ignored by "dsimport"
@@ -3840,7 +4406,7 @@ Check \"--help\" for detailed information about each available option."
 		dsimport_record_attributes+=( 'AuthenticationAuthority' )
 		dsimport_record_values+=( ';DisabledTags;SecureToken' )
 
-		# Note: This tag MUST be set upon user creation or before setting the password, which is why the user can't be created using "sysadminctl -addUser" for this case.
+		# NOTE: This tag MUST be set upon user creation or before setting the password, which is why the user can't be created using "sysadminctl -addUser" for this case.
 		# I tried omitting the "-password" option from "sysadminctl -addUser" and then setting the tag and then setting the password with "dscl . -passwd" but
 		# the user gets a Secure Token right after "sysadminctl -addUser" is used even when "-password" is omitted (it seems an empty string password is set by "sysadminctl").
 		# On macOS 10.15 Catalina and older, this tag does not prevent a user from being granted a Secure Token.
@@ -3940,8 +4506,9 @@ Check \"--help\" for detailed information about each available option."
 		# If the user is listed in the "Failed" and/or "Users not imported because of bad short names" keys, they
 		# should NOT be in the "Users" key, but ignore it anyway just in case since it's not a useful failure reason.
 		dsimport_failure_reasons="$(echo "${dsimport_plist_results}" | awk -F '<key>|</key>' '/<\/key>$/ && ($2 != "Users") { print $2 }')"
+		dsimport_failure_reasons="${dsimport_failure_reasons//$'\n'/ + }"
 
-		>&2 echo "mkuser ERROR ${error_code}: \"dsimport\" failed with reasons: $([[ -n "${dsimport_failure_reasons}" ]] && echo "${dsimport_failure_reasons//$'\n'/ + }" || echo 'UNKNOWN')"
+		>&2 echo "mkuser ERROR ${error_code}: \"dsimport\" failed with reasons: ${dsimport_failure_reasons:-UNKNOWN}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -4025,7 +4592,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but without a Generated UID (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 		return "${error_code}"
 	else
-		user_guid="${created_user_guid}" # If no "user_guid" was specified, set it to the "created_user_guid" since it's needed for the SharePoint "com_apple_sharing_uuid" attribute if sharing the Public folder.
+		user_guid="${created_user_guid}" # If no "user_guid" was specified, set it to the "created_user_guid" since it's needed for the SharePoint "com_apple_sharing_uuid" attribute if sharing the Public folder (when specified) as well as confirming a Secure Token was granted (when specified).
 	fi
 	(( error_code ++ ))
 
@@ -4066,136 +4633,13 @@ Check \"--help\" for detailed information about each available option."
 			dscl . -passwd "/Users/${user_account_name}" ''
 		fi
 
-		# Must verify password BEFORE setting users to be Administrators (if they are configured to be) so that these authentications DO NOT grant the first Secure Token on macOS 10.15 Catalina.
+		# Must verify password BEFORE setting users to be administrators (if they are configured to be) so that these authentications DO NOT grant the first Secure Token on macOS 10.15 Catalina.
 		# But, these authentications WILL grant the first Secure Token on macOS 10.14 Mojave and macOS 10.13 High Sierra, but that is desirable over possible situations where no Secure Token will get granted at all.
 		# See all the "SECURE TOKEN NOTES" sections within the "--prevent-secure-token-on-big-sur-and-newer" help info for more about how macOS grants the first Secure Token on different versions of macOS.
 
-		# Verify password using "expect" so that the password is not passed as a parameter which would make it visible in the process list.
-		# Based on code in: https://github.com/franton/Mac-Patcher-and-Upgrader/blob/main/Jamf%20Pro%20Scripts/cached%20pkg%20installer.sh#L506
-		# And inspired by: https://macadmins.slack.com/archives/C07MGJ2SD/p1622135673245500?thread_ts=1621917478.117600&cid=C07MGJ2SD
-		# expect's "send" command must have "-- " before the password string to not error if the password starts with "-" which would make send interpret it as an (invalid) option.
-
-		user_password_escaped_for_expect="${user_password//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
-		user_password_escaped_for_expect="${user_password_escaped_for_expect//\"/\\\"}" # escape any double quote (") characters within the password so they do not prematurely end the password string passed to "send".
-
-		for (( verify_password_dscl_authonly_attempt = 1; verify_password_dscl_authonly_attempt <= 3; verify_password_dscl_authonly_attempt ++ )); do
-			# "expect" has a 10 second timeout by default, which should be more than enough but I saw the secondary "login" verification timeout once.
-			# We could set a longer timeout, but instead re-try up to 3 times if the command timed out because
-			# that likely means something went wrong with that execution that a longer timeout wouldn't fix.
-
-			verify_password_output="$(expect << DSCL_AUTHONLY_EXPECT_EOF
-spawn dscl . -authonly "${user_account_name}"
-expect {
-	"Password:" {
-		send -- "${user_password_escaped_for_expect}\r"
-		exp_continue
-	}
-	timeout {
-		exit 255
-	}
-}
-DSCL_AUTHONLY_EXPECT_EOF
-)"
-
-			verify_password_exit_code="$?"
-
-			if (( verify_password_exit_code == 255 )); then
-				>&2 echo "mkuser WARNING: Attempt ${verify_password_dscl_authonly_attempt} of 3 to verify ${user_full_and_account_name_display} user password timed out."
-			else
-				break
-			fi
-		done
-
-		if (( verify_password_exit_code != 0 )) || [[ "${verify_password_output}" == *'DS Error:'* ]]; then
-			user_password_byte_length="$(echo -n "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
-			if (( user_password_byte_length > 128 && user_password_byte_length < 1024 )); then
-				# Oddly, using "dscl . -authonly" *interactively* (via "expect" in this case) always fails with passwords that are 129-1023 bytes but short or longer is fine.
-				# These password lengths (and any password length) DOES NOT fail when passing the password to "dscl . -authonly" directly as an argument.
-				# This behavior was tested and confirmed on both Big Sur and High Sierra.
-				# But using passing the password directly as an argument is not ideal since that would momentarily make the password visible in the process list.
-
-				# As a backup solution to verifying the password without revealing it in the process list, I found that I could use the "login" command via "expect".
-				# But, I do not want the user to actually be logged in and if their login shell is set to "/usr/bin/false" they would not get logged in anyway.
-				# To workaround both of these issues, I am utilizing the special "/etc/nologin" file (see "man login" for more information).
-				# Basically, when the "/etc/nologin" exists, "login" will just dislay its contents to the user and exit when login would have succeeded.
-				# We can use this functionality perfectly for our needs by setting the contents of "/etc/nologin" to a specific string, and then check
-				# for that string using "expect" to verify that the password was correct and the login would have succeeded without actually logging in.
-				# This backup solution using the "login" command was tested and verified on both Big Sur and High Sierra.
-
-				if ! $suppress_status_messages; then
-					echo "mkuser: Verifying ${user_full_and_account_name_display} user password with secondary technique..."
-				fi
-
-				if [[ -e '/etc/nologin' && "$(cat '/etc/nologin' 2> /dev/null)" != 'MKUSER PASSWORD VERIFIED' ]]; then
-					# If for some reason a custom "/etc/nologin" file already exists, move it temporarily to create our specific "/etc/nologin" file and then move it back when done verifying the password.
-					mv -f '/etc/nologin' '/etc/nologin-MKUSER-ORIGINAL'
-				fi
-
-				rm -rf '/etc/nologin'
-				echo 'MKUSER PASSWORD VERIFIED' > '/etc/nologin'
-
-				for (( verify_password_login_attempt = 1; verify_password_login_attempt <= 3; verify_password_login_attempt ++ )); do
-					# See comments above "expect" code for "dscl . -authonly" verification for why we are
-					# doing up to 3 re-attempts if a timeout happens instead of setting a longer timeout.
-
-					verify_password_output="$(expect << LOGIN_EXPECT_EOF
-spawn login -- "${user_account_name}"
-expect {
-	"Password:" {
-		send -- "${user_password_escaped_for_expect}\r"
-		exp_continue
-	}
-	"MKUSER PASSWORD VERIFIED" {
-		exit 0
-	}
-	"Login incorrect" {
-		exit 1
-	}
-	timeout {
-		exit 255
-	}
-}
-LOGIN_EXPECT_EOF
-)"
-
-					verify_password_exit_code="$?"
-
-					if (( verify_password_exit_code == 255 )); then
-						>&2 echo "mkuser WARNING: Attempt ${verify_password_login_attempt} of 3 to verify ${user_full_and_account_name_display} user password with secondary technique timed out."
-					else
-						break
-					fi
-				done
-
-				rm -rf '/etc/nologin'
-				if [[ -e '/etc/nologin-MKUSER-ORIGINAL' ]]; then
-					mv -f '/etc/nologin-MKUSER-ORIGINAL' '/etc/nologin'
-				fi
-
-				if (( verify_password_exit_code != 0 && user_password_byte_length > 511 )); then
-					# THIS CONDITION SHOULD NEVER GET HIT SINCE PASSWORDS OVER 511 BYTES ARE NOT ALLOWED.
-					# But, if the passwords were over 511 bytes, the "login" (or "su") command would fail with the following error in Console:
-					# opendirectoryd: ODRecordVerifyPassword failed with result ODErrorCredentialsInvalid
-					# The only way to verify passwords over 511 bytes would be by passing it directly to "dscl . -authonly" as an argument.
-					# This is not ideal since passing the password as an arugment will momentarily make it visible in the process list,
-					# but at this point this is the only way I know how to verify the passwords 511-1023 bytes (since 1024 bytes and over work via interactive "dscl . -authonly").
-					# This error behavior was tested and confirmed on both Big Sur and High Sierra.
-					# THIS IS WHY PASSWORDS OVER 511 BYTES ARE NOT ALLOWED.
-					# Regardless, leaving this here for information and possible testing needs.
-
-					if ! $suppress_status_messages; then
-						echo "mkuser: Verifying ${user_full_and_account_name_display} user password with fallback technique..."
-					fi
-
-					verify_password_output="$(dscl . -authonly "${user_account_name}" "${user_password}")"
-					verify_password_exit_code="$?"
-				fi
-			fi
-
-			if (( verify_password_exit_code != 0 )) || [[ "${verify_password_output}" == *'DS Error:'* || "${verify_password_output}" == *'Login incorrect'* ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to verify password."
-				return "${error_code}"
-			fi
+		if ! mkuser_verify_password "${user_account_name}" "${user_password}"; then
+			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to verify password."
+			return "${error_code}"
 		fi
 	fi
 	(( error_code ++ ))
@@ -4236,12 +4680,10 @@ LOGIN_EXPECT_EOF
 	fi
 	(( error_code ++ ))
 
-	# Suppress ShellCheck suggestion to not use "ls | grep" since we are checking the file flags which can only be retrieved with "ls -lO", and this path shouldn't contain non-alphanumeric characters.
-	# shellcheck disable=SC2010
-	if $did_create_home_folder && $set_hidden_home && ! ls -lOd "/$(echo "${user_home_path}" | cut -d '/' -f 2)" | grep -q '[ ,]hidden '; then
+	if $did_create_home_folder && $set_hidden_home && [[ -z "$(find "/$(echo "${user_home_path}" | cut -d '/' -f 2)" -flags +hidden -maxdepth 0 2> /dev/null)" ]]; then
 		# Also hide home folder if user is set as hidden (only if root level folder isn't already hidden such as "/private").
 
-		if ! chflags 'hidden' "${user_home_path}" || ! ls -lOd "${user_home_path}" | grep -q '[ ,]hidden '; then
+		if ! chflags 'hidden' "${user_home_path}" || [[ -z "$(find "${user_home_path}" -flags +hidden -maxdepth 0 2> /dev/null)" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to hide home folder \"${user_home_path}\"."
 			return "${error_code}"
 		fi
@@ -4288,7 +4730,7 @@ LOGIN_EXPECT_EOF
 			# This is fine though since it means the desired "…" 3-byte character will always be added when truncating and fit into the proper byte limit even if the full name is made up of only 1-byte characters.
 		fi
 
-		# Replace and invalid characters (":" and "/") in the SharePoint RecordName with underscores "_".
+		# Replace any invalid characters (":" and "/") in the SharePoint RecordName with underscores "_".
 		# These characters are invalid since the RecordNames are also plist filenames within the "dslocal" folder structure.
 		# Through testing, the ":" seemed to not cause an issue even though it it an invalid filesystem character on macOS, but remove it anyway to be safe.
 		# But, a full name includes a "/" character DOES cause issues with the SharePoint RecordName, so it definitely needs to be removed.
@@ -4302,7 +4744,7 @@ LOGIN_EXPECT_EOF
 					echo "mkuser: Unsharing ${user_full_and_account_name_display} user Public folder..."
 				fi
 
-				# If hiding home folder, also remove the SharePoint (and SharePoint Group) as described on https://support.apple.com/en-us/HT203998
+				# If hiding home folder, also remove the SharePoint (and SharePoint Group) as described on https://support.apple.com/HT203998
 				# THIS SHOULD NEVER ACTUALLY RUN SINCE THE SHAREPOINT WILL NOT BE CREATED YET. IT WILL BE MANUALLY ADDED RIGHT BELOW HERE FOR NON-HIDDEN USERS.
 				# But still, doesn't hurt to check and try to remove any existing SharePoint (and SharePoint Group) anyway. The code may be a good reference for something else in the future.
 
@@ -4472,7 +4914,11 @@ LOGIN_EXPECT_EOF
 			echo "mkuser: Making ${user_full_and_account_name_display} user an administrator..."
 		fi
 
-		# After creating user with "dsimport", must manually add the new user to the "admin" group using the proper "dseditgroup" ("dscl" should not be used to add users to groups since more is done than a single "dscl" command does).
+		# After creating user with "dsimport", must manually add the new user to the "admin" group using the proper "dseditgroup".
+		# "dscl" is not as convenient to add users to groups since multiple "dscl" commands would be needed, specifically GUIDs are added to the "GroupMembers" attribute of a group and account names are added to the "GroupMembership" attribute,
+		# and if only the the account name is added to the "GroupMembership" when adding an admin, the admin user will not show in Recovery as that seems to rely on the GUID being present in the "GroupMembers" attribute.
+		# Credit to Simon Andersen for discovering that the GUID is necessary for an admin to appear in Recovery: https://macadmins.slack.com/archives/C016JJWLZUY/p1630918818230500?thread_ts=1630599345.159900&cid=C016JJWLZUY
+
 		# "sysadminctl" is able to add a user to the "admin" group with a single "sysadminctl -addUser -admin" command, but "sysadminctl" does not cover all the possible cases mentioned previously.
 		# Admin users created by "sysadminctl" or System Preferences are also be added to the "_appserverusr" and "_appserveradm" groups (along with "admin").
 		# I have confirmed admins are added to these 2 groups on macOS 10.13 High Sierra and macOS 11 Big Sur, but I eventually want research more macOS versions to see if there are any variations.
@@ -4485,7 +4931,7 @@ LOGIN_EXPECT_EOF
 			fi
 
 			for (( group_membership_check_attempt = 0; group_membership_check_attempt < 2; group_membership_check_attempt ++ )); do
-				if [[ " $(id -Gn -- "${user_account_name}") " != *" ${this_admin_group} "* || "$(dsmemberutil checkmembership -U "${user_account_name}" -G "${this_admin_group}")" != 'user is a member of the group' ]]; then
+				if [[ " $(id -Gn -- "${user_account_name}") " != *" ${this_admin_group} "* || "$(dsmemberutil checkmembership -U "${user_account_name}" -G "${this_admin_group}" 2> /dev/null)" != 'user is a member of the group' ]]; then
 					if (( group_membership_check_attempt == 0 )); then
 						dsmemberutil flushcache
 						>&2 echo "mkuser WARNING: Flushed groups cache to verify \"${user_account_name}\" has been added to the \"${this_admin_group}\" group."
@@ -4517,7 +4963,7 @@ LOGIN_EXPECT_EOF
 	fi
 	(( error_code ++ ))
 
-	if $set_prevent_secure_token_on_big_sur_and_newer && [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* ]]; then
+	if $set_prevent_secure_token_on_big_sur_and_newer && [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
 		>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but Secure Token got granted when it should not have."
 		return "${error_code}"
 	fi
@@ -4529,7 +4975,7 @@ LOGIN_EXPECT_EOF
 		fi
 
 		# At this point, this kcpassword code is basically an adaptation of https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/ since I found that the "xxd" method used in that code
-		# handles multi-byte characters propery while printf's ord/chr equivalents that I was originally using do not (https://unix.stackexchange.com/questions/92447/bash-script-to-get-ascii-values-for-alphabet#answer-92448).
+		# handles multi-byte characters propery while printf's ord/chr equivalents that I was originally using do not (https://unix.stackexchange.com/questions/92447/bash-script-to-get-ascii-values-for-alphabet/92448#92448).
 
 		# I originally wrote a direct port of the Python kcpassword creation code from pycreateuserpkg (which used the flawed printf ord/chr technique): https://github.com/gregneagle/pycreateuserpkg/blob/main/locallibs/kcpassword.py
 		# Which is based on this Python code by Tom Taylor: https://github.com/timsutton/osx-vm-templates/blob/master/scripts/support/set_kcpassword.py
@@ -4687,6 +5133,67 @@ LOGIN_EXPECT_EOF
 		if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
 			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
 			return "${error_code}"
+		fi
+	fi
+	(( error_code ++ ))
+
+	if [[ -n "${st_admin_account_name}" ]]; then
+		if ! $boot_volume_is_apfs; then # Should never hit this condition since st_admin_account_name will have been cleared if not running on an APFS boot volume, but doesn't hurt to check anyway.
+			>&2 echo 'mkuser WARNING: NOT granting Secure Token since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
+		elif [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
+			if ! $suppress_status_messages; then
+				echo "mkuser: Using existing Secure Token admin \"${st_admin_account_name}\" to grant ${user_full_and_account_name_display} user a Secure Token..."
+			fi
+
+			user_password_escaped_for_expect="${user_password//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
+			user_password_escaped_for_expect="${user_password_escaped_for_expect//\"/\\\"}" # escape any double quote (") characters within the password so they do not prematurely end the password string passed to "send".
+
+			st_admin_password_escaped_for_expect="${st_admin_password//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
+			st_admin_password_escaped_for_expect="${st_admin_password_escaped_for_expect//\"/\\\"}"
+
+			# This CLI interactive password prompt fails to accept passwords over 128 bytes for the user OR the Secure Token admin (just like "dscl . -authonly")
+			# Longer passwords (tested up to 10,000 bytes) can work when passed directly as arguments.
+			# BUT passing the passwords as arguments would make them visible in the process list and is an unacceptable security violation for this script.
+			# So, password lengths for the user and Secure Token admin are limited to 128 bytes when granting a Secure Token.
+
+			for (( grant_secure_token_attempt = 1; grant_secure_token_attempt <= 3; grant_secure_token_attempt ++ )); do
+				# See comments above "expect" code for "spawn dscl . -authonly" verification for why we
+				# are doing up to 3 re-attempts if a timeout happens instead of setting a longer timeout.
+
+				grant_secure_token_output="$(expect << SYSADMINCTL_SECURE_TOKEN_ON_EXPECT_EOF
+spawn sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword -
+expect {
+	"Enter password for ${st_admin_account_name} :" {
+		send -- "${st_admin_password_escaped_for_expect}\r"
+		exp_continue
+	}
+	"Enter password for ${user_full_name} :" {
+		send -- "${user_password_escaped_for_expect}\r"
+		exp_continue
+	}
+	timeout {
+		exit 255
+	}
+}
+SYSADMINCTL_SECURE_TOKEN_ON_EXPECT_EOF
+)"
+
+				grant_secure_token_exit_code="$?" # Exit code will be 0 even if there was an error, but that's fine and doesn't hurt to check it anyway since we're also checking (in every possible way) that the user was actually granted a Secure Token.
+
+				if (( grant_secure_token_exit_code == 255 )); then
+					>&2 echo "mkuser WARNING: Attempt ${grant_secure_token_attempt} of 3 to grant ${user_full_and_account_name_display} user a Secure Token timed out."
+				else
+					break
+				fi
+			done
+
+			if (( grant_secure_token_exit_code != 0 )) || [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
+				echo "${grant_secure_token_output}" | grep -F 'sysadminctl[' >&2 # Output sysadminctl output lines since it will be useful to know exactly what went wrong.
+				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to grant Secure Token using existing Secure Token admin \"${st_admin_account_name}\"."
+				return "${error_code}"
+			fi
+		elif ! $suppress_status_messages; then
+			echo "mkuser: Do not need to manually grant ${user_full_and_account_name_display} user a Secure Token (as specified) since user already has one (maybe from a Bootstrap Token)..."
 		fi
 	fi
 	(( error_code ++ ))
