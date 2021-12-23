@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2021.12.22-1'
+	readonly MKUSER_VERSION='2021.12.22-2'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add /usr/libexec to PATH for easy access to PlistBuddy.
 
@@ -906,13 +906,22 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
 			latest_version_json="$(curl -m 5 -sL "https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest" 2> /dev/null)"
 			if [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
+				# Remove characters that may be in the "body" field (release notes) which could cause JSON.parse fail.
+				latest_version_json="${latest_version_json//\`/}"
+				latest_version_json="${latest_version_json//\\\"/}"
+				latest_version_json="${latest_version_json//\\r/ }"
+				latest_version_json="${latest_version_json//\\n/ }"
+
 				# Parse JSON with "jsc" (could use JXA, but "jsc" loads faster and the ObjC bridge of JXA is not needed): https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
-				# Also, use "find" to get the exact "jsc" path since the binary was moved between macOS 10.14 Mojave and macOS 10.15 Catalina (and want to be future-proof in case it move again): https://gist.github.com/ctkjose/03d14236a55c4b85cb8d6e6156c57b13
+				# Also, use "find" to get the "jsc" path within "JavaScriptCore.framework" since the binary was moved between macOS 10.14 Mojave and macOS 10.15 Catalina (and want to be future-proof in case it moves again): https://gist.github.com/ctkjose/03d14236a55c4b85cb8d6e6156c57b13
 				latest_version="$("$(find /System/Library/Frameworks/JavaScriptCore.framework -iname jsc)" -e "print(JSON.parse(\`${latest_version_json}\`).tag_name)")"
+
 				if [[ "${latest_version}" == "${MKUSER_VERSION}" ]]; then
 					echo 'Up-to-Date'
-				else
+				elif [[ "${latest_version}" =~ ^[${DIGITS}.-]+$ ]]; then # Make sure the new version string is valid (in case there are other characters in the "body" field that cause JSON.parse fail in the future).
 					echo "Version ${latest_version} is Now Available!"
+				else
+					echo 'Failed to Retrieve Latest Version (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)'
 				fi
 			else
 				echo 'Failed to Check for Updates (Internet Required)'
