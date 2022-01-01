@@ -5,7 +5,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	##
 	## Created by Pico Mitchell (of Free Geek) on 5/13/21
 	##
-	## https://github.com/freegeek-pdx/mkuser
+	## https://mkuser.sh
 	##
 	## MIT License
 	##
@@ -27,9 +27,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2021.12.22-2'
+	readonly MKUSER_VERSION='2021.12.31-1'
 
-	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add /usr/libexec to PATH for easy access to PlistBuddy.
+	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
 	# Initialize all default values for variables which can be set from the command line options and parameters.
 
@@ -93,6 +93,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	if [[ -d '/System/Installation' && ! -f '/usr/bin/pico' ]]; then # The specified folder should exist in recoveryOS and the file should not.
 		>&2 echo "mkuser ERROR ${error_code}: This tool cannot be run within recoveryOS."
+		return "${error_code}"
+	elif [[ "$(uname)" != 'Darwin' ]]; then # Check this AFTER checking if running in recoveryOS since "uname" doesn't exist in recoveryOS.
+		>&2 echo "mkuser ERROR ${error_code}: This tool can only run on macOS."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -901,25 +904,34 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	if $show_version; then
-		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://github.com/freegeek-pdx/mkuser\n\nUpdate Check: "
+		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://mkuser.sh\n\nUpdate Check: "
 
 		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
 			latest_version_json="$(curl -m 5 -sL "https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest" 2> /dev/null)"
 			if [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
-				# Remove characters that may be in the "body" field (release notes) which could cause JSON.parse fail.
-				latest_version_json="${latest_version_json//\`/}"
-				latest_version_json="${latest_version_json//\\\"/}"
-				latest_version_json="${latest_version_json//\\r/ }"
-				latest_version_json="${latest_version_json//\\n/ }"
+				# Properly escape characters that may be in the "body" field (release notes) which could cause JSON.parse to fail.
+				# We are not displaying the release notes, but with these character properly escaped they could be displayed in the future if desired.
+				latest_version_json="${latest_version_json//\`/\\\`}"
+				latest_version_json="${latest_version_json//\\\"/\\\\\"}"
+				latest_version_json="${latest_version_json//\\r/\\\r}"
+				latest_version_json="${latest_version_json//\\n/\\\n}"
 
 				# Parse JSON with "jsc" (could use JXA, but "jsc" loads faster and the ObjC bridge of JXA is not needed): https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
 				# Also, use "find" to get the "jsc" path within "JavaScriptCore.framework" since the binary was moved between macOS 10.14 Mojave and macOS 10.15 Catalina (and want to be future-proof in case it moves again): https://gist.github.com/ctkjose/03d14236a55c4b85cb8d6e6156c57b13
-				latest_version="$("$(find /System/Library/Frameworks/JavaScriptCore.framework -iname jsc)" -e "print(JSON.parse(\`${latest_version_json}\`).tag_name)")"
+				latest_version="$("$(find /System/Library/Frameworks/JavaScriptCore.framework -iname jsc)" -e "print(JSON.parse(\`${latest_version_json}\`).tag_name)" 2> /dev/null)"
+
+				fallback_version_note=''
+				if ! [[ "${latest_version}" =~ ^[${DIGITS}]+[${DIGITS}.-]*$ ]]; then
+					# Make sure the new version string is valid (in case there are other characters in the "body" field that cause JSON.parse to fail in the future).
+					# If JSON.parse failed, just try to get the newest version string using "awk" instead.
+					latest_version="$(echo "${latest_version_json}" | awk -F '"' '($2 == "tag_name") { print $4; exit }')"
+					fallback_version_note=' (USED FALLBACK TECHNIQUE TO RETRIEVE VERSION, PLEASE REPORT THIS ISSUE)'
+				fi
 
 				if [[ "${latest_version}" == "${MKUSER_VERSION}" ]]; then
-					echo 'Up-to-Date'
-				elif [[ "${latest_version}" =~ ^[${DIGITS}.-]+$ ]]; then # Make sure the new version string is valid (in case there are other characters in the "body" field that cause JSON.parse fail in the future).
-					echo "Version ${latest_version} is Now Available!"
+					echo "Up-to-Date${fallback_version_note}"
+				elif [[ "${latest_version}" =~ ^[${DIGITS}]+[${DIGITS}.-]*$ ]]; then
+					echo "Version ${latest_version} is Now Available!${fallback_version_note}"
 				else
 					echo 'Failed to Retrieve Latest Version (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)'
 				fi
@@ -942,7 +954,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		help_information="
 ${ansi_bold}mkuser${clear_ansi} ${ansi_underline}version ${MKUSER_VERSION}${clear_ansi}
 Copyright (c) $(date '+%Y') Free Geek
-${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
+${ansi_underline}https://mkuser.sh${clear_ansi}
 
 
 📝 ${ansi_bold}DESCRIPTION:${clear_ansi}
@@ -1104,7 +1116,9 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
   ${ansi_bold}--login-shell, --user-shell, --shell, -s${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} >
 
     The login shell must be the path to an existing executable file, or a valid
-      command name that can be resolved using ${ansi_bold}which${clear_ansi} with default search paths.
+      command name that can be resolved using ${ansi_bold}which${clear_ansi} (searching within
+      \"/usr/bin\", \"/bin\", \"/usr/sbin\", \"/sbin\", and \"/usr/libexec\").
+    You must specify the path if the desired login shell is in another location.
     If omitted, \"/bin/zsh\" will be used on macOS 10.15 Catalina and newer
       and \"/bin/bash\" will be used on macOS 10.14 Mojave and older.
 
@@ -1651,7 +1665,7 @@ ${ansi_underline}https://github.com/freegeek-pdx/mkuser${clear_ansi}
     < ${ansi_underline}string${clear_ansi} >
 
     Specify an existing Secure Token administrator account name (not full name)
-      along with their password (using one of the options below)
+      along with their password (using one of the three different options below)
       to be used to grant the new user a Secure Token.
     This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
 
@@ -2962,7 +2976,7 @@ PACKAGE_POSTINSTALL_EOF
 mkuser_check_only_return_code="\$?"
 
 if (( mkuser_check_only_return_code != 0 )); then
-	>&2 echo 'mkuser PREINSTALL PACKAGE ERROR: Did not attempt to extract resources since check failed.' # Do not display this error since the actual error was just displayed by the "postinstall" script.
+	>&2 echo 'mkuser PREINSTALL PACKAGE ERROR: Did not attempt to extract resources since checks failed.' # Do not display this error since the actual error was just displayed by the "postinstall" script.
 	exit "\${mkuser_check_only_return_code}"
 fi
 
@@ -2987,7 +3001,7 @@ PACKAGE_PREINSTALL_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting user picture...'
 
-if ! base64 -d <<< '$(gzip -9 -c "${user_picture_path}" | base64)' | zcat > '${extracted_resources_dir}/mkuser.picture' || [[ ! -f '${extracted_resources_dir}/mkuser.picture' ]]; then
+if ! base64 -D <<< '$(gzip -9 -c "${user_picture_path}" | base64)' | zcat > '${extracted_resources_dir}/mkuser.picture' || [[ ! -f '${extracted_resources_dir}/mkuser.picture' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3013,7 +3027,7 @@ ${mkuser_function_source_for_package}" >> "${package_scripts_dir}/postinstall"
 if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; then
 	# If a "preinstall" script exists to extract resources, this check will have already been run once before getting to the "postinstall" script.
 
-	echo "mkuser \$([[ "\$1" == 'check-only-from-preinstall' ]] && echo 'PREINSTALL' || echo 'POSTINSTALL') PACKAGE: Checking if user could be created before doing anything..."
+	echo "mkuser \$([[ "\$1" == 'check-only-from-preinstall' ]] && echo 'PREINSTALL' || echo 'POSTINSTALL') PACKAGE: Checking if user can be created before doing anything..."
 
 	mkuser_check_only_error_output="\$(mkuser${quoted_valid_options_for_package_check_without_picture} --suppress-status-messages --check-only${mkuser_check_only_fake_stdinpassword_if_password_is_set} 2>&1)" # Redirect stderr to save to variable.
 
@@ -3035,7 +3049,7 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 		mkuser_installer_display_error 'Did Not Attempt' "\${mkuser_check_only_error_output}"
 
 		if [[ "\$1" != 'check-only-from-preinstall' ]]; then
-			>&2 echo 'mkuser POSTINSTALL PACKAGE ERROR: Did not attempt to create user since check failed.' # Do not display this error since the actual error was just displayed.
+			>&2 echo 'mkuser POSTINSTALL PACKAGE ERROR: Did not attempt to create user since checks failed.' # Do not display this error since the actual error was just displayed.
 		fi
 
 		exit "\${mkuser_check_only_return_code}"
@@ -3664,7 +3678,7 @@ $(head -2 "${package_distribution_xml_output_path}")
     <title>Create ${creating_user_type} ${user_full_and_account_name_display_for_package_title}</title>
     <welcome language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
 \fs26 \uc0\u55357 \u56550  \ul User Creation Package\ul0 \line
-\b {\field{\*\fldinst HYPERLINK "https://github.com/freegeek-pdx/mkuser"}{\fldrslt mkuser}} Version:\b0  ${MKUSER_VERSION}\line
+\b {\field{\*\fldinst HYPERLINK "https://mkuser.sh"}{\fldrslt mkuser}} Version:\b0  ${MKUSER_VERSION}\line
 \b Package Identifier:\b0  ${pkg_identifier}\line
 \b Package Version:\b0  ${pkg_version}\line
 \line
@@ -3710,11 +3724,11 @@ $(head -2 "${package_distribution_xml_output_path}")
 \fs26 \pard\qc \line
 \fs128 \uc0\u9989 \fs26 \line
 \line
-\fs36 Successfully created \ul ${creating_user_type}\ul0  \b ${user_full_and_account_name_display_rtf}\b0  and all checks passed!\fs26 \line
+\fs36 Successfully created \ul ${creating_user_type}\ul0  \b ${user_full_and_account_name_display_rtf}\b0  and all verifications passed!\fs26 \line
 \line
 \line
 \uc0\u55357 \u56550  \ul User Creation Package\ul0 \line
-\b {\field{\*\fldinst HYPERLINK "https://github.com/freegeek-pdx/mkuser"}{\fldrslt mkuser}} Version:\b0  ${MKUSER_VERSION}\line
+\b {\field{\*\fldinst HYPERLINK "https://mkuser.sh"}{\fldrslt mkuser}} Version:\b0  ${MKUSER_VERSION}\line
 \b Package Identifier:\b0  ${pkg_identifier}\line
 \b Package Version:\b0  ${pkg_version}
 }]]></conclusion>
@@ -4956,7 +4970,7 @@ Check \"--help\" for detailed information about each available option."
 
 		# Double check group membership with "dscacheutil" after the user has been added to all groups to make sure all membership has been cached.
 		# I found that maybe the cache may not get updated quickly enough if I checked "dscacheutil" after each group addition in the previous loop.
-		# I chose not to use "dscacheutil -flushcache" for these checks since "man dscacheutil" states that it "should only be used in extreme cases".
+		# I chose not to use "dscacheutil -flushcache" for these verfications since "man dscacheutil" states that it "should only be used in extreme cases".
 		# It also seems that multiple entries for a single group can/will exist and one of them will contain the new member, and the other one won't.
 		# The multiple group entries exist even if "dscacheutil -flushcache" is run. So, the following check will verify the user exists in any of the entries.
 		dscache_groups="$(dscacheutil -q group)" # Only query all groups from "dscacheutil" once.
@@ -5208,7 +5222,7 @@ SYSADMINCTL_SECURE_TOKEN_ON_EXPECT_EOF
 	(( error_code ++ ))
 
 	if ! $suppress_status_messages; then
-		echo "mkuser: Successfully created ${creating_user_type} ${user_full_and_account_name_display} and all ${error_code} checks passed!"
+		echo "mkuser: Successfully created ${creating_user_type} ${user_full_and_account_name_display} and all ${error_code} verifications passed!"
 	fi
 
 	return 0

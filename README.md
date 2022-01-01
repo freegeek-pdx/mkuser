@@ -122,7 +122,8 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--login-shell, --user-shell, --shell, -s` < *existing path* >
 
-> The login shell must be the path to an existing executable file, or a valid command name that can be resolved using `which` with default search paths.<br/>
+> The login shell must be the path to an existing executable file, or a valid command name that can be resolved using `which` (searching within "/usr/bin", "/bin", "/usr/sbin", "/sbin", and "/usr/libexec").<br/>
+> You must specify the path if the desired login shell is in another location.<br/>
 > If omitted, "/bin/zsh" will be used on macOS 10.15 Catalina and newer and "/bin/bash" will be used on macOS 10.14 Mojave and older.
 
 <br/>
@@ -454,7 +455,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--secure-token-admin-account-name, --st-admin-name, --st-admin-user, --st-name` < *string* >
 
-> Specify an existing Secure Token administrator account name (not full name) along with their password (using one of the options below) to be used to grant the new user a Secure Token.<br/>
+> Specify an existing Secure Token administrator account name (not full name) along with their password (using one of the three different options below) to be used to grant the new user a Secure Token.<br/>
 > This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
 
 <br/>
