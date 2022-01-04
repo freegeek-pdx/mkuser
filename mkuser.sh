@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2021.12.31-1'
+	readonly MKUSER_VERSION='2022.1.4-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -84,7 +84,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	show_version=false
+	show_releases_online=false
 	show_help="$( (( $# == 0 )) && echo 'true' || echo 'false' )"
+	show_help_online=false
 	# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 
 	readonly IS_PACKAGE=false # This will be set to "true" when this script is modified during package creation.
@@ -235,7 +237,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 										>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must only contain lowercase letters, numbers, hyphen/minus (-), underscore (_), or period (.) characters (and cannot start with a period)."
 										has_invalid_options=true
 
-										# System Preferences, "sysadminctl", and Setup Assistant DO allow account names to start with "." even though they seem to be problematic and DO NOT show up in "dscacheutil -q user" and "dscl . -list /Users".
+										# System Preferences, "sysadminctl -addUser", and Setup Assistant DO allow account names to start with "." even though they seem to be problematic and DO NOT show up in "dscacheutil -q user" and "dscl . -list /Users".
 										# Also, account names that start with "." BREAK System Preferences and sysadminctl's next available UID checks which cause subsequent users to NOT get UIDs since they are getting assigned to the existing UID taken by the
 										# account names that start with "." and failing to assign it. But, "mkuser" goes out of its way to check for these users directly from the "dslocal" plists so that the next available UID checking in this script is always accurate.
 										# This problematic behavior was tested and confirmed on both Big Sur and High Sierra.
@@ -250,7 +252,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 								>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 								has_invalid_options=true
 
-								# System Preferences and "sysadminctl" DO NOT allow account names to start with "-", but Setup Assistant DOES. This script will not allow them for the following reasons...
+								# System Preferences and "sysadminctl -addUser" DO NOT allow account names to start with "-", but Setup Assistant DOES. This script will not allow them for the following reasons...
 								# Account names to start with "-" should not really be allowed by macOS at all since they can be interpreted as options in command line tools instead of usernames, and some important tools have no way around that issue (while some do).
 								# For example, the "login" command sees an account name starting with a "-" as an (illegal) option, which causes Terminal to exit with an error from the "login" command and never get to the login shell.
 								# This is because Terminal runs "login <username>" instead of "login -- <username>" which would work.
@@ -684,7 +686,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 							has_invalid_options=true
 
-							# System Preferences and "sysadminctl" DO NOT allow account names to start with "-", but Setup Assistant DOES.
+							# System Preferences and "sysadminctl -addUser" DO NOT allow account names to start with "-", but Setup Assistant DOES.
 							# Regardless, they are not usable for our needs here since account names starting with "-" are totally unusable with "sysadminctl" (such as "sysadminctl -secureTokenOn") since it sees them as (invalid) options and there is no way (such as using "--") to make it recognize them as a username parameter that I could figure out.
 						fi
 					else
@@ -755,7 +757,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 					if $is_last_option_in_group && [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
 						# Allow "-S" to be included in a group of options, but only check for a parameter if it's at the end of the group.
-						# Unlike other grouped options which REQUIRE a parameter, do not error if "-S" is not at the end of a group since it's parameter is OPTIONAL.
+						# Unlike other grouped options which REQUIRE a parameter, do not error if "-S" is not at the end of a group since its parameter is OPTIONAL.
 
 						this_optional_skip_setup_assistant_parameter="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
 					fi
@@ -880,9 +882,49 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 				--version|-v) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					show_version=true
+
+					this_optional_version_parameter=''
+
+					if $is_last_option_in_group && [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
+						# Allow "-v" to be included in a group of options, but only check for a parameter if it's at the end of the group.
+						# Unlike other grouped options which REQUIRE a parameter, do not error if "-v" is not at the end of a group since its parameter is OPTIONAL.
+
+						this_optional_version_parameter="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+					fi
+
+					if [[ "${this_optional_version_parameter}" == 'online' ]]; then
+						show_releases_online=true
+					elif [[ -n "${this_optional_version_parameter}" ]]; then
+						>&2 echo "mkuser WARNING: IGNORING invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be \"online\" or nothing."
+						# Just ignore invalid parameters (not do an invalid option error) since a user would never be created when this option is specified anyway.
+					fi
+
+					if [[ -n "${this_optional_version_parameter}" ]]; then
+						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+					fi
 					;;
 				--help|-h) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					show_help=true
+
+					this_optional_help_parameter=''
+
+					if $is_last_option_in_group && [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
+						# Allow "-h" to be included in a group of options, but only check for a parameter if it's at the end of the group.
+						# Unlike other grouped options which REQUIRE a parameter, do not error if "-h" is not at the end of a group since its parameter is OPTIONAL.
+
+						this_optional_help_parameter="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+					fi
+
+					if [[ "${this_optional_help_parameter}" == 'online' ]]; then
+						show_help_online=true
+					elif [[ -n "${this_optional_help_parameter}" ]]; then
+						>&2 echo "mkuser WARNING: IGNORING invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be \"online\" or nothing."
+						# Just ignore invalid parameters (not do an invalid option error) since a user would never be created when this option is specified anyway.
+					fi
+
+					if [[ -n "${this_optional_help_parameter}" ]]; then
+						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+					fi
 					;;
 				# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 				*)
@@ -903,11 +945,21 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	(( error_code ++ ))
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
+	local open_command_asuser_or_not='open' # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
+	if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a Standard user (which cannot run "sudo" commands).
+		current_user_id="$(scutil <<< 'show State:/Users/ConsoleUser' | awk '($1 == "UID") { print $NF; exit }')"
+		if (( current_user_id != 0 )); then
+			current_user_name="$(dscl /Search -search /Users UniqueID "${current_user_id}" 2> /dev/null | awk '{ print $1; exit }')"
+
+			open_command_asuser_or_not="launchctl asuser ${current_user_id} sudo -u ${current_user_name} open"
+		fi
+	fi
+
 	if $show_version; then
 		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://mkuser.sh\n\nUpdate Check: "
 
 		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
-			latest_version_json="$(curl -m 5 -sL "https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest" 2> /dev/null)"
+			latest_version_json="$(curl -m 5 -sL 'https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest' 2> /dev/null)"
 			if [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
 				# Properly escape characters that may be in the "body" field (release notes) which could cause JSON.parse to fail.
 				# We are not displaying the release notes, but with these character properly escaped they could be displayed in the future if desired.
@@ -932,6 +984,8 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					echo "Up-to-Date${fallback_version_note}"
 				elif [[ "${latest_version}" =~ ^[${DIGITS}]+[${DIGITS}.-]*$ ]]; then
 					echo "Version ${latest_version} is Now Available!${fallback_version_note}"
+
+					if ! $show_releases_online; then echo 'Run "mkuser -v online" to open the mkuser Releases page on GitHub to download the latest version.'; fi
 				else
 					echo 'Failed to Retrieve Latest Version (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)'
 				fi
@@ -941,6 +995,20 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		else
 			echo 'Not Checking for Updates for Testing Version'
 		fi
+
+		if $show_releases_online; then
+			echo -e '\nOpening mkuser Releases page on GitHub...'
+
+			# open_command_asuser_or_not MUST NOT be quoted to execute the possible "launchctl asuser", "sudo -u", and "osascript" commands together properly.
+			${open_command_asuser_or_not} 'https://github.com/freegeek-pdx/mkuser/releases'
+		fi
+
+		return 0
+	elif $show_help_online; then
+		echo 'Opening README section of the mkuser GitHub page (which contains all help info)...'
+
+		# open_command_asuser_or_not MUST NOT be quoted to execute the possible "launchctl asuser", "sudo -u", and "osascript" commands together properly.
+		${open_command_asuser_or_not} 'https://github.com/freegeek-pdx/mkuser#readme'
 
 		return 0
 	elif $show_help; then
@@ -959,9 +1027,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
 📝 ${ansi_bold}DESCRIPTION:${clear_ansi}
 
-  ${ansi_bold}mkuser${clear_ansi} ${ansi_underline}m${clear_ansi}a${ansi_underline}k${clear_ansi}es ${ansi_underline}user${clear_ansi} accounts for macOS and has more options and does more
-    validation of inputs and verification of the created user account than any
-    other user creation tool, including ${ansi_bold}sysadminctl${clear_ansi} and System Preferences!
+  ${ansi_bold}mkuser${clear_ansi} ${ansi_underline}m${clear_ansi}a${ansi_underline}k${clear_ansi}es ${ansi_underline}user${clear_ansi} accounts for macOS with more options, more validation
+    of inputs, and more verification of the created user account than any other
+    user creation tool, including ${ansi_bold}sysadminctl -addUser${clear_ansi} and System Preferences!
 
 
 ℹ️  ${ansi_bold}USAGE NOTES:${clear_ansi}
@@ -1035,9 +1103,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       or ${ansi_bold}dscl . -list /Users${clear_ansi} even though the user does actually exist.
     Also, since users with account names starting with a period (.) are NOT
       properly detected by macOS, their existence can break next available UID
-      assignment by ${ansi_bold}sysadminctl${clear_ansi} and System Preferences and both could keep
-      incorrectly assigning the UID of the user with an account name starting
-      with a period (.) which fails and results in users created with no UID.
+      assignment by ${ansi_bold}sysadminctl -addUser${clear_ansi} and System Preferences and both could
+      keep incorrectly assigning the UID of the account name starting with
+      a period (.) which fails and results in users created with no UID.
     Since allowing account names starting with a period (.) would cause those
       issues and ${ansi_bold}mkuser${clear_ansi} would not be able to verify that the user was properly
       created, starting with a period (.) is not allowed by ${ansi_bold}mkuser${clear_ansi}.
@@ -1324,7 +1392,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--picture, --photo, --pic, -P${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} >
 
-    Must be a path to an existing image file that is 1 MB or under.
+    Must be a path to an existing image file that is 1 MB or under,
+      or be the filename of one of the default user pictures located within
+      the \"/Library/User Pictures/\" folder (with or without the file extension,
+      such as \"Earth\" or \"Penguin.tif\").
     When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option),
       the specified picture file will be copied into the user creation package.
     If omitted, a random default user picture will be assigned.
@@ -1428,17 +1499,18 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       in macOS 11 Big Sur, ${ansi_bold}mkuser${clear_ansi} can make \"Role Accounts\" with
       the same attributes on older versions of macOS as well.
 
-    Using this option is the same as creating a \"Role Account\" using ${ansi_bold}sysadminctl${clear_ansi}
-      with a command like: ${ansi_bold}sysadminctl -addUser _role -UID 201 -roleAccount${clear_ansi}
-    This example ${ansi_bold}sysadminctl${clear_ansi} command would create a \"Role Account\" with the
-      account name and full name of \"_role\" and the User ID \"201\".
+    Using this option is the same as creating a \"Role Account\" using
+      ${ansi_bold}sysadminctl -addUser${clear_ansi} with a command like:
+      ${ansi_bold}sysadminctl -addUser _role -UID 201 -roleAccount${clear_ansi}
+    This example ${ansi_bold}sysadminctl -addUser${clear_ansi} command would create a \"Role Account\"
+      with the account name and full name of \"_role\" and the User ID \"201\".
     ${ansi_bold}IMPORTANT:${clear_ansi} The example account would be created with ${ansi_underline}a blank/empty password${clear_ansi}.
 
     If you want to make an account exclusively to be the owner of files
       and/or processes that ${ansi_underline}has NO password${clear_ansi}, you probably want to use the
       ${ansi_bold}--service-account${clear_ansi} option instead of this ${ansi_bold}--role-account${clear_ansi} option.
 
-    Through investigation of a \"Role Account\" created by ${ansi_bold}sysadminctl${clear_ansi},
+    Through investigation of a \"Role Account\" created by ${ansi_bold}sysadminctl -addUser${clear_ansi},
       a \"Role Account\" is equivalent to creating a hidden user with account name
       starting with \"_\" and login shell \"/usr/bin/false\" and home \"/var/empty\".
     The previous example account could be created manually with ${ansi_bold}mkuser${clear_ansi} using:
@@ -1451,14 +1523,14 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     So, this same example account could be created with ${ansi_bold}mkuser${clear_ansi} using:
       ${ansi_bold}--account-name _role --uid 201 --role-account${clear_ansi}
 
-    Unlike ${ansi_bold}sysadminctl${clear_ansi} which requires the User ID to be specified manually,
-      ${ansi_bold}mkuser${clear_ansi} can assign the next available User ID starting from ${ansi_underline}200${clear_ansi}.
+    Unlike ${ansi_bold}sysadminctl -addUser${clear_ansi} which requires the User ID to be specified
+      manually, ${ansi_bold}mkuser${clear_ansi} can assign the next available User ID starting from ${ansi_underline}200${clear_ansi}.
     So if the User ID is not important, you can just use ${ansi_bold}--name _role --role${clear_ansi} to
       make this same example account with the next User ID in the 200-400 range.
 
-    ${ansi_bold}sysadminctl${clear_ansi} does not allow creating a \"Role Account\" that is also an admin.
+    ${ansi_bold}sysadminctl -addUser${clear_ansi} does not allow creating an admin \"Role Account\".
     If you run ${ansi_bold}sysadminctl -addUser _role -UID 201 -roleAccount -admin${clear_ansi},
-      the ${ansi_bold}-admin${clear_ansi} option is silently ignored by ${ansi_bold}sysadminctl${clear_ansi}.
+      the ${ansi_bold}-admin${clear_ansi} option is silently ignored by ${ansi_bold}sysadminctl -addUser${clear_ansi}.
     ${ansi_bold}mkuser${clear_ansi} also does not allow a \"Role Account\" to be an admin, but errors when
       using the ${ansi_bold}--admin${clear_ansi} option with ${ansi_bold}--role-account${clear_ansi} instead of ignoring it.
     Also, you cannot specify ${ansi_bold}--sharing-only${clear_ansi} or ${ansi_bold}--service-account${clear_ansi}
@@ -1780,7 +1852,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     This will not create a user immediately on the current system, but will
       save a distribution package file that can be used on another system.
     The distribution package (product archive) created will be suitable for use
-      with ${ansi_bold}startosinstall --installpackage${clear_ansi} or ${ansi_bold}installer -pkg${clear_ansi} or \"Installer\" app.
+      with ${ansi_bold}startosinstall --installpackage${clear_ansi} or ${ansi_bold}installer -pkg${clear_ansi} or \"Installer\" app,
+      and is also a \"nopayload\" package so no package receipt will be written.
     If no path is specified, the current working directory will be used along
       with the default filename: ${ansi_underline}<PKG ID>-<PKG VERSION>.pkg${clear_ansi}
     If a folder path is specified, the default filename will be used
@@ -1811,7 +1884,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       (only valid when using the ${ansi_bold}--package${clear_ansi} option).
     Must start with a number or letter and can only contain alphanumeric,
       hyphen/minus (-), or dot (.) characters.
-    If omitted, the current date will be used in the format: ${ansi_underline}YYYY.MM.DD${clear_ansi}
+    If omitted, the current date will be used in the format: ${ansi_underline}YYYY.M.D${clear_ansi}
 
 
   ${ansi_bold}--package-signing-identity, --package-sign, --pkg-sign${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
@@ -1853,17 +1926,27 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       current system isn't useful when installing packages on other systems.
 
 
-  ${ansi_bold}--version, -v${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
+  ${ansi_bold}--version, -v${clear_ansi}  < ${ansi_underline}online${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} >
 
-    Display the ${ansi_bold}mkuser${clear_ansi} version (it's ${MKUSER_VERSION}),
-      and also check for updates when connected to the internet
-      and display the newest version if an update is available.
+    Include this option with no parameter to display the ${ansi_bold}mkuser${clear_ansi} version
+      (which is ${MKUSER_VERSION}), and also check for updates when connected to
+      the internet and display the newest version if an update is available.
+
+    Specify \"${ansi_underline}online${clear_ansi}\" to also open the ${ansi_bold}mkuser${clear_ansi} Releases page on GitHub in the
+      default web browser to be able to quickly and easily view the latest
+      release notes as well as download the latest version.
+
     This option overrides all other options (including ${ansi_bold}--help${clear_ansi}).
 
 
-  ${ansi_bold}--help, -h${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
+  ${ansi_bold}--help, -h${clear_ansi}  < ${ansi_underline}online${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} >
 
-    Display this help information.
+    Include this option with no parameter to display this help information.
+
+    Specify \"${ansi_underline}online${clear_ansi}\" to instead open the README section of the ${ansi_bold}mkuser${clear_ansi} GitHub
+      page in the default web browser to be able quickly and easily
+      view the help information on there.
+
     This option overrides all other options (except ${ansi_bold}--version${clear_ansi}).
 "
 
@@ -1987,7 +2070,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# But, the *true* limit of the account name seems to 244 chars/byte (the char count will always be the byte count because of the allowed characters).
 		# Any longer than 244 chars and "dsimport" seems to execute without error (no non-zero exit code and no errors in the "--outputfile" plist), but the user just DOES NOT get created and fails on the first verification check.
 		# Using "dscl . -create" also fails silently with account names over 244 characters, and the user just does not get create (like "dsimport").
-		# Using "sysadminctl" fails gloriously with a bunch of errors with account names over 244 characters though. The errors are on multiple lines of "DSRecord.m" with error codes "-14136" and "-14071" and the user just does not get created.
+		# Using "sysadminctl -addUser" fails gloriously with a bunch of errors with account names over 244 characters though. The errors are on multiple lines of "DSRecord.m" with error codes "-14136" and "-14071" and the user just does not get created.
 		# So, limit the account name to 244 chars since that seems to be a true limit of all macOS account creation techniques.
 		# This 244 character limit was tested and confirmed on both Big Sur and High Sierra.
 	fi
@@ -1999,7 +2082,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		# System Preferences states that account names "Cannot contain numbers only" which is also shown when a hyphen/minus, underscore, or period is included, so it really means at least one letter is required.
 		# Setup Assistant will automatically add an "a" to the begnning of an account name that does not contain any letters.
-		# "sysadminctl" DOES allow account names that don't contain any letter and "dsimport" will also successfully create a user with an account name of only numbers and the user
+		# "sysadminctl -addUser" DOES allow account names that don't contain any letter and "dsimport" will also successfully create a user with an account name of only numbers and the user
 		# seemed to work fine in my brief testing. But still, I've chosen to match what System Preferences and Setup Assistant allows for consistency with normal user creation on macOS.
 	fi
 	(( error_code ++ ))
@@ -2078,9 +2161,9 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		fi
 
 		# Blank/empty passwords are not allowed when FileVault is enabled.
-		# System Preferences explicitly doesn't allow blank/empty passwords when FileVault is enabled and "sysadminctl" silently fails and sets NO password.
+		# System Preferences explicitly doesn't allow blank/empty passwords when FileVault is enabled and "sysadminctl -addUser" silently fails and sets NO password.
 		# When FileVault is enabled, the "dscl . -passwd "/Users/${user_account_name}" ''" command will error with: DS Error -14165 eDSAuthPasswordQualityCheckFailed
-		# and the user would get created with NO password (and not the intentional "*" no password, just no password at all) which also happens with "sysadminctl".
+		# and the user would get created with NO password (and not the intentional "*" no password, just no password at all) which also happens with "sysadminctl -addUser".
 	elif [[ "${user_password}" != '*' ]]; then
 		if (( ${#user_password} < 4 )); then
 			>&2 echo "mkuser ERROR ${error_code}: Password too short, it must be at least 4 characters or blank/empty password (unless FileVault is enabled, then blank/empty passwords are not allowed)."
@@ -2440,14 +2523,30 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if [[ -n "${user_picture_path}" ]]; then
 		if [[ ! -f "${user_picture_path}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Specified picture path \"${user_picture_path}\" does not exist."
-			return "${error_code}"
-		elif (( $(stat -f '%z' "${user_picture_path}") > 1000000 )); then
+			# Use "find" to allow user_picture_path to be specified by default user picture filename (with or without the file extension) such as "Earth" or "Penguin.tif" instead of only the full path.
+			possible_user_picture_path="$(find '/Library/User Pictures' -type f \( -iname "${user_picture_path}.*" -or -iname "${user_picture_path}" \) 2> /dev/null | head -1)" # Only use first match (just in case, but there should only ever be one match with this search criteria and default picture filenames).
+
+			if [[ -f "${possible_user_picture_path}" ]]; then
+				user_picture_path="${possible_user_picture_path}"
+			else
+				>&2 echo "mkuser ERROR ${error_code}: Specified $([[ "${user_picture_path}" == *'/'* ]] && echo 'picture path' || echo 'default picture name') \"${user_picture_path}\" does not exist."
+				return "${error_code}"
+			fi
+		fi
+
+		if (( $(stat -f '%z' "${user_picture_path}") > 1000000 )); then
 			>&2 echo "mkuser ERROR ${error_code}: Specified picture file \"${user_picture_path}\" is over 1 MB. Choose or create a smaller picture file."
 			return "${error_code}"
 
 			# Do not try to set picture that is over 1 MB (and exit with error).
 			# This check was inspired by code shared by Simon Andersen: https://macadmins.slack.com/archives/C07MGJ2SD/p1621271235165000?thread_ts=1621186749.143600&cid=C07MGJ2SD
+		else
+			user_picture_file_type="$(file -bI "${user_picture_path}" 2> /dev/null | cut -d ';' -f 1)"
+
+			if [[ "${user_picture_file_type}" != 'image/'* ]]; then
+				>&2 echo "mkuser ERROR ${error_code}: Specified picture file \"${user_picture_path}\" is not an image (file type is \"${user_picture_file_type:-UNKNOWN}\")."
+				return "${error_code}"
+			fi
 		fi
 	fi
 	(( error_code ++ ))
@@ -2487,7 +2586,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" cannot be same as the new user \"--account-name\"."
 			return "${error_code}"
 		elif ! $make_package; then # Only check that the Secure Token admin exists if not making a package which may run on another system.
-			if ! dscl . -read "/Users/${st_admin_account_name}" RecordName &> /dev/null || ! id -- "${st_admin_account_name}" &> /dev/null; then
+			if ! dscl . -read "/Users/${st_admin_account_name}" RecordName &> /dev/null; then
 				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" does not exist."
 				return "${error_code}"
 			elif [[ "$(dsmemberutil checkmembership -U "${st_admin_account_name}" -G 'admin' 2> /dev/null)" != 'user is a member of the group' ]]; then
@@ -2607,7 +2706,7 @@ DSCL_AUTHONLY_EXPECT_EOF
 			# MUST ALSO run "osascript" as authenticating user if running as root so that it will not always pass authentication no matter what.
 
 			local osascript_command_asuser_or_not='osascript'
-			if [[ "${EUID:-$(id -u)}" == '0' ]]; then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a Standard user (which cannot run "sudo" commands).
+			if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a Standard user (which cannot run "sudo" commands).
 				authenticating_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/$1" UniqueID 2> /dev/null)" 2> /dev/null)"
 				osascript_command_asuser_or_not="launchctl asuser ${authenticating_user_uid} sudo -u $1 osascript"
 			fi
@@ -2619,7 +2718,7 @@ OSASCRIPT_VERIFY_PASSWORD_EOF
 )"
 
 			verify_password_exit_code="$?"
-		elif [[ "${EUID:-$(id -u)}" == '0' ]] && (( password_byte_length <= 511 )); then # Editing the "/etc/nologin" requires running as root.
+		elif (( ${EUID:-$(id -u)} == 0 && password_byte_length <= 511 )); then # Editing the "/etc/nologin" requires running as root.
 			# Would never get this far when not running as root (when verifying a Secure Token admin password, which is limited to 128 bytes) but better to check and error cleanly that fail poorly if every used in other scenarios.
 
 			# As a backup solution to verifying passwords over 128 bytes without revealing it in the process list, I found that I could use the "login" command via "expect".
@@ -2787,7 +2886,18 @@ LOGIN_EXPECT_EOF
 	# The following subshell_function_pid will be used for "caffeinate" right now as well as "shlock" later on.
 	subshell_function_pid="$(bash -c 'echo "$PPID"')" # Must do this silly thing to be able to get the PID of the *subshell function* rather than the parent script in case this function is included in a larger script that we do not want to "caffeinate" for the entire run or "shlock" on the wrong PID.
 
+	if $IS_PACKAGE; then
+		# BUT, if running in a user creation package, the subshell PID seems to not be the correct one (maybe because of how it's run during package installation) which causes "shlock" to not work (allowing another mkuser process to run simultaneously).
+		# In this case, we want to use the actual script PID which works properly and is safe since the "postinstall" script will only contain the specific contents created by mkuser.
+		subshell_function_pid="$$"
+	fi
+
 	caffeinate -dimsu -w "${subshell_function_pid}" & # Use "caffeinate" to keep computer awake while the user is being created. The user creation should always be pretty quick, but this doesn't hurt.
+	caffeinate_pid=$! # When subshell_function_pid is the actual subshell PID, we don't need to kill caffeinate manually since caffeinate will exit on its own when the subshell exits. But, when it is the actual script PID during a package installation, it must be killed manually or the package installation will hang forever.
+
+	# Suppress ShellCheck warning that the caffeinate_pid variable is expanded when the trap is set, because that is what we want.
+	# shellcheck disable=SC2064
+	trap "kill '${caffeinate_pid}' &> /dev/null; wait '${caffeinate_pid}' &> /dev/null" EXIT # So, it doesn't hurt to just always kill the caffeinate_pid on EXIT to work properly in all cases (must also "wait" and redirect its output to "/dev/null" to suppress the "Terminated" message).
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	if $make_package; then
@@ -2822,7 +2932,10 @@ Check \"--help\" for detailed information about each available option."
 			# This folder name suffix appears to be the same regardless of if the package is installed via "installer" command or "Installer" app or "startosinstall --installpackage".
 		fi
 
-		if [[ -z "${pkg_version}" ]]; then pkg_version="$(date '+%F' | tr '-' '.')"; fi
+		if [[ -z "${pkg_version}" ]]; then
+			pkg_version="$(date '+%F' | tr '-' '.')"
+			pkg_version="${pkg_version//.0/.}" # Get rid of leading zeros in month and day.
+		fi
 
 		if ! $suppress_status_messages; then
 			echo "mkuser: Creating ${creating_user_type} ${user_full_and_account_name_display} User Creation Package: ${pkg_identifier} (version ${pkg_version})..."
@@ -3006,14 +3119,14 @@ if ! base64 -D <<< '$(gzip -9 -c "${user_picture_path}" | base64)' | zcat > '${e
 		rm -rf '${extracted_resources_dir}'
 	fi
 
-	package_error='PACKAGE ERROR: Failed to decode user picture (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
+	package_error='PACKAGE ERROR: Failed to extract user picture (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
 	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser PREINSTALL \${package_error}"
 	exit 1
 fi
 PACKAGE_PREINSTALL_EOF
 
-			quoted_valid_options_for_package+=" -picture '${extracted_resources_dir}/mkuser.picture'"
+			quoted_valid_options_for_package+=" --picture '${extracted_resources_dir}/mkuser.picture'"
 		fi
 
 		echo "
@@ -3528,7 +3641,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 			if (( "$osacompile_exit_code" != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
 				rm -rf "${package_scripts_dir}"
 
-				>&2 echo "mkuser ERROR ${error_code}: \"osacompile\" (for passwords obfuscation within package) failed with non-zero exit code of ${osacompile_exit_code}."
+				>&2 echo "mkuser ERROR ${error_code}: \"osacompile\" (for passwords obfuscation within package) failed with exit code ${osacompile_exit_code}."
 				return "${error_code}"
 			fi
 
@@ -3604,9 +3717,9 @@ PACKAGE_PREINSTALL_EOF
 
 		rm -rf "${package_scripts_dir}"
 
-		if (( pkgbuild_exit_code != 0 )); then
+		if (( pkgbuild_exit_code != 0 )) || [[ ! -f "${package_tmp_output_path}" ]]; then
 			rm -rf "${package_tmp_dir}"
-			>&2 echo "mkuser ERROR ${error_code}: \"pkgbuild\" (first step in package creation) failed with non-zero exit code of ${pkgbuild_exit_code}."
+			>&2 echo "mkuser ERROR ${error_code}: \"pkgbuild\" (first step in package creation) failed with exit code ${pkgbuild_exit_code}."
 			return "${error_code}"
 		fi
 
@@ -3621,9 +3734,9 @@ PACKAGE_PREINSTALL_EOF
 		productbuild "${productbuild_synthesize_options[@]}" # Intentionally letting "productbuild" output to stdout and/or stderr (depending on whether suppress_status_messages is enabled) for useful user feedback.
 		productbuild_synthesize_exit_code="$?"
 
-		if (( productbuild_synthesize_exit_code != 0 )); then
+		if (( productbuild_synthesize_exit_code != 0 )) || [[ ! -f "${package_distribution_xml_output_path}" ]]; then
 			rm -rf "${package_tmp_dir}"
-			>&2 echo "mkuser ERROR ${error_code}: \"productbuild --synthesize\" (second step in package creation) failed with non-zero exit code of ${productbuild_synthesize_exit_code}."
+			>&2 echo "mkuser ERROR ${error_code}: \"productbuild --synthesize\" (second step in package creation) failed with exit code ${productbuild_synthesize_exit_code}."
 			return "${error_code}"
 		fi
 
@@ -3673,8 +3786,11 @@ PACKAGE_PREINSTALL_EOF
 		# volume-check allowed-os-versions os-version min=10.13.0: Do not allow package installation on older than macOS 10.13 High Sierra, which is what the script is tested with and will error if run on older versions.
 		# Originally inserted each of these lines into distribution.xml with "sed", but it would fails if welcome or conclusion HTML strings got too long.
 
-		cat << CUSTOM_DISTRIBUTION_XML_OEF > "${package_tmp_dir}/distribution.xml"
-$(head -2 "${package_distribution_xml_output_path}")
+		package_distribution_xml_header="$(head -2 "${package_distribution_xml_output_path}")"
+		package_distribution_xml_footer="$(tail +3 "${package_distribution_xml_output_path}")"
+
+		cat << CUSTOM_DISTRIBUTION_XML_OEF > "${package_distribution_xml_output_path}"
+${package_distribution_xml_header}
     <title>Create ${creating_user_type} ${user_full_and_account_name_display_for_package_title}</title>
     <welcome language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
 \fs26 \uc0\u55357 \u56550  \ul User Creation Package\ul0 \line
@@ -3721,13 +3837,12 @@ $(head -2 "${package_distribution_xml_output_path}")
 \b Skip Setup Assistant on First Login:\b0  \i ${skip_setup_assistant_on_first_login}\i0
 }]]></welcome>
     <conclusion language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
-\fs26 \pard\qc \line
-\fs128 \uc0\u9989 \fs26 \line
+\fs36 \pard\qc \line
+\fs128 \uc0\u9989 \fs36 \line
 \line
-\fs36 Successfully created \ul ${creating_user_type}\ul0  \b ${user_full_and_account_name_display_rtf}\b0  and all verifications passed!\fs26 \line
+Successfully created \ul ${creating_user_type}\ul0  \b ${user_full_and_account_name_display_rtf}\b0  and all verifications passed!\line
 \line
-\line
-\uc0\u55357 \u56550  \ul User Creation Package\ul0 \line
+\fs26 \uc0\u55357 \u56550  \ul User Creation Package\ul0 \line
 \b {\field{\*\fldinst HYPERLINK "https://mkuser.sh"}{\fldrslt mkuser}} Version:\b0  ${MKUSER_VERSION}\line
 \b Package Identifier:\b0  ${pkg_identifier}\line
 \b Package Version:\b0  ${pkg_version}
@@ -3738,7 +3853,7 @@ $(head -2 "${package_distribution_xml_output_path}")
             <os-version min="10.13.0"/>
         </allowed-os-versions>
     </volume-check>
-$(tail +3 "${package_distribution_xml_output_path}")
+${package_distribution_xml_footer}
 CUSTOM_DISTRIBUTION_XML_OEF
 
 		# Previously setup a stripped down "check only" version of "mkuser" to run during the "installation-check" in the Installer JS,
@@ -3776,8 +3891,8 @@ CUSTOM_DISTRIBUTION_XML_OEF
 
 		rm -rf "${package_tmp_dir}"
 
-		if (( productbuild_exit_code != 0 )); then
-			>&2 echo "mkuser ERROR ${error_code}: \"productbuild\" (last step in package creation) failed with non-zero exit code of ${productbuild_exit_code}."
+		if (( productbuild_exit_code != 0 )) || [[ ! -f "${pkg_path}" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}: \"productbuild\" (last step in package creation) failed with exit code ${productbuild_exit_code}."
 			return "${error_code}"
 		fi
 
@@ -3798,7 +3913,7 @@ CUSTOM_DISTRIBUTION_XML_OEF
 		echo "mkuser: Checking that specified parameters don't conflict with existing users..."
 	fi
 
-	if ! $has_invalid_options && ! $check_only && [[ "${EUID:-$(id -u)}" == '0' ]]; then
+	if ! $has_invalid_options && ! $check_only && (( ${EUID:-$(id -u)} == 0 )); then
 		# Before doing any system specific checks, block simultaneous "mkuser" processes from running past this point at the same time since it could result in the same UID being assigned or user creation failing in a variety of other ways (such as conflicts during SharePoint Group creation).
 		# The safest option is to only allow a single "mkuser" process to run past this point at a time, so use "shlock" to wait until other "mkuser" processes are finished before proceeding with any checks or user creation.
 		# This correctly queues multiple simultaneous processes, but they are not guaranteed to run in order of execution, which I think is fine. If order is required, do not start simultaneous "mkuser" processes.
@@ -3810,7 +3925,10 @@ CUSTOM_DISTRIBUTION_XML_OEF
 		# Also, do not bother blocking simultaneous "mkuser" processes if not running as root since a user would never be created, but especially because "/private/var/run" is only accessibly by root and a non-root process would infinite loop when trying to check the file via "shlock".
 
 		# Use "trap" to catch all EXITs to always delete the '/private/var/run/mkuser.pid' file upon completion. This appears to always run for any "return" statement, and also runs after SIGINT in bash, but that may not be true for other shells: https://unix.stackexchange.com/questions/57940/trap-int-term-exit-really-necessary
-		trap "rm -rf '/private/var/run/mkuser.pid'" EXIT # Even though this command runs last, it does NOT seem to override the final exit code specified by the "return" statements throughout the "mkuser" function.
+		# AND also still kill the caffeinate_pid (and "wait" to redirect the "Terminated" message) like we set in the previous trap that would run if this one didn't get set.
+		# Suppress ShellCheck warning that the caffeinate_pid variable is expanded when the trap is set, because that is what we want.
+		# shellcheck disable=SC2064
+		trap "kill '${caffeinate_pid}' &> /dev/null; wait '${caffeinate_pid}' &> /dev/null; rm -rf '/private/var/run/mkuser.pid'" EXIT # Even though this command runs last, it does NOT seem to override the final exit code specified by the "return" statements throughout the "mkuser" function.
 
 		while ! shlock -p "${subshell_function_pid}" -f '/private/var/run/mkuser.pid' &> /dev/null; do # Loop and sleep until no other "mkuser" processes are running.
 			if ! $suppress_status_messages; then
@@ -4002,9 +4120,9 @@ uid: ${this_signed_32_bit_integer}" # Add these missing AD users to the dscacheu
 	fi
 
 	# Since account names that start with a dot/period (.) do not show up in "dscacheutil -q user" (or "dscl . -list /Users"), we must check for those manually from the "dslocal" plist files.
-	# Account names like this are NOT allowed to be create by "mkuser", but they could be created by System Preferences and "sysadminctl", etc.
-	# If we do not check for them, their possible existence could mess up the next available UID assigning, as their existence messes up the next available UID checks in System Preferences and "sysadminctl".
-	# These account names existing can cause System Preferences and "sysadminctl" to keep trying to assign the same UID which is already assigned to a hidden account which starts with a period, resulting in all new users being created with NO UID at all.
+	# Account names like this are NOT allowed to be create by "mkuser", but they could be created by System Preferences and "sysadminctl -addUser", etc.
+	# If we do not check for them, their possible existence could mess up the next available UID assigning, as their existence messes up the next available UID checks in System Preferences and "sysadminctl -addUser".
+	# These account names existing can cause System Preferences and "sysadminctl -addUser" to keep trying to assign the same UID which is already assigned to a hidden account which starts with a period, resulting in all new users being created with NO UID at all.
 	# To avoid this (rare but serious) possible issue, we must do this manually search for any account names that start with a period.
 	# These account UIDs directly from the plist files, will be the actual assigned UID (like "dscl" returns) which could possibly be outside of the signed 32-bit integer range, so they must also be converted into the signed 32-bit integer range.
 	# Once we know these account names, they could be queried directly with "dscacheutil -q user -a name", but like before we will instead convert their UIDs to the signed 32-bit integer form manually.
@@ -4029,10 +4147,10 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 		# trying to set a lower UID using "--startid" will error with "--startid must be 1024 or greater" for whatever reason.
 
 		# Start at the first UID that macOS assigns by default (501) and check for unused UIDs and use the lowest unused UID.
-		# This is mirrors the same behavior as "sysadminctl" and System Preferences, while "dscl" does not assign any default UID.
-		# Oddly, after 501 has been assigned, "sysadminctl" seems to always skip 502 and go straight to 503 as well as skip all of 701-899 and then increment by 2's after 900 but we will not replicate that very odd (and incorrect?) behavior.
+		# This mirrors the same behavior as "sysadminctl -addUser" and System Preferences, while "dscl . -create" does not assign any default UID.
+		# Oddly, after 501 has been assigned, "sysadminctl -addUser" seems to always skip 502 and go straight to 503 as well as skip all of 701-899 and then increment by 2's after 900 but we will not replicate that very odd (and incorrect?) behavior.
 		# Thanks to Simon Andersen for discovering this weird UID assignment behavior after UID 700.
-		# In at least macOS Monterey 12.1, "sysadminctl" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
+		# In at least macOS Monterey 12.1, "sysadminctl -addUser" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
 
 		starting_uid="$( ( $set_role_account || $set_service_account ) && echo '200' || echo '501' )" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
 		user_uid="${starting_uid}"
@@ -4296,7 +4414,7 @@ mkuser ERROR ${error_code}: NOT creating ${creating_user_type} ${user_full_and_a
 Check ERRORS and correct the invalid options or parameters to create a user.
 Check \"--help\" for detailed information about each available option."
 		return "${error_code}"
-	elif [[ "${EUID:-$(id -u)}" != '0' ]]; then
+	elif (( ${EUID:-$(id -u)} != 0 )); then
 		>&2 echo "mkuser ERROR ${error_code}: This tool must be run as root."
 		return "${error_code}"
 	fi
@@ -4318,16 +4436,16 @@ Check \"--help\" for detailed information about each available option."
 	# After this point, use "dscl ." instead of "dscl /Search" since all subsequent checks will be exclusively for the newly created local user.
 
 	# CREATE USER WITH DSIMPORT
-	# Since "dsimport" is the most powerful and flexible, that is what will be used for all user creations instead of "sysadminctl" or "dscl".
-	# - A user must be created with "dsimport" (or "dscl") when preventing Secure Token on macOS 11 Big Sur and newer since that tag must be set
-	#   upon user creation or before setting the password, which cannot be done with "sysadminctl". "dscl" can work for this case since the password
+	# Since "dsimport" is the most powerful and flexible, that is what will be used for all user creations instead of "sysadminctl -addUser" or "dscl . -create".
+	# - A user must be created with "dsimport" (or "dscl . -create") when preventing Secure Token on macOS 11 Big Sur and newer since that tag must be set
+	#   upon user creation or before setting the password, which cannot be done with "sysadminctl -addUser". "dscl . -create" can work for this case since the password
 	#   can be set with "dscl . -passwd" after setting the tag, but could not be used in all possible cases because of the last reason mentioned below.
 	#   See "set_prevent_secure_token_on_big_sur_and_newer" section below for more information about the tag to prevent Secure Tokens on Big Sur and newer.
-	# - A user must be created with "dsimport" (or "dscl") when specifying a "GeneratedUID" since "sysadminctl" assigns a "GeneratedUID" upon creation
-	#   and has no options available to set a desired "GeneratedUID", while "dsimport" and "dscl" can create a user with a specified "GeneratedUID".
-	#   To do this with "dscl" the "GeneratedUID" attribute can be added to the initial user creation command: "dscl . -create /Users/[name] GeneratedUID [SOME-GUID]".
-	# - Finally, "dsimport" can set a "JPEGPhoto" from a picture path, which cannot be done with "dscl". Setting a user with a picture
-	#   can be done with "sysadminctl", but "sysadminctl" could not be used in all cases because of the reasons mentioned above.
+	# - A user must be created with "dsimport" (or "dscl . -create") when specifying a "GeneratedUID" since "sysadminctl -addUser" assigns a "GeneratedUID" upon creation
+	#   and has no options available to set a desired "GeneratedUID", while "dsimport" and "dscl . -create" can create a user with a specified "GeneratedUID".
+	#   To do this with "dscl . -create" the "GeneratedUID" attribute can be added to the initial user creation command: "dscl . -create /Users/[name] GeneratedUID [SOME-GUID]".
+	# - Finally, "dsimport" can set a "JPEGPhoto" from a picture path, which cannot be done with "dscl . -create". Setting a user with a picture
+	#   can be done with "sysadminctl -addUser", but "sysadminctl -addUser" could not be used in all cases because of the reasons mentioned above.
 
 	# The following order of the attibutes does not matter, but I chose to use the "StandardUserRecord" order for the first 7 attributes as described in "man dsimport" and here:
 	# https://support.apple.com/guide/server/create-a-file-to-import-users-apd41051f16/mac#apd31dc619d2b014
@@ -4340,31 +4458,33 @@ Check \"--help\" for detailed information about each available option."
 
 	# The only other values that could be empty in the array above are "user_gid", "user_guid", or "user_password_hint" and it's fine if they are ignored by "dsimport"
 	# since a "GeneratedUID" will be assigned upon creation and "PrimaryGroupID" will be set to the default of "20" (staff) if not specified.
-	# Even though "AuthenticationHint" is not required when no password hint is set, System Preferences and "sysadminctl" still create the attribute with an empty string when no password hint is set.
+	# Even though "AuthenticationHint" is not required when no password hint is set, System Preferences and "sysadminctl -addUser" still create the attribute with an empty string when no password hint is set.
 	# To be able to replicate this behavior, the "AuthenticationHint" will be set to an empty string after user creation (if no password hint is set) since it cannot be set to an empty string by "dsimport".
 
 	if ! $set_no_picture; then
-		if [[ -z "${user_picture_path}" ]]; then # If user_picture_path was not set (and not explicitly set to no picture) then, choose a random picture like "sysadminctl" and System Preferences does.
-			user_picture_path="$(find '/Library/User Pictures' -name '*.tif' | sort -R | head -1)"
+		chose_random_user_picture=false
+		if [[ -z "${user_picture_path}" ]]; then # If user_picture_path was not set (and not explicitly set to no picture) then, choose a random picture like "sysadminctl -addUser" and System Preferences does.
+			user_picture_path="$(find '/Library/User Pictures' -type f \( -iname '*.tif' -or -iname '*.png' \) | sort -R | head -1)"
+			chose_random_user_picture=true
+		fi
 
-			if [[ -f "${user_picture_path}" ]]; then
-				# If we are using a default picture, also set the Picture attribute to the user_picture_path as "sysadminctl" and System Preferences does.
+		if [[ -f "${user_picture_path}" && "$(file -bI "${user_picture_path}" 2> /dev/null)" == 'image/'* ]]; then # Still check that we got a picture path in case something went wrong with random picture selection (if something changes in macOS).
+			# Add JPEGPhoto using "dsimport" reference: https://apple.stackexchange.com/questions/117530/setting-account-picture-jpegphoto-with-dscl-in-terminal/367667#367667
+
+			dsimport_record_attributes+=( 'externalbinary:JPEGPhoto' )
+			dsimport_record_values+=( "${user_picture_path}" )
+
+			if [[ "${user_picture_path}" == '/Library/User Pictures/'* ]]; then
+				# If we are using a default picture, also set the Picture attribute to the user_picture_path as "sysadminctl -addUser" and System Preferences does.
 				# This is not really necessary and would not set the picture in all location when set without JPEGPhoto: https://www.alansiu.net/2019/09/20/scripting-changing-the-user-picture-in-macos/
-				# But, adding the Picture path in this case is simple to create a complete user record just like "sysadminctl" and System Preferences.
+				# But, adding the Picture path in this case is simple to create a complete user record just like "sysadminctl -addUser" and System Preferences.
 				# If a custom picture is being used, there is no point adding this Picture attribute with the user_picture_path since it could only be stored in a temporary location anyways.
 
 				dsimport_record_attributes+=( 'Picture' )
 				dsimport_record_values+=( "${user_picture_path}" )
 			fi
-		fi
-
-		if [[ -f "${user_picture_path}" ]]; then # Still check that we got a picture path in case something went wrong with random picture selection (if something changes in macOS).
-			# Add JPEGPhoto using "dsimport" reference: https://apple.stackexchange.com/questions/117530/setting-account-picture-jpegphoto-with-dscl-in-terminal/367667#367667
-
-			dsimport_record_attributes+=( 'externalbinary:JPEGPhoto' )
-			dsimport_record_values+=( "${user_picture_path}" )
 		else
-			>&2 echo 'mkuser WARNING: Failed to get random picture, user will be created without a picture.'
+			>&2 echo "mkuser WARNING: Failed to get $($chose_random_user_picture && echo 'random' || echo 'specified') user picture at creation time, user will be created without a picture."
 		fi
 	fi
 
@@ -4374,7 +4494,7 @@ Check \"--help\" for detailed information about each available option."
 	fi
 
 	if ! $set_service_account; then
-		# Add other native attributes that "sysadminctl" and System Preferences add by default on macOS 10.13 High Sierra through macOS 11 Big Sur. (Unless is it a Service Account.)
+		# Add other native attributes that "sysadminctl -addUser" and System Preferences add by default on macOS 10.13 High Sierra through macOS 11 Big Sur. (Unless is it a Service Account.)
 		# This is mentioned in: https://gitlab.com/orchardandgrove-oss/NoMADLogin-AD/-/blob/main/Mechs/CreateUser.swift#L31
 
 		dsimport_record_attributes+=( 'dsAttrTypeNative:unlockOptions' )
@@ -4382,7 +4502,7 @@ Check \"--help\" for detailed information about each available option."
 		# "AvatarRepresentation" is also a default attribute, but it defaults to an empty string which would be ignored by "dsimport" and the attribute would not be created at all, so it will be added after user creation.
 
 		# The following "_writers_" attributes set to the user_account_name are CRITICAL in allowing the user to be able modify the specified attributes on their own without admin authentication.
-		# All of these attributes are what "sysadminctl" and System Preferences adds when creating a new user on macOS 10.13 High Sierra through macOS 11 Big Sur (and there is one new attribute for macOS 11 Big Sur which is added below for that version of macOS and newer).
+		# All of these attributes are what "sysadminctl -addUser" and System Preferences adds when creating a new user on macOS 10.13 High Sierra through macOS 11 Big Sur (and there is one new attribute for macOS 11 Big Sur which is added below for that version of macOS and newer).
 
 		dsimport_record_attributes+=( 'dsAttrTypeNative:_writers_AvatarRepresentation' 'dsAttrTypeNative:_writers_unlockOptions' 'dsAttrTypeNative:_writers_UserCertificate' )
 		dsimport_record_values+=( "${user_account_name}" "${user_account_name}" "${user_account_name}" )
@@ -4408,8 +4528,8 @@ Check \"--help\" for detailed information about each available option."
 		# So I initially omitted them from my own code since I didn't want to add things I didn't understand just because another project had added them.
 		# Through various digging and investigating other user creation code, I finally stumbled on a comment about these "_writers_" attibutes in: https://gitlab.com/orchardandgrove-oss/NoMADLogin-AD/-/blob/main/Mechs/CreateUser.swift#L21
 		# I then tested and confirmed this behavior that users cannot edit their own password when "_writers_passwd" is deleted and can also not edit their own picture when "_writers_jpegphoto" is missing without first authenticating as an admin, which is not default/normal macOS behavior.
-		# After that testing, I went ahead and added all of the "_writers_" attributes that "sysadminctl" and System Preferences create on macOS 10.13 High Sierra through macOS 11 Big Sur (and then added options to intentionally prohibit password and picture modification).
-		# NOTE: Both "pycreateuserpkg" AND "NoMADLogin-AD/Mechs/CreateUser.swift" add the "_writers_realname" attributes, but "sysadminctl" and System Preferences do not include this attribute on macOS 10.13 High Sierra and newer, so I have left it out.
+		# After that testing, I went ahead and added all of the "_writers_" attributes that "sysadminctl -addUser" and System Preferences create on macOS 10.13 High Sierra through macOS 11 Big Sur (and then added options to intentionally prohibit password and picture modification).
+		# NOTE: Both "pycreateuserpkg" AND "NoMADLogin-AD/Mechs/CreateUser.swift" add the "_writers_realname" attributes, but "sysadminctl -addUser" and System Preferences do not include this attribute on macOS 10.13 High Sierra and newer, so I have left it out.
 		# Also, even when I tested with this attribute added, I did not see any way to edit the users real name without authenticating as an admin in the Users & Groups list in System Preferences and then going into the "Advanced Options" by right clicking the user, so I am not sure of it's usefulness.
 
 		if (( darwin_major_version >= 20 )); then
@@ -4431,7 +4551,7 @@ Check \"--help\" for detailed information about each available option."
 
 		# NOTE: This tag MUST be set upon user creation or before setting the password, which is why the user can't be created using "sysadminctl -addUser" for this case.
 		# I tried omitting the "-password" option from "sysadminctl -addUser" and then setting the tag and then setting the password with "dscl . -passwd" but
-		# the user gets a Secure Token right after "sysadminctl -addUser" is used even when "-password" is omitted (it seems an empty string password is set by "sysadminctl").
+		# the user gets a Secure Token right after "sysadminctl -addUser" is used even when "-password" is omitted (it seems an empty string password is set by "sysadminctl -addUser").
 		# On macOS 10.15 Catalina and older, this tag does not prevent a user from being granted a Secure Token.
 	fi
 
@@ -4622,7 +4742,7 @@ Check \"--help\" for detailed information about each available option."
 	if ! $set_service_account; then
 		# Add empty string attributes after user creation since "dsimport" ignores empty strings and does not create the attributes at all.
 		# "dscl . -create" ALSO ignores empty strings and does not create the attributes (and it will delete any existing attribute if "dscl . -create" is run with an empty string).
-		# But I found that "dscl . -append" will properly create the attribute with an empty string value. So, that is what will be used to properly replicate the behavior of System Preferences and "sysadminctl".
+		# But I found that "dscl . -append" will properly create the attribute with an empty string value. So, that is what will be used to properly replicate the behavior of System Preferences and "sysadminctl -addUser".
 		# Do not bother checking that these are set correctly and erroring if not since I think it's actually alright for them not to exist.
 
 		if [[ -z "${user_password_hint}" && "$(dscl . -read "/Users/${user_account_name}" AuthenticationHint 2>&1)" == 'No such key: AuthenticationHint' ]]; then
@@ -4691,9 +4811,9 @@ Check \"--help\" for detailed information about each available option."
 		# Intentionally letting "createhomedir" output to stdout and stderr for useful user feedback when status messages aren't suppressed and only output stderr when they are.
 		# "cd /" before "createhomedir" because it could "shell-init: error retrieving current directory: getcwd: cannot access parent directories: Permission denied" if the current working directory is "/var/root" (root user home folder). Thanks to Thomas Esser for discovering this bug and fix.
 		if ! (cd /; createhomedir -cu "${user_account_name}" > "$($suppress_status_messages && echo '/dev/null' || echo '/dev/stdout')") || [[ ! -d "${user_home_path}" ]]; then
-			# Must create home folder manually when using "dsimport" (or "dscl"). The home folder is created by "sysadminctl"
-			# during normal user creation. Although, when specifying a custom home folder, "sysadminctl" will assign the folder
-			# but not create it automatically. Regardless, "sysadminctl" doesn't cover all the possible cases mentioned previously.
+			# Must create home folder manually when using "dsimport" (or "dscl . -create"). The home folder is created by "sysadminctl -addUser"
+			# during normal user creation. Although, when specifying a custom home folder, "sysadminctl -addUser" will assign the folder
+			# but not create it automatically. Regardless, "sysadminctl -addUser" doesn't cover all the possible cases mentioned previously.
 
 			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to create home folder \"${user_home_path}\"."
 			return "${error_code}"
@@ -4797,20 +4917,20 @@ Check \"--help\" for detailed information about each available option."
 				echo "mkuser: Sharing ${user_full_and_account_name_display} user Public folder..."
 			fi
 
-			# Create user SharePoint (using "sharing -a") since that is default macOS behavior for users created by "sysadminctl" and System Preferences (but "dsimport" does not add the SharePoint automatically).
-			# After creating a new SharePoint (using "sharing -a"), the SharePoint structure does not match what would be created by "sysadminctl" and System Preferences,
-			# and also a new SharePoint Group (com.apple.sharepoint.group.#) does not get creating like "sysadminctl" and System Preferences would create.
-			# So, we will add a new SharePoint Group (com.apple.sharepoint.group.#) manually and modify the "sharing -a" SharePoint structure to match how "sysadminctl" and System Preferences would make it.
+			# Create user SharePoint (using "sharing -a") since that is default macOS behavior for users created by "sysadminctl -addUser" and System Preferences (but "dsimport" does not add the SharePoint automatically).
+			# After creating a new SharePoint (using "sharing -a"), the SharePoint structure does not match what would be created by "sysadminctl -addUser" and System Preferences,
+			# and also a new SharePoint Group (com.apple.sharepoint.group.#) does not get creating like "sysadminctl -addUser" and System Preferences would create.
+			# So, we will add a new SharePoint Group (com.apple.sharepoint.group.#) manually and modify the "sharing -a" SharePoint structure to match how "sysadminctl -addUser" and System Preferences would make it.
 
 			# I am not actually sure what the purpose of the SharePoint Group (com.apple.sharepoint.group.#) is, since a shared folder seems to work fine without it, but the
-			# goal here is to match "sysadminctl" and System Preferences as exactly as possible, so we will replicate those exact SharePoint and SharePoint Group structures.
+			# goal here is to match "sysadminctl -addUser" and System Preferences as exactly as possible, so we will replicate those exact SharePoint and SharePoint Group structures.
 
-			# Slightly relevant reference for SharePoint structure via "sysadminctl" and System Preferences (which does not match the "sharing -a" structure): https://malcontentcomics.com/systemsboy/2008/03/netboot-part-4.html
+			# Slightly relevant reference for SharePoint structure via "sysadminctl -addUser" and System Preferences (which does not match the "sharing -a" structure): https://malcontentcomics.com/systemsboy/2008/03/netboot-part-4.html
 			# This references is also useful since it shows that the structure of a SharePoint created via System Preferences has been basically the same since 2008 and "sharing -a" has not been updated to match in all that time.
-			# So, we should not expect "sharing -a" to match the behavior and structure of adding a SharePoint via "sysadminctl" or System Preferences in a future version of macOS (anything is possible, but seems extremely unlikely).
-			# Maybe there is a new modern CLI way to add a SharePoint that matches the behavior of "sysadminctl" and System Preferences, but I haven't found it.
+			# So, we should not expect "sharing -a" to match the behavior and structure of adding a SharePoint via "sysadminctl -addUser" or System Preferences in a future version of macOS (anything is possible, but seems extremely unlikely).
+			# Maybe there is a new modern CLI way to add a SharePoint that matches the behavior of "sysadminctl -addUser" and System Preferences, but I haven't found it.
 
-			# Find the lowest available Group ID for the SharePoint Group starting at "701", like "sysadminctl" and System Preferences does.
+			# Find the lowest available Group ID for the SharePoint Group starting at "701", like "sysadminctl -addUser" and System Preferences does.
 
 			# all_assigned_gids is loaded above when confirming that the users Primary Group ID already exists.
 			# See "UIDs CAN BE REPRESENTED IN DIFFERENT FORMS" notes and following code for important information about GIDs and UIDs.
@@ -4835,7 +4955,7 @@ Check \"--help\" for detailed information about each available option."
 				return "${error_code}"
 			fi
 
-			# Find the lowest available name for the SharePoint Group starting at "com.apple.sharepoint.group.1", like "sysadminctl" and System Preferences does.
+			# Find the lowest available name for the SharePoint Group starting at "com.apple.sharepoint.group.1", like "sysadminctl -addUser" and System Preferences does.
 			share_point_group_name_prefix='com.apple.sharepoint.group.'
 			user_share_point_group_name_index=1
 			user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
@@ -4866,7 +4986,7 @@ Check \"--help\" for detailed information about each available option."
 
 			# All of the following attributes for the "dscl" commands are "dsAttrTypeNative" types, but that prefix can be omitted when using "dscl".
 
-			# The "sharing -a" SharePoint will contain the following 4 attributes which are not created for SharePoints created via "sysadminctl" and System Preferences, so delete them.
+			# The "sharing -a" SharePoint will contain the following 4 attributes which are not created for SharePoints created via "sysadminctl -addUser" and System Preferences, so delete them.
 			if ! dscl . -delete "/SharePoints/${user_share_point_name}" afp_use_parent_owner &> /dev/null || \
 				! dscl . -delete "/SharePoints/${user_share_point_name}" afp_use_parent_privs &> /dev/null || \
 				! dscl . -delete "/SharePoints/${user_share_point_name}" smb_readonly &> /dev/null || \
@@ -4879,7 +4999,7 @@ Check \"--help\" for detailed information about each available option."
 				return "${error_code}"
 			fi
 
-			# The "sharing -a" SharePoint will NOT contain the following 5 (or 4) attributes which ARE created for SharePoints created via "sysadminctl" and System Preferences, so add them.
+			# The "sharing -a" SharePoint will NOT contain the following 5 (or 4) attributes which ARE created for SharePoints created via "sysadminctl -addUser" and System Preferences, so add them.
 			if (( darwin_major_version >= 19 )); then
 				# This attribute was added in macOS 10.15 Catalina and did not exist in older versions of macOS.
 				if ! dscl . -create "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid "${user_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:com_apple_sharing_uuid:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null)" 2> /dev/null)" != "${user_guid}" ]]; then
@@ -4906,7 +5026,7 @@ Check \"--help\" for detailed information about each available option."
 				# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra or newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
 				# This check should make this one thing simpler if official support for older versions of macOS is ever needed, or if things change in a future version of macOS.
 
-				# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl" and System Preferences does.
+				# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl -addUser" and System Preferences does.
 				if ! dseditgroup -q -o create -i "${user_share_point_group_id}" -r "${user_share_point_name}" -a 'everyone' -t 'group' "${user_share_point_group_name}" || ! dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then # Check existence with "dscacheutil" to verify GID and to make sure the new group has been cached.
 					>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add SharePoint Group \"${user_share_point_group_name}\"."
 					return "${error_code}"
@@ -4915,7 +5035,7 @@ Check \"--help\" for detailed information about each available option."
 				>&2 echo "mkuser WARNING: SharePoint Group \"${user_share_point_name}\" (${user_share_point_group_id}) was unexpectedly already created by the \"sharing -a\" command." # Log warning if the SharePoint Group was created by "sharing -a" to notice if things ever change in a future version of macOS.
 			fi
 
-			# Hide the SharePoint Group like "sysadminctl" and System Preferences does.
+			# Hide the SharePoint Group like "sysadminctl -addUser" and System Preferences does.
 			if ! dscl . -create "/Groups/${user_share_point_group_name}" IsHidden '1' || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:IsHidden:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" IsHidden 2> /dev/null)" 2> /dev/null)" != '1' ]]; then
 				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to hide SharePoint Group."
 				return "${error_code}"
@@ -4942,8 +5062,8 @@ Check \"--help\" for detailed information about each available option."
 		# and if only the the account name is added to the "GroupMembership" when adding an admin, the admin user will not show in Recovery as that seems to rely on the GUID being present in the "GroupMembers" attribute.
 		# Credit to Simon Andersen for discovering that the GUID is necessary for an admin to appear in Recovery: https://macadmins.slack.com/archives/C016JJWLZUY/p1630918818230500?thread_ts=1630599345.159900&cid=C016JJWLZUY
 
-		# "sysadminctl" is able to add a user to the "admin" group with a single "sysadminctl -addUser -admin" command, but "sysadminctl" does not cover all the possible cases mentioned previously.
-		# Admin users created by "sysadminctl" or System Preferences are also be added to the "_appserverusr" and "_appserveradm" groups (along with "admin").
+		# "sysadminctl -addUser" is able to add a user to the "admin" group with a single "sysadminctl -addUser -admin" command, but "sysadminctl -addUser" does not cover all the possible cases mentioned previously.
+		# Admin users created by "sysadminctl -addUser" or System Preferences are also be added to the "_appserverusr" and "_appserveradm" groups (along with "admin").
 		# I have confirmed admins are added to these 2 groups on macOS 10.13 High Sierra and macOS 11 Big Sur, but I eventually want research more macOS versions to see if there are any variations.
 
 		admin_groups=( 'admin' '_appserverusr' '_appserveradm' )

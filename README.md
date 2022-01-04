@@ -1,6 +1,6 @@
 # `mkuser` for macOS
 
-`mkuser` **m**a**k**es **user** accounts for macOS and has more options and does more validation of inputs and verification of the created user account than any other user creation tool, including `sysadminctl` and System Preferences!
+`mkuser` **m**a**k**es **user** accounts for macOS with more options, more validation of inputs, and more verification of the created user account than any other user creation tool, including `sysadminctl -addUser` and System Preferences!
 
 `mkuser` supports and has been thoroughly tested with macOS 10.13 High Sierra and newer (it likely works on older versions of macOS as well, but that hasn't been tested). The newest version of macOS that `mkuser` has been tested with as of writing this is macOS 12 Monterey. Because of how `mkuser` is written and the built-in tools it uses to create user accounts, it should support future versions of macOS without any major issues as the fundamentals of user creation have been consistent for years across many versions of macOS. If somehow an issue does occur with a future version of macOS, `mkuser`'s excessive verifications should detect the issue and present a detailed error message.
 
@@ -63,7 +63,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 >
 > **ACCOUNT NAMES STARTING WITH PERIOD (.) NOTES:**<br/>
 > System Preferences actually allows account names to start with a period (.), but that causes the account name to not show up in `dscacheutil -q user` or `dscl . -list /Users` even though the user does actually exist.<br/>
-> Also, since users with account names starting with a period (.) are NOT properly detected by macOS, their existence can break next available UID assignment by `sysadminctl` and System Preferences and both could keep incorrectly assigning the UID of the user with an account name starting with a period (.) which fails and results in users created with no UID.<br/>
+> Also, since users with account names starting with a period (.) are NOT properly detected by macOS, their existence can break next available UID assignment by `sysadminctl -addUser` and System Preferences and both could keep incorrectly assigning the UID of the account name starting with a period (.) which fails and results in users created with no UID.<br/>
 > Since allowing account names starting with a period (.) would cause those issues and `mkuser` would not be able to verify that the user was properly created, starting with a period (.) is not allowed by `mkuser`.
 
 <br/>
@@ -257,7 +257,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--picture, --photo, --pic, -P` < *existing path* >
 
-> Must be a path to an existing image file that is 1 MB or under.<br/>
+> Must be a path to an existing image file that is 1 MB or under, or the be filename of one of the default user pictures located within the "/Library/User Pictures/" folder (with or without the file extension, such as "Earth" or "Penguin.tif").<br/>
 > When outputting a user creation package (with the `--package` option), the specified picture file will be copied into the user creation package.<br/>
 > If omitted, a random default user picture will be assigned.
 
@@ -337,13 +337,13 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > And `mkuser` has these same requirements to create a "Role Account".<br/>
 > Even though the `-roleAccount` option was only added to `sysadminctl -addUser` in macOS 11 Big Sur, `mkuser` can make "Role Accounts" with the same attributes on older versions of macOS as well.
 >
-> Using this option is the same as creating a "Role Account" using `sysadminctl` with a command like: `sysadminctl -addUser _role -UID 201 -roleAccount`<br/>
-> This example `sysadminctl` command would create a "Role Account" with the account name and full name of "_role" and the User ID "201".<br/>
+> Using this option is the same as creating a "Role Account" using `sysadminctl -addUser` with a command like: `sysadminctl -addUser _role -UID 201 -roleAccount`<br/>
+> This example `sysadminctl -addUser` command would create a "Role Account" with the account name and full name of "_role" and the User ID "201".<br/>
 > **IMPORTANT:** The example account would be created with *a blank/empty password*.
 >
 > If you want to make an account exclusively to be the owner of files and/or processes that *has NO password*, you probably want to use the `--service-account` option instead of this `--role-account` option.
 >
-> Through investigation of a "Role Account" created by `sysadminctl`, a "Role Account" is equivalent to creating a hidden user with account name starting with "_" and login shell "/usr/bin/false" and home "/var/empty".<br/>
+> Through investigation of a "Role Account" created by `sysadminctl -addUser`, a "Role Account" is equivalent to creating a hidden user with account name starting with "_" and login shell "/usr/bin/false" and home "/var/empty".<br/>
 > The previous example account could be created manually with `mkuser` using: `-n _role -u 201 -s /usr/bin/false -H /var/empty --hide userOnly` or `--name _role --uid 201 --no-login --home /var/empty --hide userOnly`.<br/>
 > See `--no-login` help for more information about login shell "/usr/bin/false".<br/>
 > See `--hidden` help for more information about hiding users (`--hide userOnly`).
@@ -351,11 +351,11 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > This is here as a seperate option for convenience and information.<br/>
 > So, this same example account could be created with `mkuser` using: `--account-name _role --uid 201 --role-account`
 >
-> Unlike `sysadminctl` which requires the User ID to be specified manually, `mkuser` can assign the next available User ID starting from *200*.<br/>
+> Unlike `sysadminctl -addUser` which requires the User ID to be specified manually, `mkuser` can assign the next available User ID starting from *200*.<br/>
 > So if the User ID is not important, you can just use `--name _role --role` to make this same example account with the next User ID in the 200-400 range.
 >
-> `sysadminctl` does not allow creating a "Role Account" that is also an admin.<br/>
-> If you run `sysadminctl -addUser _role -UID 201 -roleAccount -admin`, the `-admin` option is silently ignored by `sysadminctl`.<br/>
+> `sysadminctl -addUser` does not allow creating an admin "Role Account".<br/>
+> If you run `sysadminctl -addUser _role -UID 201 -roleAccount -admin`, the `-admin` option is silently ignored by `sysadminctl -addUser`.<br/>
 > `mkuser` also does not allow a "Role Account" to be an admin, but errors when using the `--admin` option with `--role-account` instead of ignoring it.<br/>
 > Also, you cannot specify `--sharing-only` or `--service-account` with this option since they are mutually exclusive account types.
 
@@ -539,7 +539,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 > Save distribution package to create a user with the other specified options.<br/>
 > This will not create a user immediately on the current system, but will save a distribution package file that can be used on another system.<br/>
-> The distribution package (product archive) created will be suitable for use with `startosinstall --installpackage` or `installer -pkg` or "Installer" app.<br/>
+> The distribution package (product archive) created will be suitable for use with `startosinstall --installpackage` or `installer -pkg` or "Installer" app, and is also a "nopayload" package so no package receipt will be written.<br/>
 > If no path is specified, the current working directory will be used along with the default filename: *\<PKG ID\>-\<PKG VERSION\>.pkg*<br/>
 > If a folder path is specified, the default filename will be used within the specified folder.<br/>
 > If a full file path ending in ".pkg" is specified, that whole path and filename will be used.<br/>
@@ -560,7 +560,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 > Specify the version string to use for the package (only valid when using the `--package` option).<br/>
 > Must start with a number or letter and can only contain alphanumeric, hyphen/minus (-), or dot (.) characters.<br/>
-> If omitted, the current date will be used in the format: *YYYY.MM.DD*
+> If omitted, the current date will be used in the format: *YYYY.M.D*
 
 <br/>
 
@@ -598,14 +598,20 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 <br/>
 
-#### `--version, -v` < *no parameter* >
+#### `--version, -v` < *online* || *no parameter* >
 
-> Display the `mkuser` version, and also check for updates when connected to the internet and display the newest version if an update is available.<br/>
+> Include this option with no parameter to display the `mkuser` version, and also check for updates when connected to the internet and display the newest version if an update is available.
+>
+> Specify "*online*" to also open the `mkuser` Releases page on GitHub in the default web browser to be able to quickly and easily view the latest release notes as well as download the latest version.
+>
 > This option overrides all other options (including `--help`).
 
 <br/>
 
-#### `--help, -h` < *no parameter* >
+#### `--help, -h` < *online* || *no parameter* >
 
-> Display this help information.<br/>
+> Include this option with no parameter to display this help information in Terminal.
+>
+> Specify "*online*" to instead open this README section of the `mkuser` GitHub page in the default web browser to be able quickly and easily view this help information from here.
+>
 > This option overrides all other options (except `--version`).
