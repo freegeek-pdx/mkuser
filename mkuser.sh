@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.1.4-1'
+	readonly MKUSER_VERSION='2022.1.6-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -946,7 +946,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	local open_command_asuser_or_not='open' # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
-	if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a Standard user (which cannot run "sudo" commands).
+	if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
 		current_user_id="$(scutil <<< 'show State:/Users/ConsoleUser' | awk '($1 == "UID") { print $NF; exit }')"
 		if (( current_user_id != 0 )); then
 			current_user_name="$(dscl /Search -search /Users UniqueID "${current_user_id}" 2> /dev/null | awk '{ print $1; exit }')"
@@ -1181,7 +1181,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       ${ansi_underline}UIDs CAN BE REPRESENTED IN DIFFERENT FORMS${clear_ansi} comments in this script.
 
 
-  ${ansi_bold}--login-shell, --user-shell, --shell, -s${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} >
+  ${ansi_bold}--login-shell, --user-shell, --shell, -s${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} || ${ansi_underline}command name${clear_ansi} >
 
     The login shell must be the path to an existing executable file, or a valid
       command name that can be resolved using ${ansi_bold}which${clear_ansi} (searching within
@@ -1283,7 +1283,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       option hides the password from the process list.
     The help information for the ${ansi_bold}--password${clear_ansi} option above also applies to
       passwords passed via \"stdin\".
-    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--stdin-password${clear_ansi} ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi} since
+    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--stdin-password${clear_ansi} also ENABLES ${ansi_bold}--do-not-confirm${clear_ansi} since
       accepting \"stdin\" disrupts the ability to use other command line inputs.
 
 
@@ -1300,7 +1300,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
   ${ansi_bold}--no-password, --no-pass, --np${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to set no password at all instead of a
-      blank/empty password (like when excluding the ${ansi_bold}--password${clear_ansi} option).
+      blank/empty password (like when the ${ansi_bold}--password${clear_ansi} option is omitted).
     This option is equivalent to setting the password to \"*\" with ${ansi_bold}--password '*'${clear_ansi}
       and is here as a seperate option for convenience and information.
     Setting the password to \"*\" is a special character that indicates
@@ -1390,21 +1390,21 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
 🖼  ${ansi_bold}PICTURE OPTIONS:${clear_ansi}
 
-  ${ansi_bold}--picture, --photo, --pic, -P${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} >
+  ${ansi_bold}--picture, --photo, --pic, -P${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} || ${ansi_underline}default picture filename${clear_ansi} >
 
     Must be a path to an existing image file that is 1 MB or under,
       or be the filename of one of the default user pictures located within
       the \"/Library/User Pictures/\" folder (with or without the file extension,
       such as \"Earth\" or \"Penguin.tif\").
     When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option),
-      the specified picture file will be copied into the user creation package.
+      the specified picture file will be included in the user creation package.
     If omitted, a random default user picture will be assigned.
 
 
   ${ansi_bold}--no-picture, --no-photo, --no-pic${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to not set any picture instead of
-      a random default user picture (like when excluding the ${ansi_bold}--picture${clear_ansi} option).
+      a random default user picture (like when the ${ansi_bold}--picture${clear_ansi} option is omitted).
     When no picture is set, a grey head and shoulders silhouette icon is used.
 
 
@@ -1421,7 +1421,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
   ${ansi_bold}--administrator, --admin, -a${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to make the user an administrator.
-    Administrator can manage other users, install apps, and change settings.
+    Administrators can manage other users, install apps, and change settings.
 
     If omitted, a standard user will be created.
     Standard users can install apps and change their own settings,
@@ -1906,7 +1906,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     This option is ignored when outputting a user creation package (with the
       ${ansi_bold}--package${clear_ansi} option) since no user will be created on the current system.
     ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} OR ${ansi_bold}--stdin-password${clear_ansi}
-      ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi}.
+      also ENABLES ${ansi_bold}--do-not-confirm${clear_ansi}.
 
 
   ${ansi_bold}--suppress-status-messages, --quiet, -q${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
@@ -1914,7 +1914,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Include this option with no parameter to not output any status messages
       that would be sent to \"stdout\".
     Any errors and warning that are sent to \"stderr\" will still be outputted.
-    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} ALSO enables ${ansi_bold}--do-not-confirm${clear_ansi}.
+    ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} also ENABLES ${ansi_bold}--do-not-confirm${clear_ansi}.
 
 
   ${ansi_bold}--check-only, --dry-run, --check, -c${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
@@ -2706,7 +2706,7 @@ DSCL_AUTHONLY_EXPECT_EOF
 			# MUST ALSO run "osascript" as authenticating user if running as root so that it will not always pass authentication no matter what.
 
 			local osascript_command_asuser_or_not='osascript'
-			if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a Standard user (which cannot run "sudo" commands).
+			if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
 				authenticating_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/$1" UniqueID 2> /dev/null)" 2> /dev/null)"
 				osascript_command_asuser_or_not="launchctl asuser ${authenticating_user_uid} sudo -u $1 osascript"
 			fi
@@ -2886,18 +2886,7 @@ LOGIN_EXPECT_EOF
 	# The following subshell_function_pid will be used for "caffeinate" right now as well as "shlock" later on.
 	subshell_function_pid="$(bash -c 'echo "$PPID"')" # Must do this silly thing to be able to get the PID of the *subshell function* rather than the parent script in case this function is included in a larger script that we do not want to "caffeinate" for the entire run or "shlock" on the wrong PID.
 
-	if $IS_PACKAGE; then
-		# BUT, if running in a user creation package, the subshell PID seems to not be the correct one (maybe because of how it's run during package installation) which causes "shlock" to not work (allowing another mkuser process to run simultaneously).
-		# In this case, we want to use the actual script PID which works properly and is safe since the "postinstall" script will only contain the specific contents created by mkuser.
-		subshell_function_pid="$$"
-	fi
-
 	caffeinate -dimsu -w "${subshell_function_pid}" & # Use "caffeinate" to keep computer awake while the user is being created. The user creation should always be pretty quick, but this doesn't hurt.
-	caffeinate_pid=$! # When subshell_function_pid is the actual subshell PID, we don't need to kill caffeinate manually since caffeinate will exit on its own when the subshell exits. But, when it is the actual script PID during a package installation, it must be killed manually or the package installation will hang forever.
-
-	# Suppress ShellCheck warning that the caffeinate_pid variable is expanded when the trap is set, because that is what we want.
-	# shellcheck disable=SC2064
-	trap "kill '${caffeinate_pid}' &> /dev/null; wait '${caffeinate_pid}' &> /dev/null" EXIT # So, it doesn't hurt to just always kill the caffeinate_pid on EXIT to work properly in all cases (must also "wait" and redirect its output to "/dev/null" to suppress the "Terminated" message).
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	if $make_package; then
@@ -2932,10 +2921,7 @@ Check \"--help\" for detailed information about each available option."
 			# This folder name suffix appears to be the same regardless of if the package is installed via "installer" command or "Installer" app or "startosinstall --installpackage".
 		fi
 
-		if [[ -z "${pkg_version}" ]]; then
-			pkg_version="$(date '+%F' | tr '-' '.')"
-			pkg_version="${pkg_version//.0/.}" # Get rid of leading zeros in month and day.
-		fi
+		if [[ -z "${pkg_version}" ]]; then pkg_version="$(date '+%Y.%-m.%-d')"; fi # https://strftime.org
 
 		if ! $suppress_status_messages; then
 			echo "mkuser: Creating ${creating_user_type} ${user_full_and_account_name_display} User Creation Package: ${pkg_identifier} (version ${pkg_version})..."
@@ -3040,7 +3026,7 @@ mkuser_installer_display_error() { # Only when running graphically via "Installe
 		if [[ "\$1" == 'Did Not Attempt' ]]; then
 			display_error_message+='\n\nThis error is only from checks failing. User creation WAS NOT attempted and this system was not altered in any way.'
 		else
-			display_error_message+='\n\nView \"Show All Logs\" output of the \"Installer Log\" (within the \"Window\" menu) for more details. Or, you can view \"install.log\" within the \"Console\" app.'
+			display_error_message+='\n\nView \"Show All Logs\" output of the \"Installer Log\" (within the \"Window\" menu) for more details. Or, you can view \"install.log\" within the \"Console\" app.\n\nTHIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE.'
 		fi
 
 		launchctl asuser "\${current_user_id}" sudo -u "\${current_user_name}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
@@ -3126,7 +3112,12 @@ if ! base64 -D <<< '$(gzip -9 -c "${user_picture_path}" | base64)' | zcat > '${e
 fi
 PACKAGE_PREINSTALL_EOF
 
-			quoted_valid_options_for_package+=" --picture '${extracted_resources_dir}/mkuser.picture'"
+			if [[ "${user_picture_path}" == '/Library/User Pictures/'* ]]; then
+				# If a default user picture is specified, check if it exists on the target system and use it instead of the copy that is included in the package (which will have been extracted if needed as a fallback in case the same default user picture doesn't exist for some reason).
+				quoted_valid_options_for_package+=" --picture \"\$([[ -f '${user_picture_path}' && \"\$(file -bI '${user_picture_path}' 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' '${user_picture_path}') <= 1000000 )) && echo '${user_picture_path}' || echo '${extracted_resources_dir}/mkuser.picture')\""
+			else
+				quoted_valid_options_for_package+=" --picture '${extracted_resources_dir}/mkuser.picture'"
+			fi
 		fi
 
 		echo "
@@ -3264,12 +3255,12 @@ PACKAGE_POSTINSTALL_EOF
 			if [[ -n "${st_admin_account_name}" ]]; then
 				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
-mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password --fd3-secure-token-admin-password <<< "\${decrypted_user_password}" 3<<< "\${decrypted_st_admin_password}" 2>&1)"
+mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password --fd3-secure-token-admin-password <<< "\${decrypted_user_password}" 3<<< "\${decrypted_st_admin_password}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 PACKAGE_POSTINSTALL_EOF
 			else
 				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
-mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password <<< "\${decrypted_user_password}" 2>&1)"
+mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password <<< "\${decrypted_user_password}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 PACKAGE_POSTINSTALL_EOF
 			fi
 		else
@@ -3277,16 +3268,20 @@ PACKAGE_POSTINSTALL_EOF
 
 echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
 
-mkuser_output="\$(mkuser${quoted_valid_options_for_package} --do-not-confirm 2>&1)"
+if [[ ! -d '${extracted_resources_dir}' ]]; then
+	mkdir -p '${extracted_resources_dir}' # Make sure extracted_resources_dir is created for "mkuser.log" since it won't have been created if there was no included picture or passwords.
+fi
+
+mkuser${quoted_valid_options_for_package} --do-not-confirm 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 PACKAGE_POSTINSTALL_EOF
 		fi
 
 		# MUST create *WHOLE* "postinstall" file *BEFORE* creating passwords deobfuscation script so that the checksum of the "postinstall" file can be used as a factor for the passwords deobfuscation to be allowed.
 		cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
-mkuser_return_code="\$?"
+mkuser_return_code="\${PIPESTATUS[0]}" # Must use first exit code in PIPESTATUS since the normal final exit code will be for "tee" which should always succeed.
 
-echo "\${mkuser_output}"
+mkuser_log="\$(cat '${extracted_resources_dir}/mkuser.log')"
 
 if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 	rm -rf '${extracted_resources_dir}'
@@ -3295,8 +3290,8 @@ fi
 if (( mkuser_return_code != 0 )); then
 	mkuser_error="ERROR \${mkuser_return_code} OCCURRED"
 
-	if [[ -n "\${mkuser_output}" ]]; then
-		mkuser_error="\$(echo "\${mkuser_output}" | grep '^mkuser WARNING\|^mkuser ERROR' | cut -c 8-)"
+	if [[ -n "\${mkuser_log}" ]]; then
+		mkuser_error="\$(echo "\${mkuser_log}" | grep '^mkuser WARNING\|^mkuser ERROR' | cut -c 8-)"
 	fi
 
 	mkuser_installer_display_error 'Failed' "\${mkuser_error}"
@@ -3417,10 +3412,10 @@ PACKAGE_POSTINSTALL_EOF
 			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retreived as an empty string after decryption.
 
 			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_user_password="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "DP:${user_password}" 3<<< "${user_account_name}${user_password_encryption_key}")"
+			encrypted_user_password="$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "DP:${user_password}" 3<<< "${user_account_name}${user_password_encryption_key}")"
 
 			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_st_admin_password="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "DP:${st_admin_password}" 3<<< "${st_admin_account_name}${st_admin_password_encryption_key}")"
+			encrypted_st_admin_password="$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "DP:${st_admin_password}" 3<<< "${st_admin_account_name}${st_admin_password_encryption_key}")"
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
 EP:${encrypted_user_password}
@@ -3430,7 +3425,7 @@ EP:${encrypted_st_admin_password}"
 			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
 				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
 EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
-EP:$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]')" 3<<< "$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')")"
+EP:$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]')" 3<<< "$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')")"
 			done
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
@@ -3439,7 +3434,8 @@ EP:$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "$(openssl rand -base64
 			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
 
 			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
-			wrapped_encrypted_passwords="$(openssl enc -aes-256-cbc -a -A -salt -pass fd:3 <<< "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" 3<<< "${wrapping_passwords_encryption_key}")"
+			wrapped_encrypted_passwords="$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" 3<<< "${wrapping_passwords_encryption_key}")"
+			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra.
 
 			# Every variable name set within the script will be randomized each time it is created.
 			# Each previously used random variable name will also be kept track of to ensure there are no duplicate random variable names.
@@ -3652,7 +3648,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -salt -pass fd:3 3<<< "${postinstall_checksum}")' 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
+if ! openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${postinstall_checksum}")' 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3789,7 +3785,7 @@ PACKAGE_PREINSTALL_EOF
 		package_distribution_xml_header="$(head -2 "${package_distribution_xml_output_path}")"
 		package_distribution_xml_footer="$(tail +3 "${package_distribution_xml_output_path}")"
 
-		cat << CUSTOM_DISTRIBUTION_XML_OEF > "${package_distribution_xml_output_path}"
+		cat << CUSTOM_DISTRIBUTION_XML_EOF > "${package_distribution_xml_output_path}"
 ${package_distribution_xml_header}
     <title>Create ${creating_user_type} ${user_full_and_account_name_display_for_package_title}</title>
     <welcome language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
@@ -3854,7 +3850,7 @@ Successfully created \ul ${creating_user_type}\ul0  \b ${user_full_and_account_n
         </allowed-os-versions>
     </volume-check>
 ${package_distribution_xml_footer}
-CUSTOM_DISTRIBUTION_XML_OEF
+CUSTOM_DISTRIBUTION_XML_EOF
 
 		# Previously setup a stripped down "check only" version of "mkuser" to run during the "installation-check" in the Installer JS,
 		# but this required <options allow-external-scripts="yes"/> which is not considered super secure since it must be allowed to run
@@ -3925,10 +3921,7 @@ CUSTOM_DISTRIBUTION_XML_OEF
 		# Also, do not bother blocking simultaneous "mkuser" processes if not running as root since a user would never be created, but especially because "/private/var/run" is only accessibly by root and a non-root process would infinite loop when trying to check the file via "shlock".
 
 		# Use "trap" to catch all EXITs to always delete the '/private/var/run/mkuser.pid' file upon completion. This appears to always run for any "return" statement, and also runs after SIGINT in bash, but that may not be true for other shells: https://unix.stackexchange.com/questions/57940/trap-int-term-exit-really-necessary
-		# AND also still kill the caffeinate_pid (and "wait" to redirect the "Terminated" message) like we set in the previous trap that would run if this one didn't get set.
-		# Suppress ShellCheck warning that the caffeinate_pid variable is expanded when the trap is set, because that is what we want.
-		# shellcheck disable=SC2064
-		trap "kill '${caffeinate_pid}' &> /dev/null; wait '${caffeinate_pid}' &> /dev/null; rm -rf '/private/var/run/mkuser.pid'" EXIT # Even though this command runs last, it does NOT seem to override the final exit code specified by the "return" statements throughout the "mkuser" function.
+		trap "rm -rf '/private/var/run/mkuser.pid'" EXIT # Even though this command runs last, it does NOT seem to override the final exit code specified by the "return" statements throughout the "mkuser" function.
 
 		while ! shlock -p "${subshell_function_pid}" -f '/private/var/run/mkuser.pid' &> /dev/null; do # Loop and sleep until no other "mkuser" processes are running.
 			if ! $suppress_status_messages; then
@@ -4468,7 +4461,7 @@ Check \"--help\" for detailed information about each available option."
 			chose_random_user_picture=true
 		fi
 
-		if [[ -f "${user_picture_path}" && "$(file -bI "${user_picture_path}" 2> /dev/null)" == 'image/'* ]]; then # Still check that we got a picture path in case something went wrong with random picture selection (if something changes in macOS).
+		if [[ -f "${user_picture_path}" && "$(file -bI "${user_picture_path}" 2> /dev/null)" == 'image/'* ]] && (( $(stat -f '%z' "${user_picture_path}") <= 1000000 )); then # Still check that we got a picture path in case something went wrong with random picture selection (if something changes in macOS).
 			# Add JPEGPhoto using "dsimport" reference: https://apple.stackexchange.com/questions/117530/setting-account-picture-jpegphoto-with-dscl-in-terminal/367667#367667
 
 			dsimport_record_attributes+=( 'externalbinary:JPEGPhoto' )

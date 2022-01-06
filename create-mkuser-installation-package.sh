@@ -39,10 +39,7 @@ chmod +x "${payload_tmp_dir}/${script_name}"
 codesign -s 'Developer ID Application' -f "${payload_tmp_dir}/${script_name}"
 
 script_version="$(awk -F "'" '/VERSION=/ { print $(NF-1); exit }' "${payload_tmp_dir}/${script_name}")"
-if [[ -z "${script_version}" ]]; then
-	script_version="$(date '+%F' | tr '-' '.')"
-	script_version="${script_version//.0/.}" # Get rid of leading zeros in month and day.
-fi
+if [[ -z "${script_version}" ]]; then script_version="$(date '+%Y.%-m.%-d')"; fi # https://strftime.org
 
 package_tmp_dir="${TMPDIR:-/private/tmp/}${script_name}_installation_package"
 
@@ -88,7 +85,7 @@ fi
 package_distribution_xml_header="$(head -2 "${package_distribution_xml_output_path}")"
 package_distribution_xml_footer="$(tail +3 "${package_distribution_xml_output_path}")"
 
-cat << CUSTOM_DISTRIBUTION_XML_OEF > "${package_tmp_dir}/distribution.xml"
+cat << CUSTOM_DISTRIBUTION_XML_EOF > "${package_distribution_xml_output_path}"
 ${package_distribution_xml_header}
     <title>${script_name} ${script_version}</title>
     <welcome language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
@@ -117,9 +114,13 @@ ${package_distribution_xml_header}
         </allowed-os-versions>
     </volume-check>
 ${package_distribution_xml_footer}
-CUSTOM_DISTRIBUTION_XML_OEF
+CUSTOM_DISTRIBUTION_XML_EOF
 
-package_output_path="${SCRIPT_DIR}/${script_name} ${script_version}.pkg"
+package_output_filename="${script_name}-${script_version}.pkg"
+# Assets on a GitHub Release cannot contain spaces. If spaces exist, they will be replaced with periods.
+# Instead of separating the name and version with a period, use a hyphen which matches the filename style of the source code downloads on GitHub Releases.
+
+package_output_path="${SCRIPT_DIR}/${package_output_filename}"
 
 rm -rf "${package_output_path}"
 
@@ -149,7 +150,8 @@ if [[ -d '/Applications/SD Notary.app' ]]; then
 
 		rm -rf "${SCRIPT_DIR}/${script_name} ${script_version} - "*
 
-		# It would be possible to script all of notarization ourselves (https://scriptingosx.com/2019/09/notarize-a-command-line-tool/), but using SD Notary makes the whole process nice and easy.
+		# Could potentially use "notarytool" to script notarization pretty easily (https://scriptingosx.com/2021/07/notarize-a-command-line-tool-with-notarytool/),
+		# but I use SD Notary in other projects and it's nice and simple and gets the job done for now.
 		# All SD Notary properties are set to "false" because we don't want any of them enabled and app default settings could be different.
 		notarized_package_path="$(osascript << SD_NOTARY_EOF
 set notarizedPackagePath to "UNKNOWN ERROR"
@@ -162,7 +164,7 @@ notarizedPackagePath
 SD_NOTARY_EOF
 )"
 
-		if [[ ! -f "${notarized_package_path}" || "${notarized_package_path}" != *" - Notarized/${script_name} ${script_version}.pkg" ]]; then
+		if [[ ! -f "${notarized_package_path}" || "${notarized_package_path}" != *" - Notarized/${package_output_filename}" ]]; then
 			>&2 echo "ERROR OCCURRED DURING NOTARIZATION: ${notarized_package_path:-SEE ERROR MESSAGES ABOVE}"
 			exit 4
 		else

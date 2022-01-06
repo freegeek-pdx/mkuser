@@ -6,7 +6,7 @@
 
 Along with abundant options and excessive verifications, `mkuser` has detailed help info which explains each available option and what affect it will have on the created user account. This info may be informative beyond just using `mkuser` since it's really all about all the different kinds of advanced customizations user accounts can have on macOS.
 
-`mkuser` is also focused on precision and accuracy. The user accounts created by `mkuser` should be indistinguishable from a user account created by `sysadminctl` or System Preferences. This may not sound like much, but if you read through the source you'll see that there are a variety of subtleties and nuances that took quite a bit of research and effort to match exactly what `sysadminctl` and System Preferences does. Also, `mkuser` actually does better in some situations to avoid possible errors or macOS bugs! If you're interested in this, there are many detailed technical notes throughout the source that basically serve as a study in user account creation. No other scripted user account creation that I'm aware of creates user accounts as accurately as `mkuser`.
+`mkuser` is also focused on precision and accuracy. The user accounts created by `mkuser` should be indistinguishable from a user account created by `sysadminctl -addUser` or System Preferences. This may not sound like much, but if you read through the source you'll see that there are a variety of subtleties and nuances that took quite a bit of research and effort to match exactly what `sysadminctl -addUser` and System Preferences does. Also, `mkuser` actually does better in some situations to avoid possible errors or macOS bugs! If you're interested in this, there are many detailed technical notes throughout the source that basically serve as a study in user account creation. No other scripted user account creation that I'm aware of creates user accounts as accurately as `mkuser`.
 
 `mkuser` is a single function within a single script written in `bash` with no external dependencies. If you want to incorporate `mkuser`'s functionality into your own `bash` (not `zsh`) script without requiring another file, you can simply copy-and-paste the whole function into your code. Or, of course, you can call the separate `mkuser` script file from any code written in any language or directly on the command line.
 
@@ -120,7 +120,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 <br/>
 
-#### `--login-shell, --user-shell, --shell, -s` < *existing path* >
+#### `--login-shell, --user-shell, --shell, -s` < *existing path* || *command name* >
 
 > The login shell must be the path to an existing executable file, or a valid command name that can be resolved using `which` (searching within "/usr/bin", "/bin", "/usr/sbin", "/sbin", and "/usr/libexec").<br/>
 > You must specify the path if the desired login shell is in another location.<br/>
@@ -176,7 +176,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Include this option with no parameter to pass the password via "stdin" using a pipe (`|`) or here-string (`<<<`), etc.<br/>
 > Passing the password via "stdin" instead of directly with the `--password` option hides the password from the process list.<br/>
 > The help information for the `--password` option above also applies to passwords passed via "stdin".<br/>
-> **NOTICE:** Specifying `--stdin-password` ALSO enables `--do-not-confirm` since accepting "stdin" disrupts the ability to use other command line inputs.
+> **NOTICE:** Specifying `--stdin-password` also ENABLES `--do-not-confirm` since accepting "stdin" disrupts the ability to use other command line inputs.
 
 <br/>
 
@@ -190,7 +190,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--no-password, --no-pass, --np` < *no parameter* >
 
-> Include this option with no parameter to set no password at all instead of a blank/empty password (like when excluding the `--password` option).<br/>
+> Include this option with no parameter to set no password at all instead of a blank/empty password (like when the `--password` option is omitted).<br/>
 > This option is equivalent to setting the password to "\*" with `--password '*'` and is here as a seperate option for convenience and information.<br/>
 > Setting the password to "\*" is a special character that indicates to macOS that this user does not have any meaningful password set.<br/>
 > When a user has the "\*" password set, it cannot login by any means and it will also not get any AuthenticationAuthority set in the user record.<br/>
@@ -255,17 +255,17 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 ## 🖼 PICTURE OPTIONS
 
-#### `--picture, --photo, --pic, -P` < *existing path* >
+#### `--picture, --photo, --pic, -P` < *existing path* || *default picture filename* >
 
-> Must be a path to an existing image file that is 1 MB or under, or the be filename of one of the default user pictures located within the "/Library/User Pictures/" folder (with or without the file extension, such as "Earth" or "Penguin.tif").<br/>
-> When outputting a user creation package (with the `--package` option), the specified picture file will be copied into the user creation package.<br/>
+> Must be a path to an existing image file that is 1 MB or under, or be the filename of one of the default user pictures located within the "/Library/User Pictures/" folder (with or without the file extension, such as "Earth" or "Penguin.tif").<br/>
+> When outputting a user creation package (with the `--package` option), the specified picture file will be included in the user creation package.<br/>
 > If omitted, a random default user picture will be assigned.
 
 <br/>
 
 #### `--no-picture, --no-photo, --no-pic` < *no parameter* >
 
-> Include this option with no parameter to not set any picture instead of a random default user picture (like when excluding the `--picture` option).<br/>
+> Include this option with no parameter to not set any picture instead of a random default user picture (like when the `--picture` option is omitted).<br/>
 > When no picture is set, a grey head and shoulders silhouette icon is used.
 
 <br/>
@@ -282,7 +282,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 #### `--administrator, --admin, -a` < *no parameter* >
 
 > Include this option with no parameter to make the user an administrator.<br/>
-> Administrator can manage other users, install apps, and change settings.
+> Administrators can manage other users, install apps, and change settings.
 >
 > If omitted, a standard user will be created.<br/>
 > Standard users can install apps and change their own settings, but can't add other users or change other users' settings.
@@ -332,7 +332,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Include this option with no parameter to create a "Role Account".
 >
 > A `-roleAccount` option was added to `sysadminctl -addUser` in macOS 11 Big Sur, but sadly there is not really any documentation from Apple about what exactly a "Role Account" is or when and why you would want to use one.<br/>
-> I believe you would want to use a "Role Account" when you want a user exclusively to be the owner of files and/or processes and `have a password`.<br/>
+> I believe you would want to use a "Role Account" when you want a user exclusively to be the owner of files and/or processes and ***have a password***.<br/>
 > All `sysadminctl` states about them is the following: **Role accounts require name starting with _ and UID in 200-400 range.**<br/>
 > And `mkuser` has these same requirements to create a "Role Account".<br/>
 > Even though the `-roleAccount` option was only added to `sysadminctl -addUser` in macOS 11 Big Sur, `mkuser` can make "Role Accounts" with the same attributes on older versions of macOS as well.
@@ -365,7 +365,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 > Include this option with no parameter to create a "Service Account".
 >
-> A "Service Account" is similar to a "Role Account" in that it exists exclusively to be the owner of files and/or processes but *has NO password*.<br/>
+> A "Service Account" is similar to a "Role Account" in that it exists exclusively to be the owner of files and/or processes but ***has NO password***.<br/>
 > This is like macOS built-in accounts, such as the "FTP Daemon" (_ftp) user.
 >
 > Through investigation of the built-in macOS "Service Accounts", a "Service Account" is roughly equivalent to creating a standard user with name starting with "_", login shell "/usr/bin/false", home "/var/empty", and *NO password* (see `--no-password` for more information about that).<br/>
@@ -579,7 +579,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > By default, `mkuser` prompts for confirmation on the command line before creating a user on the current system.<br/>
 > Include this option with no parameter to NOT prompt for confirmation.<br/>
 > This option is ignored when outputting a user creation package (with the `--package` option) since no user will be created on the current system.<br/>
-> **NOTICE:** Specifying `--suppress-status-messages` OR `--stdin-password` ALSO enables `--do-not-confirm`.
+> **NOTICE:** Specifying `--suppress-status-messages` OR `--stdin-password` also ENABLES `--do-not-confirm`.
 
 <br/>
 
@@ -587,7 +587,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 > Include this option with no parameter to not output any status messages that would be sent to "stdout".<br/>
 > Any errors and warning that are sent to "stderr" will still be outputted.<br/>
-> **NOTICE:** Specifying `--suppress-status-messages` ALSO enables `--do-not-confirm`.
+> **NOTICE:** Specifying `--suppress-status-messages` also ENABLES `--do-not-confirm`.
 
 <br/>
 
