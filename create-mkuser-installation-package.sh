@@ -20,6 +20,9 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 
+# NOTICE: This script IS NOT for user creation packages. The mkuser script is used for that.
+# This script creates the package to install the mkuser script itself into "/usr/local/bin".
+
 PATH='/usr/bin:/bin:/usr/sbin:/sbin'
 
 SCRIPT_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd -P)"
@@ -153,12 +156,12 @@ if [[ -d '/Applications/SD Notary.app' ]]; then
 		# Could potentially use "notarytool" to script notarization pretty easily (https://scriptingosx.com/2021/07/notarize-a-command-line-tool-with-notarytool/),
 		# but I use SD Notary in other projects and it's nice and simple and gets the job done for now.
 		# All SD Notary properties are set to "false" because we don't want any of them enabled and app default settings could be different.
-		notarized_package_path="$(osascript << SD_NOTARY_EOF
+		notarized_package_path="$(OSASCRIPT_ENV_PKG_OUTPUT_PATH="${package_output_path}" osascript << 'SD_NOTARY_EOF'
 set notarizedPackagePath to "UNKNOWN ERROR"
 with timeout of 900 seconds
 	tell application "SD Notary" to set notarizedPackagePath to (POSIX path of (submit app (make new document with properties ¬
 		{skip enclosures:false, allow events:false, allow calendar access:false, allow audio access:false, allow camera access:false, allow location access:false, allow Photos access:false, allow address access:false, allow library loading:false, allow JIT:false, allow unsigned executable memory:false, allow DYLD env variables:false, allow disabled protection:false, allow debugging:false}) ¬
-		at "${package_output_path}"))
+		at (system attribute "OSASCRIPT_ENV_PKG_OUTPUT_PATH")))
 end timeout
 notarizedPackagePath
 SD_NOTARY_EOF

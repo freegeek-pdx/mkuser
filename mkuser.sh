@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.1.6-1'
+	readonly MKUSER_VERSION='2022.2.3-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -86,6 +86,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	show_version=false
 	show_releases_online=false
 	show_help="$( (( $# == 0 )) && echo 'true' || echo 'false' )"
+	show_brief_help=false
 	show_help_online=false
 	# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 
@@ -93,11 +94,14 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	error_code='1' # This error code will be incremented as it passes each potential error.
 
-	if [[ -d '/System/Installation' && ! -f '/usr/bin/pico' ]]; then # The specified folder should exist in recoveryOS and the file should not.
-		>&2 echo "mkuser ERROR ${error_code}: This tool cannot be run within recoveryOS."
+	if [[ -n "${ZSH_VERSION}" ]]; then
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool is not compatible with zsh and must be run in bash instead."
+		return "${error_code}"
+	elif [[ -d '/System/Installation' && ! -f '/usr/bin/pico' ]]; then # The specified folder should exist in recoveryOS and the file should not.
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool cannot be run within recoveryOS."
 		return "${error_code}"
 	elif [[ "$(uname)" != 'Darwin' ]]; then # Check this AFTER checking if running in recoveryOS since "uname" doesn't exist in recoveryOS.
-		>&2 echo "mkuser ERROR ${error_code}: This tool can only run on macOS."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool can only run on macOS."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -230,26 +234,26 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						if [[ -n "$1" ]]; then
 							if [[ "$1" != '-'* ]]; then # See comments below about not allowing account names starting with "-".
 								if [[ -z "${user_account_name}" ]]; then
-									if [[ "$1" =~ ^[${a_z}${DIGITS}_]+[${a_z}${DIGITS}_.-]*$ ]]; then # More account name validation will be done below, but at least validate that it's all lowercase letters, numbers, hyphen/minus, underscore, or period characters (and doesn't start with a period or hyphen/minus).
+									if [[ "$1" =~ ^[${a_z}${DIGITS}_][${a_z}${DIGITS}_.-]*$ ]]; then # More account name validation will be done below, but at least validate that it's all lowercase letters, numbers, hyphen/minus, underscore, or period characters (and doesn't start with a period or hyphen/minus).
 										user_account_name="$1" # Will be set to cleaned version of user_full_name if not specified.
 										valid_options_for_package+=( "${this_option}" "${user_account_name}" )
 									else
-										>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must only contain lowercase letters, numbers, hyphen/minus (-), underscore (_), or period (.) characters (and cannot start with a period)."
+										>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must only contain lowercase letters, numbers, hyphen/minus (-), underscore (_), or period (.) characters (and cannot start with a period)."
 										has_invalid_options=true
 
 										# System Preferences, "sysadminctl -addUser", and Setup Assistant DO allow account names to start with "." even though they seem to be problematic and DO NOT show up in "dscacheutil -q user" and "dscl . -list /Users".
 										# Also, account names that start with "." BREAK System Preferences and sysadminctl's next available UID checks which cause subsequent users to NOT get UIDs since they are getting assigned to the existing UID taken by the
 										# account names that start with "." and failing to assign it. But, "mkuser" goes out of its way to check for these users directly from the "dslocal" plists so that the next available UID checking in this script is always accurate.
-										# This problematic behavior was tested and confirmed on both Big Sur and High Sierra.
+										# This problematic behavior was tested and confirmed on both macOS 11 Big Sur and macOS 10.13 High Sierra.
 									fi
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 									has_invalid_options=true
 								fi
 
 								shift
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 								has_invalid_options=true
 
 								# System Preferences and "sysadminctl -addUser" DO NOT allow account names to start with "-", but Setup Assistant DOES. This script will not allow them for the following reasons...
@@ -260,11 +264,11 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 								# This affects a variety of other commands as well. For example, "id" can work with "id --" (like "login" can) but "dscacheutil -q user -a name" cannot recognize a username starting with a "-" as anything other than an (invalid) option (like "sysadminctl" does).
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -277,21 +281,21 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 									user_full_name="$1" # Will be set to the user_account_name if not specified.
 									valid_options_for_package+=( "${this_option}" "${user_full_name}" )
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot be only whitespace or contain line breaks."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot be only whitespace or contain line breaks."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 
 							shift
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -312,19 +316,19 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 									shift # Only shift "$1" if it was a valid UID (all numbers), otherwise it might actually be the next valid option is someone made a mistake like "--uid --hint" or will show as an "invalid option" error.
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be only numbers, except for a leading minus (-) for negative numbers."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be only numbers, except for a leading minus (-) for negative numbers."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -337,7 +341,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 										user_guid="$1" # A random GUID will be assigned by macOS if not specified.
 										valid_options_for_package+=( "${this_option}" "${user_guid}" )
 									else
-										>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be 36 characters of only capital letters, numbers, and hyphens/minuses (-) in the following format: \"EIGHT888-4444-FOUR-4444-TWELVE121212\"."
+										>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be 36 characters of only capital letters, numbers, and hyphens/minuses (-) in the following format: \"EIGHT888-4444-FOUR-4444-TWELVE121212\"."
 										has_invalid_options=true
 
 										# If the GUID does not have the correct number of characters between each hyphen (or is invalid in some other way), the user will be created
@@ -346,21 +350,21 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 										# can also cause that password behavior, but I'm not confident in knowing what the exact things to check for are to avoid that here in this check.
 									fi
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 									has_invalid_options=true
 								fi
 
 								shift
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -381,19 +385,19 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 									shift # Only shift "$1" if it was a valid GID (all numbers), otherwise it might actually be the next valid option is someone made a mistake like "--gid --hint" or will show as an "invalid option" error.
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be only numbers, except for a leading minus (-) for negative numbers."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be only numbers, except for a leading minus (-) for negative numbers."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -405,21 +409,21 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 									user_shell="$1" # Will validate the specified path is an executable file and will be set to default of "/bin/zsh" or "/bin/bash" if not specified.
 									valid_options_for_package+=( "${this_option}" "${user_shell}" )
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 									has_invalid_options=true
 								fi
 
 								shift
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -431,18 +435,18 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 									user_password="$1"
 									# Do not include "--password" in valid_options_for_package because it will be modified to obfuscate the password within a package and then passed with "--stdin-password" after being deobfuscated.
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Password cannot contain line breaks."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 
 							shift
 						fi # Allow explicity blank/empty value since passwords can be blank/empty.
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -453,18 +457,18 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							# Do not include "--stdin-password" in valid_options_for_package since it will always be added to package installations which include an obfuscated password (after the password has been deobfuscated).
 
 							if [[ "$user_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
-								>&2 echo "mkuser ERROR ${error_code}: Password cannot contain line breaks."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 							has_invalid_options=true
 						fi
 
 						do_not_confirm=true # Must set do_not_confirm to true if passing password via stdin since it disrupts being able to accept actual input.
 						did_get_password_from_stdin=true # Need to also track if got password from stdin since it also disrupts "--secure-token-admin-password-prompt" which will be prevented when passing password via stdin.
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" because no \"stdin\" detected."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because no \"stdin\" detected."
 						has_invalid_options=true
 					fi
 
@@ -480,7 +484,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						user_password='*'
 						# Do not include "--no-password" in valid_options_for_package because it will be modified to obfuscate the "*" password within a package and then passed with "--stdin-password" after being deobfuscated.
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option because \"--password\" (or \"--stdin-password\") has already been specified."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option because \"--password\" (or \"--stdin-password\") has already been specified."
 						has_invalid_options=true
 					fi
 					;;
@@ -490,7 +494,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							user_password_hint="$(echo -e "$1")" # Use "echo -e" to interpret any included backslash-escaped characters in the hint (such as "\n" or "\t") since they are allowed. No password hint will be set if not specified.
 							valid_options_for_package+=( "${this_option}" "${user_password_hint}" )
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 							has_invalid_options=true
 						fi
 
@@ -514,21 +518,21 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 									user_home_path="$1" # Will validate the home folder does not already exist and that it starts with a "/".
 									valid_options_for_package+=( "${this_option}" "${user_home_path}" )
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 									has_invalid_options=true
 								fi
 
 								shift
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -552,21 +556,21 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 									user_picture_path="$1" # Will not be set if file does not exist, but will still create user without error (with a random picture).
 									# Do not include "--picture" in valid_options_for_package because it will be modified to point to a copy of the picture file within a package.
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 									has_invalid_options=true
 								fi
 
 								shift
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option for a random user picture, or specify \"--no-picture\" for no picture."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option for a random user picture, or specify \"--no-picture\" for no picture."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" requires a parameter. When used in a group, it must be the last option specified and the only option with a parameter."
 						has_invalid_options=true
 					fi
 					;;
@@ -576,7 +580,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							set_no_picture=true
 							valid_options_for_package+=( "${this_option}" )
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option because \"--picture\" has already been specified."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option because \"--picture\" has already been specified."
 							has_invalid_options=true
 						fi
 					fi
@@ -614,7 +618,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						set_hidden_home=true
 						valid_options_for_package+=( "${this_option}" )
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be one of \"userOnly\", \"homeOnly\", or \"both\" (or nothing)."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be one of \"userOnly\", \"homeOnly\", or \"both\" (or nothing)."
 						has_invalid_options=true
 					fi
 
@@ -628,7 +632,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							set_sharing_only_account=true
 							valid_options_for_package+=( "${this_option}" )
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" while also specifying \"--role-account\" or \"--service-account\", must only specify one of these options."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" while also specifying \"--role-account\" or \"--service-account\", must only specify one of these options."
 							has_invalid_options=true
 						fi
 					fi
@@ -639,7 +643,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							set_role_account=true
 							valid_options_for_package+=( "${this_option}" )
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" while also specifying \"--sharing-account\" or \"--service-account\", must only specify one of these options."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" while also specifying \"--sharing-account\" or \"--service-account\", must only specify one of these options."
 							has_invalid_options=true
 						fi
 					fi
@@ -650,7 +654,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							set_service_account=true
 							valid_options_for_package+=( "${this_option}" )
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" while also specifying \"--sharing-account\" or \"--role-account\", must only specify one of these options."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" while also specifying \"--sharing-account\" or \"--role-account\", must only specify one of these options."
 							has_invalid_options=true
 						fi
 					fi
@@ -669,28 +673,28 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then # See comments below about not allowing account names starting with "-".
 							if [[ -z "${st_admin_account_name}" ]]; then
-								if [[ "$1" =~ ^[${a_z}${DIGITS}_]+[${a_z}${DIGITS}_.-]*$ ]]; then # The Secure Token admin will be verified to exist (and be an admin with a Secure Token) below, but at least validate that it's all lowercase letters, numbers, hyphen/minus, underscore, or period characters (and doesn't start with a period or hyphen/minus).
+								if [[ "$1" =~ ^[${a_z}${DIGITS}_][${a_z}${DIGITS}_.-]*$ ]]; then # The Secure Token admin will be verified to exist (and be an admin with a Secure Token) below, but at least validate that it's all lowercase letters, numbers, hyphen/minus, underscore, or period characters (and doesn't start with a period or hyphen/minus).
 									st_admin_account_name="$1"
 									valid_options_for_package+=( "${this_option}" "${st_admin_account_name}" )
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must only contain lowercase letters, numbers, hyphen/minus (-), underscore (_), or period (.) characters (and cannot start with a period)."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must only contain lowercase letters, numbers, hyphen/minus (-), underscore (_), or period (.) characters (and cannot start with a period)."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 
 							shift
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 							has_invalid_options=true
 
 							# System Preferences and "sysadminctl -addUser" DO NOT allow account names to start with "-", but Setup Assistant DOES.
 							# Regardless, they are not usable for our needs here since account names starting with "-" are totally unusable with "sysadminctl" (such as "sysadminctl -secureTokenOn") since it sees them as (invalid) options and there is no way (such as using "--") to make it recognize them as a username parameter that I could figure out.
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to NOT grant the new user a Secure Token."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to NOT grant the new user a Secure Token."
 						has_invalid_options=true
 					fi
 					;;
@@ -701,11 +705,11 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 								st_admin_password="$1"
 								# Do not include "--secure-token-admin-password" in valid_options_for_package because it will be modified to obfuscate the password within a package and then passed with "--fd3-secure-token-admin-password" after being deobfuscated.
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Secure Token admin password cannot contain line breaks."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 							has_invalid_options=true
 						fi
 
@@ -718,15 +722,15 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package since it will always be added to package installations which include an obfuscated password (after the password has been deobfuscated).
 
 							if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
-								>&2 echo "mkuser ERROR ${error_code}: Secure Token admin password cannot contain line breaks."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
 								has_invalid_options=true
 							fi
 						else # Show error if file descriptor 3 (fd3) was not specified (via 3<<< here-string).
-							>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\" because no file descriptor 3 (fd3) detected, specify with \"3<<<\" here-string. If you are running this command manually in Terminal and using \"sudo\", \"fd3\" may be getting directed to \"sudo\" instead of \"mkuser\"."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because no file descriptor 3 (fd3) detected, specify with \"3<<<\" here-string. If you are running this command manually in Terminal and using \"sudo\", \"fd3\" may be getting directed to \"sudo\" instead of \"mkuser\"."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 						has_invalid_options=true
 					fi
 
@@ -748,7 +752,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						user_shell='/usr/bin/false'
 						valid_options_for_package+=( "${this_option}" )
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option because \"--login-shell\" has already been specified. \"--prevent-login\" just sets login shell to \"/usr/bin/false\" to prevent login."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option because \"--login-shell\" has already been specified. \"--prevent-login\" just sets login shell to \"/usr/bin/false\" to prevent login."
 						has_invalid_options=true
 					fi
 					;;
@@ -773,7 +777,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						skip_setup_assistant_on_first_login=true
 						valid_options_for_package+=( "${this_option}" )
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be one of \"firstBootOnly\", \"firstLoginOnly\", or \"both\" (or nothing)."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be one of \"firstBootOnly\", \"firstLoginOnly\", or \"both\" (or nothing)."
 						has_invalid_options=true
 					fi
 
@@ -789,7 +793,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						if [[ -z "${pkg_path}" ]]; then
 							pkg_path="$1" # If a package path is not specified, it will be saved to the current working directory.
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 							has_invalid_options=true
 						fi
 
@@ -800,25 +804,25 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${pkg_identifier}" ]]; then
-								if [[ "$1" =~ ^[${A_Z}${a_z}${DIGITS}]+[${A_Z}${a_z}${DIGITS}_.-]*$ ]]; then # Identifier should starts with a letter or number and only contain alphanumeric, hyphen/minus, underscore, and dot.
+								if [[ "$1" =~ ^[${A_Z}${a_z}${DIGITS}][${A_Z}${a_z}${DIGITS}_.-]*$ ]]; then # Identifier should starts with a letter or number and only contain alphanumeric, hyphen/minus, underscore, and dot.
 									# The identifier must be validated since it could also be used in the filename, and don't want to allow or have to deal with invalid filesystem characters.
 									pkg_identifier="$1" # Will be set to "mkuser.pkg.<ACCOUNT NAME>" if not specified.
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must start with a letter or number and can only contain alphanumeric, hyphen/minus (-), underscore (_), or dot (.) characters."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must start with a letter or number and can only contain alphanumeric, hyphen/minus (-), underscore (_), or dot (.) characters."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 
 							shift
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 						has_invalid_options=true
 					fi
 					;;
@@ -826,25 +830,25 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${pkg_version}" ]]; then
-								if [[ "$1" =~ ^[${A_Z}${a_z}${DIGITS}]+[${A_Z}${a_z}${DIGITS}.-]*$ ]]; then # Version should generally only be numbers and dots, but also allow hyphens/minuses and letters as long as it start with a number or letter so folks can do things like "1.0-test1" if they want.
+								if [[ "$1" =~ ^[${A_Z}${a_z}${DIGITS}][${A_Z}${a_z}${DIGITS}.-]*$ ]]; then # Version should generally only be numbers and dots, but also allow hyphens/minuses and letters as long as it start with a number or letter so folks can do things like "1.0-test1" if they want.
 									# The version must also be validated since it could also be used in the filename, and don't want to allow or have to deal with invalid filesystem characters.
 									pkg_version="$1" # Date seperated by periods will be used if not specified.
 								else
-									>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must start with a number or letter and can only contain alphanumeric, hyphen/minus (-), or dot (.) characters."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must start with a number or letter and can only contain alphanumeric, hyphen/minus (-), or dot (.) characters."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 
 							shift
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to use the default value."
 						has_invalid_options=true
 					fi
 					;;
@@ -854,17 +858,17 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							if [[ -z "${pkg_sign}" ]]; then
 								pkg_sign="$1"
 							else
-								>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"${this_unaltered_option}\" option."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 
 							shift
 						else
-							>&2 echo "mkuser ERROR ${error_code}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot start with a hyphen/minus (-) character."
 							has_invalid_options=true
 						fi
 					else
-						>&2 echo "mkuser ERROR ${error_code}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to not sign the package."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The option \"${this_unaltered_option}\" cannot have a blank/empty parameter. Omit this option to not sign the package."
 						has_invalid_options=true
 					fi
 					;;
@@ -892,10 +896,10 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						this_optional_version_parameter="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
 					fi
 
-					if [[ "${this_optional_version_parameter}" == 'online' ]]; then
+					if [[ "${this_optional_version_parameter}" == 'online' || "${this_optional_version_parameter}" == 'o' ]]; then
 						show_releases_online=true
 					elif [[ -n "${this_optional_version_parameter}" ]]; then
-						>&2 echo "mkuser WARNING: IGNORING invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be \"online\" or nothing."
+						>&2 echo "mkuser WARNING: IGNORING invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be \"online\" (or \"o\") or nothing."
 						# Just ignore invalid parameters (not do an invalid option error) since a user would never be created when this option is specified anyway.
 					fi
 
@@ -915,10 +919,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						this_optional_help_parameter="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
 					fi
 
-					if [[ "${this_optional_help_parameter}" == 'online' ]]; then
+					if [[ "${this_optional_help_parameter}" == 'brief' || "${this_optional_help_parameter}" == 'b' ]]; then
+						show_brief_help=true
+					elif [[ "${this_optional_help_parameter}" == 'online' || "${this_optional_help_parameter}" == 'o' ]]; then
 						show_help_online=true
 					elif [[ -n "${this_optional_help_parameter}" ]]; then
-						>&2 echo "mkuser WARNING: IGNORING invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be \"online\" or nothing."
+						>&2 echo "mkuser WARNING: IGNORING invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be \"brief\" (or \"b\"), \"online\" (or \"o\"), or nothing."
 						# Just ignore invalid parameters (not do an invalid option error) since a user would never be created when this option is specified anyway.
 					fi
 
@@ -929,7 +935,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 				*)
 					if [[ -n "${this_unaltered_option}" ]]; then
-						>&2 echo "mkuser ERROR ${error_code}: Invalid option \"${this_unaltered_option}\"."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\"."
 						has_invalid_options=true
 					fi
 					;;
@@ -945,13 +951,13 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	(( error_code ++ ))
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-	local open_command_asuser_or_not='open' # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
+	local open_command_asuser_or_not=( 'open' ) # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
 	if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
 		current_user_id="$(scutil <<< 'show State:/Users/ConsoleUser' | awk '($1 == "UID") { print $NF; exit }')"
 		if (( current_user_id != 0 )); then
 			current_user_name="$(dscl /Search -search /Users UniqueID "${current_user_id}" 2> /dev/null | awk '{ print $1; exit }')"
 
-			open_command_asuser_or_not="launchctl asuser ${current_user_id} sudo -u ${current_user_name} open"
+			open_command_asuser_or_not=( 'launchctl' 'asuser' "${current_user_id}" 'sudo' '-u' "${current_user_name}" 'open' )
 		fi
 	fi
 
@@ -961,31 +967,22 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
 			latest_version_json="$(curl -m 5 -sL 'https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest' 2> /dev/null)"
 			if [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
-				# Properly escape characters that may be in the "body" field (release notes) which could cause JSON.parse to fail.
-				# We are not displaying the release notes, but with these character properly escaped they could be displayed in the future if desired.
-				latest_version_json="${latest_version_json//\`/\\\`}"
-				latest_version_json="${latest_version_json//\\\"/\\\\\"}"
-				latest_version_json="${latest_version_json//\\r/\\\r}"
-				latest_version_json="${latest_version_json//\\n/\\\n}"
-
-				# Parse JSON with "jsc" (could use JXA, but "jsc" loads faster and the ObjC bridge of JXA is not needed): https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
-				# Also, use "find" to get the "jsc" path within "JavaScriptCore.framework" since the binary was moved between macOS 10.14 Mojave and macOS 10.15 Catalina (and want to be future-proof in case it moves again): https://gist.github.com/ctkjose/03d14236a55c4b85cb8d6e6156c57b13
-				latest_version="$("$(find /System/Library/Frameworks/JavaScriptCore.framework -iname jsc)" -e "print(JSON.parse(\`${latest_version_json}\`).tag_name)" 2> /dev/null)"
+				latest_version="$(OSASCRIPT_ENV_JSON="${latest_version_json}" osascript -l 'JavaScript' -e 'JSON.parse($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_JSON").js).tag_name' 2> /dev/null)"
+				# Parsing JSON with JXA: https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
 
 				fallback_version_note=''
-				if ! [[ "${latest_version}" =~ ^[${DIGITS}]+[${DIGITS}.-]*$ ]]; then
-					# Make sure the new version string is valid (in case there are other characters in the "body" field that cause JSON.parse to fail in the future).
-					# If JSON.parse failed, just try to get the newest version string using "awk" instead.
+				if ! [[ "${latest_version}" =~ ^[${DIGITS}][${DIGITS}.-]*$ ]]; then
+					# Make sure the new version string is valid. If JSON.parse() failed somehow, just try to get the newest version string using "awk" instead.
 					latest_version="$(echo "${latest_version_json}" | awk -F '"' '($2 == "tag_name") { print $4; exit }')"
 					fallback_version_note=' (USED FALLBACK TECHNIQUE TO RETRIEVE VERSION, PLEASE REPORT THIS ISSUE)'
 				fi
 
 				if [[ "${latest_version}" == "${MKUSER_VERSION}" ]]; then
 					echo "Up-to-Date${fallback_version_note}"
-				elif [[ "${latest_version}" =~ ^[${DIGITS}]+[${DIGITS}.-]*$ ]]; then
+				elif [[ "${latest_version}" =~ ^[${DIGITS}][${DIGITS}.-]*$ ]]; then
 					echo "Version ${latest_version} is Now Available!${fallback_version_note}"
 
-					if ! $show_releases_online; then echo 'Run "mkuser -v online" to open the mkuser Releases page on GitHub to download the latest version.'; fi
+					if ! $show_releases_online; then echo 'Run "mkuser -v online" to open the mkuser Releases page on GitHub to download the latest version (or visit "https://download.mkuser.sh").'; fi
 				else
 					echo 'Failed to Retrieve Latest Version (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)'
 				fi
@@ -999,16 +996,14 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		if $show_releases_online; then
 			echo -e '\nOpening mkuser Releases page on GitHub...'
 
-			# open_command_asuser_or_not MUST NOT be quoted to execute the possible "launchctl asuser", "sudo -u", and "osascript" commands together properly.
-			${open_command_asuser_or_not} 'https://github.com/freegeek-pdx/mkuser/releases'
+			"${open_command_asuser_or_not[@]}" 'https://download.mkuser.sh'
 		fi
 
 		return 0
 	elif $show_help_online; then
 		echo 'Opening README section of the mkuser GitHub page (which contains all help info)...'
 
-		# open_command_asuser_or_not MUST NOT be quoted to execute the possible "launchctl asuser", "sudo -u", and "osascript" commands together properly.
-		${open_command_asuser_or_not} 'https://github.com/freegeek-pdx/mkuser#readme'
+		"${open_command_asuser_or_not[@]}" 'https://help.mkuser.sh'
 
 		return 0
 	elif $show_help; then
@@ -1025,14 +1020,14 @@ Copyright (c) $(date '+%Y') Free Geek
 ${ansi_underline}https://mkuser.sh${clear_ansi}
 
 
-📝 ${ansi_bold}DESCRIPTION:${clear_ansi}
+\xf0\x9f\x93\x9d ${ansi_bold}DESCRIPTION:${clear_ansi}
 
   ${ansi_bold}mkuser${clear_ansi} ${ansi_underline}m${clear_ansi}a${ansi_underline}k${clear_ansi}es ${ansi_underline}user${clear_ansi} accounts for macOS with more options, more validation
     of inputs, and more verification of the created user account than any other
     user creation tool, including ${ansi_bold}sysadminctl -addUser${clear_ansi} and System Preferences!
 
 
-ℹ️  ${ansi_bold}USAGE NOTES:${clear_ansi}
+\xe2\x84\xb9\xef\xb8\x8f  ${ansi_bold}USAGE NOTES:${clear_ansi}
 
   For long form options (multicharacter options starting with two hyphens),
     case doesn't matter.
@@ -1078,7 +1073,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     or ${ansi_bold}--suppress-status-messages${clear_ansi} (${ansi_bold}-q${clear_ansi}) or ${ansi_bold}--stdin-password${clear_ansi}.
 
 
-👤 ${ansi_bold}PRIMARY OPTIONS:${clear_ansi}
+\xf0\x9f\x91\xa4 ${ansi_bold}PRIMARY OPTIONS:${clear_ansi}
 
   ${ansi_bold}--account-name, --record-name, --short-name, --username, --user, --name, -n${clear_ansi}
     < ${ansi_underline}string${clear_ansi} >
@@ -1191,15 +1186,12 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       and \"/bin/bash\" will be used on macOS 10.14 Mojave and older.
 
 
-🔐 ${ansi_bold}PASSWORD OPTIONS:${clear_ansi}
+\xf0\x9f\x94\x90 ${ansi_bold}PASSWORD OPTIONS:${clear_ansi}
 
   ${ansi_bold}--password, --pass, -p${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
     The password must be at least 4 characters and 511 bytes or less.
-    Except, when enabling auto-login, the maximum limit is 251 bytes and when
-      specifying a Secure Token admin to grant the new user a Secure Token,
-      the maximum limit is 128 bytes.
-    For the most compatiblity, passwords should be 128 bytes or less.
+    Except, when enabling auto-login, the maximum limit is 251 bytes.
     Also, blank/empty passwords are allowed when FileVault IS NOT enabled.
     There are no limitations on the characters allowed in the password,
       except that it cannot contain line breaks.
@@ -1210,26 +1202,6 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     When FileVault is not enabled, a user with a blank/empty password
       WILL be able to log in and authenticate GUI prompts, but WILL NOT be able
       to authenticate \"Terminal\" commands like ${ansi_bold}sudo${clear_ansi}, ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}, for example.
-
-    ${ansi_bold}SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES:${clear_ansi}
-    To grant the new user a Secure Token, the user and existing Secure Token
-      admin passwords must be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}.
-    To do this in the most secure way possible (so that they are never visible
-      in the process list), the passwords are NOT passed directly as arguments
-      but are instead passed using the command line prompt options (via ${ansi_bold}expect${clear_ansi}).
-    But, the ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} command line password prompts fail to
-      accept passwords over 128 bytes for the user as well as the Secure Token
-      admin even if the passwords are correct.
-    Since ${ansi_bold}mkuser${clear_ansi} strives to handle passwords in the most secure ways possible,
-      password lengths for the user (and Secure Token admin) are limited to
-      128 bytes when granting a Secure Token so that the passwords can be passed
-      to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} in a secure way that never makes them
-      visible in the process list.
-    If you need to make a Secure Token account that has a longer password for
-      any reason, you can do so manually after creating a non-Secure Token
-      account with ${ansi_bold}mkuser${clear_ansi} by insecurely passing the passwords directly to
-      ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} as arguments since longer passwords are
-      properly accepted when passed that way.
 
     ${ansi_bold}AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES:${clear_ansi}
     Auto-login simply does not work with passwords longer than 251 bytes.
@@ -1352,7 +1324,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       \"System Preferences\" when unlocked and authenticated by an administrator.
 
 
-📁 ${ansi_bold}HOME FOLDER OPTIONS:${clear_ansi}
+\xf0\x9f\x93\x81 ${ansi_bold}HOME FOLDER OPTIONS:${clear_ansi}
 
   ${ansi_bold}--home-folder, --home-path, --home, -H${clear_ansi}  < ${ansi_underline}non-existing path${clear_ansi} >
 
@@ -1388,7 +1360,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       ${ansi_bold}--skip-setup-assistant firstLoginOnly${clear_ansi} since they require the home folder.
 
 
-🖼  ${ansi_bold}PICTURE OPTIONS:${clear_ansi}
+\xf0\x9f\x96\xbc  ${ansi_bold}PICTURE OPTIONS:${clear_ansi}
 
   ${ansi_bold}--picture, --photo, --pic, -P${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} || ${ansi_underline}default picture filename${clear_ansi} >
 
@@ -1416,7 +1388,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       \"System Preferences\" when unlocked and authenticated by an administrator.
 
 
-🎛  ${ansi_bold}ACCOUNT TYPE OPTIONS:${clear_ansi}
+\xf0\x9f\x8e\x9b  ${ansi_bold}ACCOUNT TYPE OPTIONS:${clear_ansi}
 
   ${ansi_bold}--administrator, --admin, -a${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
@@ -1648,11 +1620,11 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     On macOS 10.15 Catalina, the first Secure Token is granted to the first
       administrator (not standard user) to login or authenticate,
       regardless of their UID.
-    Even though ${ansi_bold}mkuser${clear_ansi} will always verify the password using ${ansi_bold}dscl . -authonly${clear_ansi}
-      during the user creation process (which is an authentication that could
-      trigger granting the first Secure Token), this authentication happens
-      before the user is added to the \"admin\" group (if they are configured
-      to be an administrator).
+    Even though ${ansi_bold}mkuser${clear_ansi} will always verify the password (using native
+      ${ansi_bold}OpenDirectory${clear_ansi} methods) during the user creation process (which is an
+      authentication that could trigger granting the first Secure Token), this
+      authentication happens before the user is added to the \"admin\" group
+      (if they are configured to be an administrator).
     This means that users will never be an administrator during this
       authentication within the ${ansi_bold}mkuser${clear_ansi} process and therefore will not be granted
       the first Secure Token at that moment.
@@ -1679,9 +1651,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       no first Secure Token would be granted automatically by macOS
       (which is not a great situation to get into by accident).
     But, ${ansi_bold}mkuser${clear_ansi} simplifies this complexity since the password will always be
-      verified during the user creation process using ${ansi_bold}dscl . -authonly${clear_ansi},
-      which means the users first authentication actually happens during the
-      ${ansi_bold}mkuser${clear_ansi} user creation process.
+      verified during the user creation process (using native ${ansi_bold}OpenDirectory${clear_ansi}
+      methods), which means the users first authentication actually happens
+      during the ${ansi_bold}mkuser${clear_ansi} user creation process.
     Therefore, when using ${ansi_bold}mkuser${clear_ansi}, the first Secure Token will always be granted
       to the first user created with a UID of 500 or greater when their password
       is verified during the ${ansi_bold}mkuser${clear_ansi} process.
@@ -1718,7 +1690,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       users if you pass an existing Secure Token admins credentials using the
       ${ansi_bold}--secure-token-admin-account-name${clear_ansi} option along with one of the
       three different Secure Token admin password options below.
-    See the ${ansi_underline}SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} and the
+    See the ${ansi_underline}SECURE TOKEN 1022 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in the help
+      information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option below and the
       ${ansi_underline}PASSWORDS IN PACKAGE NOTES${clear_ansi} in help information for the ${ansi_bold}--password${clear_ansi} option
       above for more information about how passwords are handled securely
       by ${ansi_bold}mkuser${clear_ansi}, all of which also apply to Secure Token admin passwords.
@@ -1744,21 +1717,39 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--secure-token-admin-password, --st-admin-pass, --st-pass${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
-    The password must be at least 4 characters and 128 bytes or less,
+    The password must be at least 4 characters and 1022 bytes or less,
       or a blank/empty password.
     The password will be validated to be correct for the
       specified ${ansi_bold}--secure-token-admin-account-name${clear_ansi}.
     If omitted, blank/empty password will be specified.
     This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
 
-    See ${ansi_underline}SECURE TOKEN 128 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in help information
-      for the ${ansi_bold}--password${clear_ansi} option above for more information on that limitation,
-      and about how the password is passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}
-      in a secure way that does not reveal it in the process list.
-
     See ${ansi_underline}PASSWORDS IN PACKAGE NOTES${clear_ansi} in help information for the ${ansi_bold}--password${clear_ansi} option
       above for more information about how the Secure Token admin password
       is securely obfuscated within a package.
+
+    ${ansi_bold}SECURE TOKEN ADMIN 1022 BYTE PASSWORD LENGTH LIMIT NOTES:${clear_ansi}
+    To grant the new user a Secure Token, the user and existing Secure Token
+      admin passwords must be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}.
+    To do this in the most secure way possible (so that they are never visible
+      in the process list), the passwords are NOT passed directly as arguments
+      but are instead passed via \"stdin\" using the command line prompt options.
+    But, this technique fails with Secure Token admin passwords over 1022 bytes.
+    For a bit more technical information about this limitation from my testing,
+      search for ${ansi_underline}1022 bytes${clear_ansi} within the source of this script.
+    The length of the new user password is not an issue for this command since
+      it is limited to a maximum of 511 bytes as described in the
+      ${ansi_underline}511 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in help information
+      for the ${ansi_bold}--password${clear_ansi} option above.
+    Since ${ansi_bold}mkuser${clear_ansi} strives to handle passwords in the most secure ways possible,
+      the password length of Secure Token admin is limited to 1022 bytes so that
+      the password can be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} in a secure way
+      that never makes it visible in the process list.
+    If your existing Secure Token admin has a longer password for any reason,
+      you can use it to manually grant a Secure Token after creating a
+      non-Secure Token account with ${ansi_bold}mkuser${clear_ansi} by insecurely passing the password
+      directly to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} as an argument since longer
+      passwords are properly accepted when passed that way.
 
 
   ${ansi_bold}--fd3-secure-token-admin-password, --fd3-st-admin-pass, --fd3-st-pass${clear_ansi}
@@ -1791,7 +1782,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       accepting \"stdin\" disrupts the ability to use other command line inputs.
 
 
-🚪 ${ansi_bold}LOGIN OPTIONS:${clear_ansi}
+\xf0\x9f\x9a\xaa ${ansi_bold}LOGIN OPTIONS:${clear_ansi}
 
   ${ansi_bold}--automatic-login, --auto-login, -A${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
@@ -1813,14 +1804,17 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       in the \"Users & Groups\" pane of the \"System Preferences\" and will
       also not show up in the non-FileVault login window list of users.
 
-    If FileVault is enabled and one of these users is granted a Secure Token,
-      they will show in the FileVault login window and can decrypt the volume,
-      but then the non-FileVault login will be hit to login with another user.
+    If FileVault is enabled and one of these users has a password and is
+      granted a Secure Token, they WILL show in the FileVault login window
+      and can decrypt the volume, but then the non-FileVault login will be
+      hit to fully login to macOS with another user account.
     Unlike hidden users, these user CANNOT be logged into using
       text input fields in the non-FileVault login window.
-    These users also CANNOT authenticate \"Terminal\" commands like ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}.
-    And finally, these users CANNOT authenticate graphical prompts,
-      such as unlocking \"System Preferences\" panes if they are in an admin.
+
+    Even if one of these users has a password set, they CANNOT
+      authenticate \"Terminal\" commands like ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}.
+    They also CANNOT authenticate graphical prompts, such as unlocking
+      \"System Preferences\" panes if they are in an administrator.
     But, if these users are an admin, they CAN run AppleScript ${ansi_bold}do shell script${clear_ansi}
       commands ${ansi_bold}with administrator privileges${clear_ansi}.
 
@@ -1833,7 +1827,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
     Specify \"${ansi_underline}firstBootOnly${clear_ansi}\" to skip only the first boot Setup Assistant screens.
     This affects all users and will only have an effect if the first boot
-      Setup Assistant has not already been completed.
+      Setup Assistant has not already run.
 
     Specify \"${ansi_underline}firstLoginOnly${clear_ansi}\" to skip only the users first login
       Setup Assistant screens.
@@ -1843,7 +1837,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Any other parameters are invalid and will cause the user to not be created.
 
 
-📦 ${ansi_bold}PACKAGING OPTIONS:${clear_ansi}
+\xf0\x9f\x93\xa6 ${ansi_bold}PACKAGING OPTIONS:${clear_ansi}
 
   ${ansi_bold}--package-path, --pkg-path, --package, --pkg${clear_ansi}
     < ${ansi_underline}folder path${clear_ansi} || ${ansi_underline}pkg file path${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} (working directory) >
@@ -1853,7 +1847,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       save a distribution package file that can be used on another system.
     The distribution package (product archive) created will be suitable for use
       with ${ansi_bold}startosinstall --installpackage${clear_ansi} or ${ansi_bold}installer -pkg${clear_ansi} or \"Installer\" app,
-      and is also a \"nopayload\" package so no package receipt will be written.
+      and is also \"no payload\" which only runs scripts and leaves no receipt.
     If no path is specified, the current working directory will be used along
       with the default filename: ${ansi_underline}<PKG ID>-<PKG VERSION>.pkg${clear_ansi}
     If a folder path is specified, the default filename will be used
@@ -1896,7 +1890,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     If omitted, the package will not be signed.
 
 
-⚙️  ${ansi_bold}MKUSER OPTIONS:${clear_ansi}
+\xe2\x9a\x99\xef\xb8\x8f  ${ansi_bold}MKUSER OPTIONS:${clear_ansi}
 
   ${ansi_bold}--do-not-confirm, --no-confirm, --force, -F${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
@@ -1926,29 +1920,41 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       current system isn't useful when installing packages on other systems.
 
 
-  ${ansi_bold}--version, -v${clear_ansi}  < ${ansi_underline}online${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} >
+  ${ansi_bold}--version, -v${clear_ansi}  < ${ansi_underline}online${clear_ansi} (or ${ansi_underline}o${clear_ansi}) || ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to display the ${ansi_bold}mkuser${clear_ansi} version
       (which is ${MKUSER_VERSION}), and also check for updates when connected to
       the internet and display the newest version if an update is available.
 
-    Specify \"${ansi_underline}online${clear_ansi}\" to also open the ${ansi_bold}mkuser${clear_ansi} Releases page on GitHub in the
-      default web browser to be able to quickly and easily view the latest
-      release notes as well as download the latest version.
+    Specify \"${ansi_underline}online${clear_ansi}\" (or \"${ansi_underline}o${clear_ansi}\") to also open the ${ansi_bold}mkuser${clear_ansi} Releases page on GitHub
+      in the default web browser to be able to quickly and easily view the
+      latest release notes as well as download the latest version.
 
     This option overrides all other options (including ${ansi_bold}--help${clear_ansi}).
 
 
-  ${ansi_bold}--help, -h${clear_ansi}  < ${ansi_underline}online${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} >
+  ${ansi_bold}--help, -h${clear_ansi}  < ${ansi_underline}brief${clear_ansi} (or ${ansi_underline}b${clear_ansi}) ||  ${ansi_underline}online${clear_ansi} (or ${ansi_underline}o${clear_ansi}) || ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to display this help information.
 
-    Specify \"${ansi_underline}online${clear_ansi}\" to instead open the README section of the ${ansi_bold}mkuser${clear_ansi} GitHub
-      page in the default web browser to be able quickly and easily
-      view the help information on there.
+    Specify \"${ansi_underline}brief${clear_ansi}\" (or \"${ansi_underline}b${clear_ansi}\") to only show options without their descriptions.
+    This can be helpful for quick reference to check option or parameter names.
+
+    Specify \"${ansi_underline}online${clear_ansi}\" (or \"${ansi_underline}o${clear_ansi}\") to instead open the README section of the
+      ${ansi_bold}mkuser${clear_ansi} GitHub page in the default web browser to be able quickly
+      and easily view the help information on there.
 
     This option overrides all other options (except ${ansi_bold}--version${clear_ansi}).
 "
+
+		if $show_brief_help; then
+			# DO NOT "echo -e" when grepping so that ansi codes are easier to match and replace and the missing options check continues to work below against un-interpreted ansi codes.
+			help_information="$(echo "${help_information}" | grep '^[^ ]\|^[ ]\{2\}\\033\[1m--\|^[ ]\{4\}<')" # Filter to only lines that are section titles, options, and parameter descriptions that my be on their own lines.
+			help_information="${help_information//\\xf0\\x9f\\x93\\x9d \\033[1mDESCRIPTION:\\033[0m/}" # Remove DESCRIPTION section title since the description text has been removed (this leaves an empty line in it's place so that there is a line between the URL and first section title).
+			help_information="${help_information//\\xe2\\x84\\xb9\\xef\\xb8\\x8f  \\033[1mUSAGE NOTES:\\033[0m$'\n'/}" # Remove USAGE NOTES section title (and the line break at the end) since the description text has been removed (this DOESN'T leave behind a line break so that there aren't two lines between the URL and first section title).
+			help_information="${help_information//:\\033[0m/:\\033[0m\n}" # Add back a single line break after each section title for an easier to read display.
+			help_information="\n${help_information//>/>\n}" # Add back a single line break after parameter description for an easier to read display (and add line break before first version line to retain original padding).
+		fi
 
 		echo -e "${help_information}"
 
@@ -2011,7 +2017,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	darwin_major_version="$(uname -r | cut -d '.' -f 1)" # 17 = 10.13, 18 = 10.14, 19 = 10.15, 20 = 11.0, etc.
 
 	if (( darwin_major_version < 17 )); then
-		>&2 echo "mkuser ERROR ${error_code}: This tool has only been tested to work on macOS 10.13 High Sierra and newer."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool has only been tested to work on macOS 10.13 High Sierra and newer."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -2034,10 +2040,15 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			# This means that a full name like "上海" will be properly converted to "shanghai" and "P̃īçø" will be converted to "pico" for the account name like System Preferences does.
 			# Helpful links for the "stringByApplyingTransform" custom transform rules: https://nshipster.com/cfstringtransform/ & https://oleb.net/blog/2016/01/icu-text-transforms/
 			# Useful "Iлｔèｒｎåｔïｏｎɑｌíƶａｔï߀ԉ ą ć ę ł ń ó ś ź ż ä ö ü ß" test string from: https://javascript.plainenglish.io/not-so-obvious-removal-of-diacritics-in-javascript-explained-and-done-right-52f4aeb3c85
-			user_account_name="$(osascript -l 'JavaScript' -e "ObjC.wrap('${user_full_name}').stringByApplyingTransformReverse(ObjC.wrap('Any-Latin; Latin-ASCII; Any-Lower'), false).js.replace(/[^${a_z}${DIGITS}_.-]/g, '')")"
-			# Some characters such as "ԉ" and Emoji are not converted via "stringByApplyingTransform", but will be properly stripped out using the JavaScript string "replace" function.
-			# Characters like Emoji could be converted to their Unicode names with "NSStringTransformToUnicodeName" but that seems unnecessary and possibly confusing to include in an account name. Stripping these kinds of characters out also matches the System Preferences behavior.
-			# NOTE: This code DOES NOT properly transliterate some languages such as Japenese where "日本" will be transliterated into "riben" instead of "nippon" since each character is being transliterated individually insead of as a single token. System Preferences transliterates this properly to "nippon".
+
+			user_account_name="$(OSASCRIPT_ENV_USER_FULL_NAME="${user_full_name}" osascript -l 'JavaScript' -e "$.NSProcessInfo.processInfo.environment.objectForKey('OSASCRIPT_ENV_USER_FULL_NAME').stringByApplyingTransformReverse('Any-Latin; Latin-ASCII; Any-Lower', false).js.replace(/[^${a_z}${DIGITS}_.-]/g, '')" 2> /dev/null)"
+			# For information about why the full name (which is user input) is passed to JXA as a command specific environment variable,
+			# which is then retrieved within JXA, see: https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
+			# (This blog post is specifically about handling arbitrary JSON in JXA, but all of the same security precautions apply to handling user input, as well as the benefit of not needing to escape any special characters.)
+
+			# Some characters such as "ԉ" and emoji are not converted via "stringByApplyingTransform", but will be properly stripped out using the JavaScript string "replace" function.
+			# Characters like emoji could be converted to their Unicode names with "NSStringTransformToUnicodeName" but that seems unnecessary and possibly confusing to include in an account name. Stripping these kinds of characters out also matches the System Preferences behavior.
+			# NOTE: This code DOES NOT properly transliterate some languages such as Japanese where "日本" will be transliterated into "riben" instead of "nippon" since each character is being transliterated individually instead of as a single token. System Preferences transliterates this properly to "nippon".
 			# It seems like using CFStringTokenizer would be the solution, but I haven't tried to do that yet in JXA: https://stackoverflow.com/questions/37685877/how-to-customize-cfstring-transliteration-in-cocoa-cocoa-touch-foundation/42330497#42330497 & https://stackoverflow.com/questions/1752946/how-to-get-the-first-n-words-from-a-nsstring-in-objective-c/1753141#1753141
 
 			if [[ -z "${user_account_name}" ]]; then
@@ -2056,14 +2067,14 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		if [[ -z "${user_account_name}" ]]; then
 			could_not_convert_full_name_note=''
 			if [[ -n "${user_full_name}" ]]; then could_not_convert_full_name_note=' Could not convert full name into account name.'; fi
-			>&2 echo "mkuser ERROR ${error_code}: No account name specified.${could_not_convert_full_name_note}"
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: No account name specified.${could_not_convert_full_name_note}"
 			return "${error_code}"
 		fi
 	fi
 	(( error_code ++ ))
 
 	if (( ${#user_account_name} > 244 )); then
-		>&2 echo "mkuser ERROR ${error_code}: Account name must be 244 characters or less. Specified account name is ${#user_account_name} characters long. See \"--help\" for more information about this limitation."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name must be 244 characters or less. Specified account name is ${#user_account_name} characters long. See \"--help\" for more information about this limitation."
 		return "${error_code}"
 
 		# System Preferences does not allow account names to be over 83 characters.
@@ -2072,12 +2083,12 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# Using "dscl . -create" also fails silently with account names over 244 characters, and the user just does not get create (like "dsimport").
 		# Using "sysadminctl -addUser" fails gloriously with a bunch of errors with account names over 244 characters though. The errors are on multiple lines of "DSRecord.m" with error codes "-14136" and "-14071" and the user just does not get created.
 		# So, limit the account name to 244 chars since that seems to be a true limit of all macOS account creation techniques.
-		# This 244 character limit was tested and confirmed on both Big Sur and High Sierra.
+		# This 244 character limit was tested and confirmed on both macOS 11 Big Sur and macOS 10.13 High Sierra.
 	fi
 	(( error_code ++ ))
 
 	if ! [[ "${user_account_name}" =~ [${a_z}]+ ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Account name must contain at least one letter."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name must contain at least one letter."
 		return "${error_code}"
 
 		# System Preferences states that account names "Cannot contain numbers only" which is also shown when a hyphen/minus, underscore, or period is included, so it really means at least one letter is required.
@@ -2088,7 +2099,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	(( error_code ++ ))
 
 	if [[ "${user_account_name}" == 'guest' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Account name \"${user_account_name}\" is a reserved by macOS."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name \"${user_account_name}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -2096,7 +2107,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	if [[ -z "${user_full_name}" ]]; then
 		user_full_name="${user_account_name}" # If no full name specified, use the account name (which will always be a valid full name).
 	elif [[ "$(echo "${user_full_name}" | tr '[:upper:]' '[:lower:]')" == 'guest' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Full name \"${user_full_name}\" is a reserved by macOS."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -2105,7 +2116,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
 		# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
-		>&2 echo "mkuser ERROR ${error_code}: User ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -2114,7 +2125,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
 		# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
-		>&2 echo "mkuser ERROR ${error_code}: Group ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Group ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -2123,7 +2134,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		if $has_invalid_options; then
 			>&2 echo 'mkuser WARNING: NOT prompting for password since INVALID OPTIONS OR PARAMETERS are specified and user would not be created anyway.'
 		elif $did_get_password_from_stdin || [[ -n "${user_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"--password-prompt\" option because \"--password\" or \"--stdin-password\" or \"--no-password\" has already been specified."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"--password-prompt\" option because \"--password\" or \"--stdin-password\" or \"--no-password\" has already been specified."
 			return "${error_code}"
 		else
 			echo -en "\nSpecify Password for New \"${user_account_name}\" User: "
@@ -2138,16 +2149,16 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 				# I don't believe it's possible to include line breaks within a prompt like this, so we don't need to check for them to be disallowed.
 				user_password="${prompted_user_password}"
 			else
-				>&2 echo "mkuser ERROR ${error_code}: Specified passwords did not match."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified passwords did not match."
 				return "${error_code}"
 			fi
 		fi
 	fi
 	(( error_code ++ ))
 
-	# TODO: Extract and check against ACTUAL password policy regex in policyContent and use the policyContentDescription when it doesn't match.
-	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContent' /dev/stdin <<< "$(pwpolicy getaccountpolicies 2> /dev/null | grep -vx 'Getting global account policies')" 2> /dev/null
-	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContentDescription:en' /dev/stdin <<< "$(pwpolicy getaccountpolicies 2> /dev/null | grep -vx 'Getting global account policies')" 2> /dev/null
+	# TODO: Eventually extract and check against ACTUAL password policy regex in policyContent (if a pwpolicy is set) and use the policyContentDescription when it doesn't match.
+	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContent' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null
+	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContentDescription:en' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null
 
 	if [[ -z "${user_password}" ]]; then
 		if ! $set_service_account; then # Service Accounts will have the password set to NO PASSWORD (*) which are allowed when FileVault is enabled.
@@ -2155,7 +2166,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 				# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user cannot be created on FileVault enabled Macs.
 				>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which are not allowed on FileVault-enabled Macs, so this user WILL NOT be created if you try to install this package on a FileVault-enabled Mac.'
 			elif [[ "$(fdesetup isactive)" == 'true' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Password cannot be blank/empty when FileVault is enabled."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot be blank/empty when FileVault is enabled."
 				return "${error_code}"
 			fi
 		fi
@@ -2166,7 +2177,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# and the user would get created with NO password (and not the intentional "*" no password, just no password at all) which also happens with "sysadminctl -addUser".
 	elif [[ "${user_password}" != '*' ]]; then
 		if (( ${#user_password} < 4 )); then
-			>&2 echo "mkuser ERROR ${error_code}: Password too short, it must be at least 4 characters or blank/empty password (unless FileVault is enabled, then blank/empty passwords are not allowed)."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password too short, it must be at least 4 characters or blank/empty password (unless FileVault is enabled, then blank/empty passwords are not allowed)."
 			return "${error_code}"
 
 			# If password is 1-3 characters, the user will be created but the "Password" field will end up as plain text and no "ShadowHashData" etc will be set and the password will not authenticate the user.
@@ -2174,18 +2185,13 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		user_password_byte_length="$(echo -n "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
 		user_password_byte_length="${user_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
-		if ( $boot_volume_is_apfs || $make_package ) && [[ -n "${st_admin_account_name}" ]] && (( user_password_byte_length > 128 )); then # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
-			>&2 echo "mkuser ERROR ${error_code}: Cannot grant Secure Token while specifying a password over 128 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable Secure Token granting options. See \"--help\" for more information about this limitation."
+		if $set_auto_login && (( user_password_byte_length > 251 )); then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 
-			# Read "--help" information about why passwords longer than 128 bytes are not allowed when granting a Secure Token (it's because they don't work when passed to "sysadminctl -secureTokenOn" interactively). The described behavior was tested on Mojave, Big Sur, and Monterey.
-		elif $set_auto_login && (( user_password_byte_length > 251 )); then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
-			return "${error_code}"
-
-			# Read "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on High Sierra and Big Sur.
+			# Read "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on macOS 10.13 High Sierra and macOS 11 Big Sur.
 		elif (( user_password_byte_length > 511 )); then
-			>&2 echo "mkuser ERROR ${error_code}: Password too long, it must be 511 bytes or less. Specified password is ${user_password_byte_length} bytes long. See \"--help\" for more information about this limitation."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password too long, it must be 511 bytes or less. Specified password is ${user_password_byte_length} bytes long. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 
 			# For information about why passwords longer than 511 bytes are not allowed, search for and read the comments above "THIS IS WHY PASSWORDS OVER 511 BYTES ARE NOT ALLOWED" (or read notes in "--help" info).
@@ -2194,20 +2200,20 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	(( error_code ++ ))
 
 	if (( ${#user_password_hint} > 280 )); then
-		>&2 echo "mkuser ERROR ${error_code}: Password hint must be 280 characters or less. Specified password hint is ${#user_password_hint} characters long. See \"--help\" for more information about this limitation."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password hint must be 280 characters or less. Specified password hint is ${#user_password_hint} characters long. See \"--help\" for more information about this limitation."
 		return "${error_code}"
 
 		# System Preferences does not allow password hints to be over 128 characters.
-		# In my testing on Big Sur, I was able to create password hints up to 550,000 bytes without issue in the non-FileVault login window but 600,000 byte hints did not load in the non-FileVault login window (just and empty password hint popover window was shown). I didn't bother narrowing that range to find exactly where it stopped loading.
+		# In my testing on macOS 11 Big Sur, I was able to create password hints up to 550,000 bytes without issue in the non-FileVault login window but 600,000 byte hints did not load in the non-FileVault login window (just and empty password hint popover window was shown). I didn't bother narrowing that range to find exactly where it stopped loading.
 		# But, no matter how many characters are in the hint, it's always truncated in the non-FileVault login window password hint popover. Only 7 lines will show of about 40 characters per line, making 280 a reasonable limit. Even if it's all 4-byte emoji, that would make a 1120 byte password hint, which is nowhere near the upper byte limit I found.
 		# Since each character is a different width, 40 characters per line is just an estimation and less or more may fit depending on the characters, for example, only 14 smiley face emoji fit on a single line in the password hint popover.
 		# If line breaks are included, they are rendered in the password hint popover and that can make fewer characters display since only up to 7 lines will show no matter what.
 		# The FileVault login window on Apple Silicon behaves the same and non-FileVault login window since its full macOS and not an EFI app. But, the FileVault login window on Intel (which is an EFI app) actually shows longer lines and more lines. I'm not sure of the limit there, but decided to stick with 280 characters since it's long enough.
 
-		# When testing on High Sierra, I found that it could actually display more characters and lines in the non-FileVault login window since the password hint popover would reposition and expand to the full height of the screen.
+		# When testing on macOS 10.13 High Sierra, I found that it could actually display more characters and lines in the non-FileVault login window since the password hint popover would reposition and expand to the full height of the screen.
 		# But, if the hint was longer than the password hint popover, the beginning would be clipped off and only the end of the password hint would be shown.
-		# The FileVault login window would also show more characters and line on High Sierra, but it would just continue off the end of the screen and cover the shut down and restart buttons and push the "If you forgot your password, you can reset it using your Recovery Key" button, which is not good.
-		# So, even though High Sierra could display longer password hints, I still thing 280 characters is a reasonable limit to set for all possible login scenarios and macOS versions.
+		# The FileVault login window would also show more characters and line on macOS 10.13 High Sierra, but it would just continue off the end of the screen and cover the shut down and restart buttons and push the "If you forgot your password, you can reset it using your Recovery Key" button, which is not good.
+		# So, even though macOS 10.13 High Sierra could display longer password hints, I still thing 280 characters is a reasonable limit to set for all possible login scenarios and macOS versions.
 	fi
 	(( error_code ++ ))
 
@@ -2227,16 +2233,16 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		# Cannot leave "user_home_path" unspecified since "dsimport" does not set any "NFSHomeDirectory" by default which will prevent the user from being able to log in.
 	elif [[ "${user_home_path}" != '/'* ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid absolute path, it must start with \"/\"."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid absolute path, it must start with \"/\"."
 		return "${error_code}"
 	elif [[ "${user_home_path}" == *'//'* ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid path, it contains \"//\" (an empty folder name)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it contains \"//\" (an empty folder name)."
 		return "${error_code}"
 	elif [[ "${user_home_path}" == *':'* ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid path, it contains \":\" (not allowed by macOS)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it contains \":\" (not allowed by macOS)."
 		return "${error_code}"
 	elif [[ "${user_home_path//[^\/]/}" == '/' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is not a valid path, it cannot be a folder at the root of the volume."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot be a folder at the root of the volume."
 		return "${error_code}"
 	elif [[ "$(echo "${user_home_path}" | tr '[:upper:]' '[:lower:]')" == '/var/'* ]]; then
 		# Replace "/var/" with "/private/var/" so that the home folder path is not a symlink path.
@@ -2249,7 +2255,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	user_home_path_byte_length="$(echo -n "${user_home_path}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
 	user_home_path_byte_length="${user_home_path_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 	if (( user_home_path_byte_length > 511 )); then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder path too long, it must be 511 bytes or less. Specified home folder path is ${user_home_path_byte_length} bytes long. See \"--help\" for more information about this limitation."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder path too long, it must be 511 bytes or less. Specified home folder path is ${user_home_path_byte_length} bytes long. See \"--help\" for more information about this limitation."
 		return "${error_code}"
 
 		# Through testing, I found that the total home folder path length must be 511 BYTES or less (less than 512 bytes)
@@ -2263,7 +2269,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	IFS='/'
 	for this_user_home_path_folder_name in ${user_home_path}; do
 		if (( $(echo -n "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
-			>&2 echo "mkuser ERROR ${error_code}: Some folder name in the specified home folder path is over the macOS maximum of 255 bytes."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Some folder name in the specified home folder path is over the macOS maximum of 255 bytes."
 			return "${error_code}"
 
 			# No folder name in the home folder path can be over 255 bytes, as that is the macOS (HFS/APFS) max file/folder name limit.
@@ -2275,7 +2281,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	user_home_path_lowercased="$(echo "${user_home_path}" | tr '[:upper:]' '[:lower:]')"
 
 	if [[ "${user_home_path_lowercased}" == '/users/guest' || "${user_home_path_lowercased}" == '/users/shared' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" is a reserved by macOS."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -2294,7 +2300,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if $set_sharing_only_account; then
 		if ! $user_home_is_dev_null; then
-			>&2 echo "mkuser ERROR ${error_code}: Sharing Only Accounts must have their home folder set to \"/dev/null\". Change or remove the unusable \"--home\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Sharing Only Accounts must have their home folder set to \"/dev/null\". Change or remove the unusable \"--home\" option."
 			return "${error_code}"
 		fi
 
@@ -2303,34 +2309,34 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		fi
 
 		if [[ "$(echo "${user_shell}" | tr '[:upper:]' '[:lower:]')" != '/usr/bin/false' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Sharing Only Accounts must have their login shell set to \"/usr/bin/false\". Change or remove the unusable \"--login-shell\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Sharing Only Accounts must have their login shell set to \"/usr/bin/false\". Change or remove the unusable \"--login-shell\" option."
 			return "${error_code}"
 		fi
 
 		if $set_admin; then
-			>&2 echo "mkuser ERROR ${error_code}: Sharing Only Accounts cannot be administrators. Change or remove the unusable \"--administrator\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Sharing Only Accounts cannot be administrators. Change or remove the unusable \"--administrator\" option."
 			return "${error_code}"
 		fi
 
 		if $set_prevent_secure_token_on_big_sur_and_newer; then # Sharing Only Accounts will always have Secure Token prevented on macOS 11 Big Sur and newer, but do not allow that to be set explicitly to avoid confusion that it could get a Secure Token if that's not set.
-			>&2 echo "mkuser ERROR ${error_code}: Sharing Only Accounts will always have Secure Token prevented on macOS 11 Big Sur and newer. Remove the unnecessary \"--prevent-secure-token-on-big-sur-and-newer\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Sharing Only Accounts will always have Secure Token prevented on macOS 11 Big Sur and newer. Remove the unnecessary \"--prevent-secure-token-on-big-sur-and-newer\" option."
 			return "${error_code}"
 		fi
 
 		set_prevent_secure_token_on_big_sur_and_newer=true
 	elif $set_role_account; then
 		if [[ "${user_account_name}" != '_'* ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Role Accounts must have an account name that starts with an underscore (_)."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts must have an account name that starts with an underscore (_)."
 			return "${error_code}"
 		fi
 
 		if [[ -n "${user_uid}" ]] && (( user_uid < 200 || user_uid > 400 )); then
-			>&2 echo "mkuser ERROR ${error_code}: Role Accounts must have a User ID in the 200-400 range. Change or remove the unusable \"--user-id\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts must have a User ID in the 200-400 range. Change or remove the unusable \"--user-id\" option."
 			return "${error_code}"
 		fi
 
 		if ! $user_home_is_var_empty; then
-			>&2 echo "mkuser ERROR ${error_code}: Role Accounts must have their home folder set to \"/var/empty\". Change or remove the unusable \"--home\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts must have their home folder set to \"/var/empty\". Change or remove the unusable \"--home\" option."
 			return "${error_code}"
 		fi
 
@@ -2339,29 +2345,29 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		fi
 
 		if [[ "$(echo "${user_shell}" | tr '[:upper:]' '[:lower:]')" != '/usr/bin/false' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Role Accounts must have their login shell set to \"/usr/bin/false\". Change or remove the unusable \"--login-shell\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts must have their login shell set to \"/usr/bin/false\". Change or remove the unusable \"--login-shell\" option."
 			return "${error_code}"
 		fi
 
 		if $set_admin; then
-			>&2 echo "mkuser ERROR ${error_code}: Role Accounts cannot be administrators. Change or remove the unusable \"--administrator\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts cannot be administrators. Change or remove the unusable \"--administrator\" option."
 			return "${error_code}"
 		fi
 
 		if $set_hidden_user; then # Role Accounts will always be set as hidden, but do not allow that to be set explicitly to avoid confusion that it won't be hidden if that's not set.
-			>&2 echo "mkuser ERROR ${error_code}: Role Accounts will always be hidden. Remove the unnecessary \"--hidden\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts will always be hidden. Remove the unnecessary \"--hidden\" option."
 			return "${error_code}"
 		fi
 
 		set_hidden_user=true
 	elif $set_service_account; then
 		if [[ "${user_account_name}" != '_'* ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts must have an account name that starts with an underscore (_)."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts must have an account name that starts with an underscore (_)."
 			return "${error_code}"
 		fi
 
 		if [[ "${user_home_path_lowercased}" == '/users/'* ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts cannot have their home folder within the \"/Users/\" folder. Change or remove the unusable \"--home\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts cannot have their home folder within the \"/Users/\" folder. Change or remove the unusable \"--home\" option."
 			return "${error_code}"
 		fi
 
@@ -2378,12 +2384,12 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		fi
 
 		if [[ "${user_password}" != '*' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts must have NO password. Change or remove the unusable \"--password\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts must have NO password. Change or remove the unusable \"--password\" option."
 			return "${error_code}"
 		fi
 
 		if $set_no_picture; then # Service Accounts will always have NO picture, but do not allow that to be set explicitly to avoid confusion that it will have a picture if that's not set.
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts will always have NO picture. Remove the unnecessary \"--no-picture\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts will always have NO picture. Remove the unnecessary \"--no-picture\" option."
 			return "${error_code}"
 		fi
 
@@ -2392,17 +2398,17 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		fi
 
 		if ! $set_no_picture; then
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts must have NO picture. Remove the unusable \"--picture\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts must have NO picture. Remove the unusable \"--picture\" option."
 			return "${error_code}"
 		fi
 
 		if $set_admin; then
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts cannot be administrators. Change or remove the unusable \"--administrator\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts cannot be administrators. Change or remove the unusable \"--administrator\" option."
 			return "${error_code}"
 		fi
 
 		if $set_hidden_user; then # Service Accounts will always be hidden (because of having "*" password set), but do not allow that to be set explicitly to avoid confusion that it won't be hidden if that's not set.
-			>&2 echo "mkuser ERROR ${error_code}: Service Accounts will always be hidden. Remove the unnecessary \"--hide\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Service Accounts will always be hidden. Remove the unnecessary \"--hide\" option."
 			return "${error_code}"
 		fi
 
@@ -2414,13 +2420,13 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if $do_not_create_home_folder || $user_home_is_var_empty || $user_home_is_dev_null; then
 		if $set_hidden_home; then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot hide home folder $($do_not_create_home_folder && echo 'while specifying "--do-not-create-home-folder"' || echo "when set to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\""). If you want to only hide the user, specify \"--hide userOnly\" instead or remove the option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot hide home folder $($do_not_create_home_folder && echo 'while specifying "--do-not-create-home-folder"' || echo "when set to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\""). If you want to only hide the user, specify \"--hide userOnly\" instead or remove the option."
 			return "${error_code}"
 		elif $skip_setup_assistant_on_first_login; then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot skip first login Setup Assistant $($do_not_create_home_folder && echo 'while specifying "--do-not-create-home-folder"' || echo "when home folder is set to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\""). If you want to only skip first boot Setup Assistant, specify \"--skip-setup-assistant firstBootOnly\" instead or remove the option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot skip first login Setup Assistant $($do_not_create_home_folder && echo 'while specifying "--do-not-create-home-folder"' || echo "when home folder is set to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\""). If you want to only skip first boot Setup Assistant, specify \"--skip-setup-assistant firstBootOnly\" instead or remove the option."
 			return "${error_code}"
 		elif $do_not_share_public_folder; then
-			>&2 echo "mkuser ERROR ${error_code}: Public folder will not be shared $($do_not_create_home_folder && echo 'while specifying "--do-not-create-home-folder"' || echo "when home folder is set to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\""). Remove the unnecessary \"--do-not-share-public-folder\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Public folder will not be shared $($do_not_create_home_folder && echo 'while specifying "--do-not-create-home-folder"' || echo "when home folder is set to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\""). Remove the unnecessary \"--do-not-share-public-folder\" option."
 			return "${error_code}"
 		fi
 
@@ -2433,13 +2439,13 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			if possible_user_shell="$(which "${user_shell}" 2> /dev/null)"; then
 				user_shell="${possible_user_shell}" # Use "which" to allow user_shell to be specified by command name such as "bash" or "zsh" instead of only the actual full path.
 			else
-				>&2 echo "mkuser ERROR ${error_code}: Specified login shell file \"${user_shell}\" does not exist."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified login shell file \"${user_shell}\" does not exist."
 				return "${error_code}"
 			fi
 		fi
 
 		if [[ ! -x "${user_shell}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Specified login shell file \"${user_shell}\" is not executable."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified login shell file \"${user_shell}\" is not executable."
 			return "${error_code}"
 		fi
 
@@ -2483,7 +2489,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	critical_combined_byte_length_difference="$(( (${#user_account_name} + user_full_name_byte_length + user_shell_byte_length + user_home_path_byte_length) - 1010 ))" # Get the difference right away to only need to do math once since it will be used in the error if the limit is hit.
 	if (( critical_combined_byte_length_difference > 0 )); then
-		>&2 echo "mkuser ERROR ${error_code}: Combined byte length of account name, full name, login shell, and home path must be 1010 bytes or less.
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Combined byte length of account name, full name, login shell, and home path must be 1010 bytes or less.
   Specified account name is ${#user_account_name} bytes long.
   Specified full name is ${user_full_name_byte_length} bytes long.
   Specified login shell is ${user_shell_byte_length} bytes long.
@@ -2501,11 +2507,11 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# I confirmed that these limitation are just because of these 4 attibutes by adding other longer attributes when these 4 attributes were at the combined maximum which did not break it,
 		# and also deleting all other attributes when these 4 attributes were just just 1 byte over their combined maximum which did not fix it.
 
-		# Through testing on High Sierra and Big Sur, I found that this combined length of these 4 attributes must be 1010 bytes or less for the full name to show in the "Log Out" menu item of the "Apple" menu.
+		# Through testing on macOS 10.13 High Sierra and macOS 11 Big Sur, I found that this combined length of these 4 attributes must be 1010 bytes or less for the full name to show in the "Log Out" menu item of the "Apple" menu.
 		# If the combined length of these 4 attributes is over than 1010 bytes, the user account still seems to work otherwise, but only "Log Out …" is shown in the "Apple" menu with no full name shown.
 		# My assumption here is that something internal and static is taking up another 13 or 14 bytes making the actual limit be 1023 or 1024 bytes since these limitations usually fall on or one byte below a base 2 byte range.
 
-		# On both High Sierra and Big Sur, the user seems to work properly like this until the combined length of these 4 attibutes together goes over 2034 bytes.
+		# On both macOS 10.13 High Sierra and macOS 11 Big Sur, the user seems to work properly like this until the combined length of these 4 attibutes together goes over 2034 bytes.
 		# If the combined length of these 4 attributes is over than 2034 bytes, the user will fail to login via login window and the "login" or "su" commands.
 		# When watching the console when the "login" command fails, the errors are "login (libpam.2.dylib): in pam_sm_acct_mgmt(): OpenDirectory - Unable to get pwd record." and "login: pam_acct_mgmt(): unknown user".
 		# And the "su" errors are "su (libpam.2.dylib): in pam_sm_acct_mgmt(): Unable to obtain the username." and "su (libpam.2.dylib): in pam_sm_acct_mgmt(): OpenDirectory - Unable to get pwd record." and "su: pam_acct_mgmt: authentication error".
@@ -2529,22 +2535,24 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			if [[ -f "${possible_user_picture_path}" ]]; then
 				user_picture_path="${possible_user_picture_path}"
 			else
-				>&2 echo "mkuser ERROR ${error_code}: Specified $([[ "${user_picture_path}" == *'/'* ]] && echo 'picture path' || echo 'default picture name') \"${user_picture_path}\" does not exist."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified $([[ "${user_picture_path}" == *'/'* ]] && echo 'picture path' || echo 'default picture name') \"${user_picture_path}\" does not exist."
 				return "${error_code}"
 			fi
 		fi
 
 		if (( $(stat -f '%z' "${user_picture_path}") > 1000000 )); then
-			>&2 echo "mkuser ERROR ${error_code}: Specified picture file \"${user_picture_path}\" is over 1 MB. Choose or create a smaller picture file."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified picture file \"${user_picture_path}\" is over 1 MB. Choose or create a smaller picture file."
 			return "${error_code}"
 
 			# Do not try to set picture that is over 1 MB (and exit with error).
 			# This check was inspired by code shared by Simon Andersen: https://macadmins.slack.com/archives/C07MGJ2SD/p1621271235165000?thread_ts=1621186749.143600&cid=C07MGJ2SD
+			# But, much larger pictures DIDN'T appear to have any obvious issues during some *very minimal* testing (tested with up to 138 MB heic desktop pictures).
+			# Still, limiting the user picture to a reasonable 1 MB seems to be a wise practice as all the default user pictures are under 1 MB (the largest being 850 KB).
 		else
 			user_picture_file_type="$(file -bI "${user_picture_path}" 2> /dev/null | cut -d ';' -f 1)"
 
 			if [[ "${user_picture_file_type}" != 'image/'* ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Specified picture file \"${user_picture_path}\" is not an image (file type is \"${user_picture_file_type:-UNKNOWN}\")."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified picture file \"${user_picture_path}\" is not an image (file type is \"${user_picture_file_type:-UNKNOWN}\")."
 				return "${error_code}"
 			fi
 		fi
@@ -2553,10 +2561,10 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if $set_auto_login; then
 		if $user_shell_is_false; then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot set auto-login when the login shell is set to \"/usr/bin/false\" since this user will not be able to be logged into. Remove the unusable \"--auto-login\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login when the login shell is set to \"/usr/bin/false\" since this user will not be able to be logged into. Remove the unusable \"--auto-login\" option."
 			return "${error_code}"
 		elif [[ "${user_password}" == '*' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot set auto-login while specifying \"--no-password\" (or \"--password '*'\"). Remove the unusable \"--auto-login\" option."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login while specifying \"--no-password\" (or \"--password '*'\"). Remove the unusable \"--auto-login\" option."
 			return "${error_code}"
 		fi
 	fi
@@ -2564,10 +2572,10 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if $user_home_is_var_empty || $user_home_is_dev_null; then
 		if ! $user_shell_is_false; then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot set home folder to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\" UNLESS ALSO specifying \"--prevent-login\" (or \"--login-shell /usr/bin/false\") since this user will not be able to be logged into."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set home folder to \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\" UNLESS ALSO specifying \"--prevent-login\" (or \"--login-shell /usr/bin/false\") since this user will not be able to be logged into."
 			return "${error_code}"
 		elif $do_not_create_home_folder; then
-			>&2 echo "mkuser ERROR ${error_code}: The home folder is set to the special \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\" folder. Remove the invalid \"--do-not-create-home-folder\" for this case."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: The home folder is set to the special \"$($user_home_is_var_empty && echo '/var/empty' || echo '/dev/null')\" folder. Remove the invalid \"--do-not-create-home-folder\" for this case."
 			return "${error_code}"
 		fi
 	fi
@@ -2580,24 +2588,24 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			>&2 echo 'mkuser WARNING: IGNORING "--secure-token-admin-account-name" since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
 			st_admin_account_name='' # Clear specified st_admin_account_name so that Secure Token granting code during user creation will never be run.
 		elif $set_prevent_secure_token_on_big_sur_and_newer; then
-			>&2 echo "mkuser ERROR ${error_code}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--prevent-secure-token-on-big-sur-and-newer\". Remove one or the other of these options."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--prevent-secure-token-on-big-sur-and-newer\". Remove one or the other of these options."
 			return "${error_code}"
 		elif [[ "${st_admin_account_name}" == "${user_account_name}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" cannot be same as the new user \"--account-name\"."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" cannot be same as the new user \"--account-name\"."
 			return "${error_code}"
 		elif ! $make_package; then # Only check that the Secure Token admin exists if not making a package which may run on another system.
 			if ! dscl . -read "/Users/${st_admin_account_name}" RecordName &> /dev/null; then
-				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" does not exist."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" does not exist."
 				return "${error_code}"
 			elif [[ "$(dsmemberutil checkmembership -U "${st_admin_account_name}" -G 'admin' 2> /dev/null)" != 'user is a member of the group' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" is not an administrator."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" is not an administrator."
 				return "${error_code}"
 			fi
 
-			# DO NOT check if the specified Secure Token admin has a Secure Token YET in case we're running on Catalina and they are the first admin created which may not have been granted the first Secure Token yet.
-			# In this case on Catalina, the first admin will be granted the first Secure Token AFTER their password is verified below (using "dscl . -authonly").
-			# So, we will confirm that they have a Secure Token AFTER their password has been verified to allow for the situation on Catalina where multiple users are being created by mkuser before going through Setup Assistant
-			# and all of them are intended to get Secure Tokens from the first admin created by mkuser (which, again, will not get the first Secure Token on Catalina until after their first authentication).
+			# DO NOT check if the specified Secure Token admin has a Secure Token YET in case we're running on macOS 10.15 Catalina and they are the first admin created which may not have been granted the first Secure Token yet.
+			# In this case on macOS 10.15 Catalina, the first admin will be granted the first Secure Token AFTER their password is verified below (using native "OpenDirectory" methods).
+			# So, we will confirm that they have a Secure Token AFTER their password has been verified to allow for the situation on macOS 10.15 Catalina where multiple users are being created by mkuser before going through Setup Assistant
+			# and all of them are intended to get Secure Tokens from the first admin created by mkuser (which, again, will not get the first Secure Token on macOS 10.15 Catalina until after their first authentication).
 		fi
 	fi
 	(( error_code ++ ))
@@ -2608,13 +2616,13 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		elif $has_invalid_options; then
 			>&2 echo 'mkuser WARNING: NOT prompting for Secure Token admin password since INVALID OPTIONS OR PARAMETERS are specified and user would not be created anyway.'
 		elif $did_get_password_from_stdin; then
-			>&2 echo "mkuser ERROR ${error_code}: CANNOT prompt for Secure Token admin password since user password was passed via stdin. Use another option to specify the user password or the Secure Token admin password. See \"--help\" for more information about this limitation."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: CANNOT prompt for Secure Token admin password since user password was passed via stdin. Use another option to specify the user password or the Secure Token admin password. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 		elif [[ -n "${st_admin_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Invalid duplicate \"--secure-token-admin-password-prompt\" option because \"--secure-token-admin-password\" or \"--fd3-secure-token-admin-password\" has already been specified."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"--secure-token-admin-password-prompt\" option because \"--secure-token-admin-password\" or \"--fd3-secure-token-admin-password\" has already been specified."
 			return "${error_code}"
 		elif [[ -z "${st_admin_account_name}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: CANNOT prompt for Secure Token admin password since \"--secure-token-admin-account-name\" is not specified."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: CANNOT prompt for Secure Token admin password since \"--secure-token-admin-account-name\" is not specified."
 			return "${error_code}"
 		else
 			echo -en "\nSpecify Password for Secure Token Admin \"${st_admin_account_name}\": "
@@ -2629,189 +2637,127 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 				# I don't believe it's possible to include line breaks within a prompt like this, so we don't need to check for them to be disallowed.
 				st_admin_password="${prompted_st_admin_password}"
 			else
-				>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" passwords did not match."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" passwords did not match."
 				return "${error_code}"
 			fi
 		fi
 	fi
 	(( error_code ++ ))
 
+	# THIS mkuser_verify_password FUNCTION WILL BE USED TO VERIFY THE SECURE TOKEN ADMIN PASSWORD NOW, AS WELL AS THE NEW USERS PASSWORD AFTER USER CREATION.
 	mkuser_verify_password() { # $1 = Account Name, $2 = Password
-		# THIS mkuser_verify_password FUNCTION WILL BE USED TO VERIFY THE SECURE TOKEN ADMIN PASSWORD NOW, AS WELL AS THE NEW USERS PASSWORD AFTER USER CREATION.
-
-		# Verify password using "expect" so that the password is not passed as a parameter which would make it visible in the process list.
-		# Based on code in: https://github.com/franton/Mac-Patcher-and-Upgrader/blob/main/Jamf%20Pro%20Scripts/cached%20pkg%20installer.sh#L506
-		# And inspired by: https://macadmins.slack.com/archives/C07MGJ2SD/p1622135673245500?thread_ts=1621917478.117600&cid=C07MGJ2SD
-		# expect's "send" command must have "-- " before the password string to not error if the password starts with "-" which would make send interpret it as an (invalid) option.
-
 		if [[ -z "$1" ]]; then # $2 (password) can be an empty string.
+			>&2 echo 'Verify Password ERROR: An account name must be specified.'
 			return 1
 		fi
 
-		local password_byte_length
-		password_byte_length="$(echo -n "$2" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+		# If the password is verified to be correct for the specified account name, the string "VERIFIED" will be returned (via stdout) with an exit code of 0.
+		# If the password is not correct for the specified account name (or the account name doesn't exist), an error message will be returned (via stderr) with an exit code of 1.
 
-		local password_escaped_for_expect="${2//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
-		password_escaped_for_expect="${password_escaped_for_expect//\"/\\\"}" # escape any double quote (") characters within the password so they do not prematurely end the password string passed to "send".
+		# Since the encoded password is placed directly within a shell string that is piped to "osascript" and then is only ever passed to native Objective-C methods,
+		# the password is handled as securely as possible and is never visible in the process list. See "password ($2)" comments below about the security considerations of this process.
 
-		local verify_password_output
-		local verify_password_exit_code='-1' # Make sure verification fails if no authenticaion is run.
+		# Unlike other secure password verification technique, this technique does not have any (known) length or character limitations (for example, "expect" does not support emoji and would fail to verify them in a password).
+		# See the old "mkuser" code for more information about length limitations and the much more complex code that was required before: https://github.com/freegeek-pdx/mkuser/blob/552933a6f06daa43c5c9cf4a1c3a813a838a1d82/mkuser.sh#L2660
+		# This password verification technique was tested with passwords up to 1,000,000 bytes long (didn't bother testing longer) and with multibyte characters (including emoji) in the password.
+		# I've also tested and confirmed that this native password verification is an authentication which triggers macOS to grant the first Secure Token to the first user to authenticate with a UID of 500 or greater on macOS 10.13 High Sierra and macOS 10.14 Mojave,
+		# and to the first admin to authenticate on macOS 10.15 Catalina (just like "dscl . -authonly" does). On newer versions of macOS, the first Secure Token is granted earlier when the users password is set rather than the first authentication.
 
-		if (( password_byte_length <= 128 )); then
-			# Oddly, using "dscl . -authonly" *interactively* (via "expect" in this case) always fails with passwords that are over 128 bytes.
-			# Also, all CLI interactive password prompts (including the "read -rs" prompts in this script) DO NOT accept 1024 bytes or more, which would cause "expect" to simply timeout.
-			# These password lengths (and any password length) DOES NOT fail when passing the password to "dscl . -authonly" directly as an argument.
-			# This behavior was tested and confirmed on both Big Sur and High Sierra.
-			# But, passing the password directly as an argument is not secure since that would momentarily make the password visible in the process list.
+		# The account name ($1) is passed to "osascript" as a command specific environment variable to that no special characters need to be escaped.
+		# See https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts for more information about this technique and how it avoids
+		# the possibility of any intentionally malicious code being able to be executed as well as avoids needing to escape any special characters.
+		# Even though valid account names should never contain characters that need to be escaped, it is still user input and all of the same
+		# security precautions in the blog post apply to handling user input so the code doesn't break if invalid account names are specified.
 
-			local verify_password_dscl_authonly_attempt
-			for (( verify_password_dscl_authonly_attempt = 1; verify_password_dscl_authonly_attempt <= 3; verify_password_dscl_authonly_attempt ++ )); do
-				# "expect" has a 10 second timeout by default, which should be more than enough but I saw the secondary "login" verification timeout once.
-				# We could set a longer timeout, but instead re-try up to 3 times if the command timed out because
-				# that likely means something went wrong with that execution that a longer timeout wouldn't fix.
+		# The password ($2) is also user input, and could also contain special characters that would need to be escaped if the string were placed directly in JXA code.
+		# The password could be passed to "osascript" as an environment variable and then retrieved within JXA like the account name is, but environment variables are always visible
+		# for running processes using "ps -E" on macOS 10.15 Catalina and older. But, on macOS 11 Big Sur and newer the environment variables are only visible if SIP is disabled.
+		# Since this code is tested to support macOS 10.13 High Sierra and newer, environment variables should not be considered a secure way to pass sensitive data, they are
+		# essentially as secure as passing data directly in the arguments of a command, which is not secure at all since they are always visible in the process list.
+		# But, the password has to be passed to or placed in this code somehow, so I investigated the security of all the different ways to pass stdin to processes by using "lsof -p <PID>"
+		# to observe the files associated with a process and found that here-docs and here-strings both create regular temporary files within "/private/var/tmp/" in both bash and zsh.
+		# Even though these files existed so briefly that I could never read the contents of them, they did contain the contents of the data passed to stdin via here-doc or here-string
+		# (which I confirmed by matching the filesize shown in "lsof" with the known size of the data being passed).
+		# The only other way to pass data via stdin is by using "echo" and a pipe "|". By observing the output of "lsof -p <PID>" when piping code to "osascript",
+		# I found that piped data is NOT created in the filesystem and exists only as a special "PIPE" type and is NOT a regular file with a node number and path in the filesystem.
+		# Since "echo" is a builtin in bash and zsh and not an external binary command, the "echo" command containing the script as an argument is also never visible in the process list.
+		# Therefore, I am considering echoing and piping to be the most secure way to pass senstive data to other processes.
+		# That means the password must be placed directly in the JXA code that will be piped to the "osascript" command.
+		# To avoid all possible issues (such as special character escaping and malicious code execution) when placing a raw user input string directly within the JXA code,
+		# the password string is first base64 encoded *in the shell* and then the base64 encoded string is placed directly in the JXA code.
+		# This is done using "$(echo -nE "$2" | base64)", and since "echo" is a builtin in bash and zsh the password will not be visible in the process list for that command
+		# (the "-E" option of "echo" is used to be sure backslashes are never interpreted if run in zsh with default options since this password verification function may be used by others).
+		# Since only the base64 encoded string is placed directly within the JXA code, there is no way the base64 string itself can contain any special characters or intentionally malicious JXA code.
+		# This base64 string is then decoded from into the actual password within JXA by Objective-C methods, which also never reveals the base64 string or the decoded password in the process list.
+		# Since that base64 string is decoded by Objective-C methods, it is returned as an NSString object which can never be interpreted as code, and no special characters within it need to be escaped.
 
-				verify_password_output="$(expect << DSCL_AUTHONLY_EXPECT_EOF
-spawn dscl . -authonly "$1"
-expect {
-	"Password:" {
-		send -- "${password_escaped_for_expect}\r"
-		exp_continue
+		local base64_encoded_password
+		base64_encoded_password="$(echo -nE "$2" | base64)"
+
+		# Since the "base64_encoded_password" shell variable is placed within the contents of a double quoted shell string all special shell characters need to be avoided or escaped.
+		# I have chose to avoid the special shell characters instead of needing to use backslashes to escape them throughout this code (since it's is accidentally miss a necessary escape).
+		# Therefore, "ObjC.wrap()" is always used instead of the "$()" alias so that the later is not misinterpreted as command substitution.
+		# Also, JavaScript backticks "`" are never used for template literal strings for the same reason, and the
+		# "${var}" syntax for variables in template literal string would also be misinterpreted as shell variables.
+		# Finally, all double quotes within JavaScript strings do need to be escaped to not prematurely close the shell string containing the whole script.
+		# These considerations could have been avoided by passing the password as an environment variables as described above, but since
+		# that is NOT secure, and this code is simple, it was not hard to avoid the JXA and JavaScript syntax that conflicts with shell code.
+
+		local verify_password_result # See comments above about the security importance of using echo and pipe (which seems sloppy) instead of a here-doc (which seems cleaner) to pass this JXA code to "osascript".
+		verify_password_result="$(echo "
+ObjC.import('OpenDirectory') // 'Foundation' framework is available in JXA by default, but need to import 'OpenDirectory' framework manually (for the required password verification methods):
+// https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
+
+let accountName = $.NSProcessInfo.processInfo.environment.objectForKey('OSASCRIPT_ENV_ACCOUNT_NAME')
+let password = $.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('${base64_encoded_password}', 0), $.NSUTF8StringEncoding)
+
+// Code in Apple's open source OpenDirectory 'TestApp.m' contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
+
+let odSearchNodeError = ObjC.wrap() // Create a 'nil' object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+let odSearchNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeAuthentication, odSearchNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
+
+let verifyPasswordResult = 'Verify Password (Load Node) ERROR: Unknown error loading OpenDirectory \"/Search\" node.'
+
+if (!odSearchNode.isNil() && odSearchNode.nodeName.js == '/Search') {
+	let odUserRecordError = ObjC.wrap()
+	let odUserRecord = odSearchNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, ObjC.wrap(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
+
+	if (!odUserRecord.isNil() && odUserRecord.recordName.js == accountName.js) {
+		let odVerifyPasswordError = ObjC.wrap()
+		let odPasswordVerified = odUserRecord.verifyPasswordError(password, odVerifyPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427894-verifypassword?language=objc
+
+		if (odPasswordVerified === true) { // Make sure odPasswordVerified is a boolean of true and no other truthy value.
+			verifyPasswordResult = 'VERIFIED'
+		} else if (!odVerifyPasswordError.isNil() && odVerifyPasswordError.localizedDescription) {
+			verifyPasswordResult = 'Verify Password ERROR: ' + odVerifyPasswordError.localizedDescription.js + ' (Error Code: ' + odVerifyPasswordError.code + ')'
+		} else {
+			verifyPasswordResult = 'Verify Password ERROR: Unknown error verifying password.'
+		}
+	} else if (!odUserRecordError.isNil() && odUserRecordError.localizedDescription) {
+		verifyPasswordResult = 'Verify Password (Load Record) ERROR: ' + odUserRecordError.localizedDescription.js + ' (Error Code: ' + odUserRecordError.code + ')'
+	} else {
+		verifyPasswordResult = 'Verify Password (Load Record) ERROR: OpenDirectory RecordName (user account name \"' + accountName.js + '\") does not exist.'
 	}
-	timeout {
-		exit 255
-	}
+} else if (!odSearchNodeError.isNil() && odSearchNodeError.localizedDescription) {
+	verifyPasswordResult = 'Verify Password (Load Node) ERROR: ' + odSearchNodeError.localizedDescription.js + ' (Error Code: ' + odSearchNodeError.code + ')'
 }
-DSCL_AUTHONLY_EXPECT_EOF
-)"
 
-				verify_password_exit_code="$?"
+// DO NOT 'console.log()' the result since that will go to stderr which is being redirected to '/dev/null' so that only our result string is ever retrieved via stdout.
+// This is because I have seen an irrelevant error about failing to establish a connection to the WindowServer (on macOS 10.13 High Sierra at least) that could be
+// included in stderr even when password verification was successful which would mess up checking for the exact success string if we were to capture stderr in the output.
 
-				if (( verify_password_exit_code == 255 )); then
-					>&2 echo "mkuser WARNING: Attempt ${verify_password_dscl_authonly_attempt} of 3 to verify ${user_full_and_account_name_display:-\"$1\"} user password timed out."
-				else
-					break
-				fi
-			done
-		elif [[ "$(dsmemberutil checkmembership -U "$1" -G 'admin' 2> /dev/null)" == 'user is a member of the group' ]]; then
-			# This WOULD only be used for verifying the Secure Token admin password and never for new user password verification since a new user will never be set as an admin when the password is being verified (see comments before this verification is run for the new user for more info).
-			# This technique works with passwords of any length (tested with a variety lengths in from 129 up to 10,000 characters).
-			# BUT, THIS CONDITION SHOULD NEVER GET HIT SINCE SECURE TOKEN ADMIN PASSWORDS OVER 128 BYTES ARE NOT ALLOWED SINCE DO NOT WORK WHEN PASSED INTERACTIVELY (SECURELY) VIA "sysadminctl -secureTokenOn".
-			# Regardless, leaving this here for information and possible testing needs.
+verifyPasswordResult // Just having 'verifyPasswordResult' as the last statement will make JXA send the value to stdout.
+" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' 2> /dev/null)"
 
-			if ! $suppress_status_messages; then
-				echo "mkuser: Verifying ${user_full_and_account_name_display:-\"$1\"} user password with admin technique..."
-			fi
-
-			# MUST pass "osascript" contents as here-doc to NOT reveal anything in the process list.
-			# MUST ALSO run "osascript" as authenticating user if running as root so that it will not always pass authentication no matter what.
-
-			local osascript_command_asuser_or_not='osascript'
-			if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
-				authenticating_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/$1" UniqueID 2> /dev/null)" 2> /dev/null)"
-				osascript_command_asuser_or_not="launchctl asuser ${authenticating_user_uid} sudo -u $1 osascript"
-			fi
-
-			# osascript_command_asuser_or_not MUST NOT be quoted to execute the possible "launchctl asuser", "sudo -u", and "osascript" commands together properly.
-			verify_password_output="$(${osascript_command_asuser_or_not} << OSASCRIPT_VERIFY_PASSWORD_EOF 2>&1
-do shell script "echo 'MKUSER PASSWORD VERIFIED'" user name "$1" password "${password_escaped_for_expect}" with administrator privileges
-OSASCRIPT_VERIFY_PASSWORD_EOF
-)"
-
-			verify_password_exit_code="$?"
-		elif (( ${EUID:-$(id -u)} == 0 && password_byte_length <= 511 )); then # Editing the "/etc/nologin" requires running as root.
-			# Would never get this far when not running as root (when verifying a Secure Token admin password, which is limited to 128 bytes) but better to check and error cleanly that fail poorly if every used in other scenarios.
-
-			# As a backup solution to verifying passwords over 128 bytes without revealing it in the process list, I found that I could use the "login" command via "expect".
-			# But, I do not want the user to actually be logged in and if their login shell is set to "/usr/bin/false" they would not get logged in anyway.
-			# To workaround both of these issues, I am utilizing the special "/etc/nologin" file (see "man login" for more information).
-			# Basically, when the "/etc/nologin" exists, "login" will just dislay its contents to the user and exit when login would have succeeded.
-			# We can use this functionality perfectly for our needs by setting the contents of "/etc/nologin" to a specific string, and then check
-			# for that string using "expect" to verify that the password was correct and the login would have succeeded without actually logging in.
-			# This backup solution using the "login" command was tested and verified on both Big Sur and High Sierra.
-
-			# NOTE: This backup solution using the "login" command WOULD FAIL for passwords over 511 bytes, if they were allowed.
-			# But, passwords over 511 bytes are not allowed because of the fact that they cannot be securely verified.
-			# If the password is over 511 bytes, the "login" (or "su") command would fail with the following error in Console:
-			# opendirectoryd: ODRecordVerifyPassword failed with result ODErrorCredentialsInvalid
-			# This error behavior was tested and confirmed on both Big Sur and High Sierra.
-			# THIS IS WHY PASSWORDS OVER 511 BYTES ARE NOT ALLOWED.
-
-			if ! $suppress_status_messages; then
-				echo "mkuser: Verifying ${user_full_and_account_name_display:-\"$1\"} user password with secondary technique..."
-			fi
-
-			if [[ -e '/etc/nologin' && "$(cat '/etc/nologin' 2> /dev/null)" != 'MKUSER PASSWORD VERIFIED' ]]; then
-				# If for some reason a custom "/etc/nologin" file already exists, move it temporarily to create our specific "/etc/nologin" file and then move it back when done verifying the password.
-				mv -f '/etc/nologin' '/etc/nologin-MKUSER-ORIGINAL'
-			fi
-
-			rm -rf '/etc/nologin'
-			echo 'MKUSER PASSWORD VERIFIED' > '/etc/nologin'
-
-			if [[ -f '/etc/nologin' && "$(cat '/etc/nologin')" == 'MKUSER PASSWORD VERIFIED' ]]; then
-				local verify_password_login_attempt
-				for (( verify_password_login_attempt = 1; verify_password_login_attempt <= 3; verify_password_login_attempt ++ )); do
-					# See comments above "expect" code for "spawn dscl . -authonly" verification for why we
-					# are doing up to 3 re-attempts if a timeout happens instead of setting a longer timeout.
-
-					verify_password_output="$(expect << LOGIN_EXPECT_EOF
-spawn login -- "$1"
-expect {
-	"Password:" {
-		send -- "${password_escaped_for_expect}\r"
-		exp_continue
-	}
-	"MKUSER PASSWORD VERIFIED" {
-		exit 0
-	}
-	"Login incorrect" {
-		exit 1
-	}
-	timeout {
-		exit 255
-	}
-}
-LOGIN_EXPECT_EOF
-)"
-
-					verify_password_exit_code="$?"
-
-					if (( verify_password_exit_code == 255 )); then
-						>&2 echo "mkuser WARNING: Attempt ${verify_password_login_attempt} of 3 to verify ${user_full_and_account_name_display:-\"$1\"} user password with secondary technique timed out."
-					else
-						break
-					fi
-				done
-
-				rm -rf '/etc/nologin'
-				if [[ -e '/etc/nologin-MKUSER-ORIGINAL' ]]; then
-					mv -f '/etc/nologin-MKUSER-ORIGINAL' '/etc/nologin'
-				fi
-			else
-				>&2 echo "mkuser WARNING: Unable to verify ${user_full_and_account_name_display:-\"$1\"} user password with secondary technique. Failed to write \"/etc/nologin\" contents (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-			fi
-		else
-			# THIS CONDITION SHOULD NEVER GET HIT SINCE PASSWORDS OVER 511 BYTES ARE NOT ALLOWED.
-
-			>&2 echo "mkuser WARNING: Cannot securely verify ${user_full_and_account_name_display:-\"$1\"} user password (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-
-			# The only way to verify passwords (for standard users) over 511 bytes would be by passing it directly to "dscl . -authonly" as an argument.
-			# This is not secure since passing the password as an argument would make it visible in the process list, but that is the only way I know how to verify the passwords over 511 bytes.
-			# Regardless, leaving this code here (but commented out) for information and possible testing needs.
-
-			#if ! $suppress_status_messages; then
-			#	echo "mkuser: Verifying ${user_full_and_account_name_display:-\"$1\"} user password with INSECURE fallback technique..."
-			#fi
-
-			#verify_password_output="$(dscl . -authonly "$1" "$2")"
-			#verify_password_exit_code="$?"
+		if [[ "${verify_password_result}" == 'VERIFIED' ]]; then
+			echo "${verify_password_result}"
+			return 0
+		elif [[ -z "${verify_password_result}" ]]; then
+			verify_password_result='Verify Password ERROR: Unknown error occurred.'
 		fi
 
-		if (( verify_password_exit_code != 0 )) || [[ "${verify_password_output}" == *'DS Error:'* || "${verify_password_output}" == *'Login incorrect'* || "${verify_password_output}" == *'password was incorrect'* ]]; then
-			return 1
-		fi
-
-		return 0
+		>&2 echo "${verify_password_result}"
+		return 1
 	}
 
 	if $boot_volume_is_apfs || $make_package; then  # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
@@ -2820,28 +2766,30 @@ LOGIN_EXPECT_EOF
 			st_admin_password_byte_length="${st_admin_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 
 			if [[ "${user_password}" == '*' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--no-password\" (or \"--password '*'\"). You must specify a user password to be able to grant the new user a Secure Token."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--no-password\" (or \"--password '*'\"). You must specify a user password to be able to grant the new user a Secure Token."
 				return "${error_code}"
 			elif [[ -n "${st_admin_password}" ]] && (( ${#st_admin_password} < 4 )); then # A Secure Token admin passwords could be blank, but it will be verified below before continuing.
-				>&2 echo "mkuser ERROR ${error_code}: Password for Secure Token admin \"${st_admin_account_name}\" is too short, it must be at least 4 characters or blank/empty password."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password for Secure Token admin \"${st_admin_account_name}\" is too short, it must be at least 4 characters or blank/empty password."
 				return "${error_code}"
-			elif (( st_admin_password_byte_length > 128 )); then
-				>&2 echo "mkuser ERROR ${error_code}: Password for Secure Token admin \"${st_admin_account_name}\" is too long, it must be 128 bytes or less to be able to SECURELY grant the new user a Secure Token. Specified Secure Token admin password is ${st_admin_password_byte_length} bytes long. Specify a Secure Token admin with a shorter password or remove the unusable Secure Token granting options. See \"--help\" for more information about this limitation."
+			elif (( st_admin_password_byte_length > 1022 )); then # Search "1022 bytes" in this code for more information about this limitation.
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password for Secure Token admin \"${st_admin_account_name}\" is too long, it must be 1022 bytes or less to be able to SECURELY grant the new user a Secure Token. Specified Secure Token admin password is ${st_admin_password_byte_length} bytes long. Specify a Secure Token admin with a shorter password or remove the unusable Secure Token granting options. See \"--help\" for more information about this limitation."
 				return "${error_code}"
 			elif ( ! $IS_PACKAGE || ! $check_only ) && ! $make_package; then
-				if ! mkuser_verify_password "${st_admin_account_name}" "${st_admin_password}"; then # Do not check Secure Token admin password when only doing the initial check from a package or when creating a package (since the admin may not exist on this system).
-					>&2 echo "mkuser ERROR ${error_code}: Password verification failed for Secure Token admin \"${st_admin_account_name}\"."
+				# Do not check Secure Token admin password when only doing the initial check from a package or when creating a package (since the admin may not exist on this system).
+				if ! verify_st_admin_password_result="$(mkuser_verify_password "${st_admin_account_name}" "${st_admin_password}" 2>&1)" || [[ "${verify_st_admin_password_result}" != 'VERIFIED' ]]; then
+					>&2 echo "${verify_st_admin_password_result}"
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password verification failed for Secure Token admin \"${st_admin_account_name}\"."
 					return "${error_code}"
 				fi
 
 				# Make sure the specified Secure Token admin has a Secure Token AFTER the password has been verified (the reasons for this are described the comments above in the first round of st_admin_account_name checks).
 				if [[ "$(sysadminctl -secureTokenStatus "${st_admin_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- $(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${st_admin_account_name}" GeneratedUID 2> /dev/null)" 2> /dev/null)"$'\n'* ]]; then # DO NOT bother also checking "fdesetup list" since that requires running as root and these checks are thorough enough and could happen before running as root.
-					>&2 echo "mkuser ERROR ${error_code}: Specified Secure Token admin \"${st_admin_account_name}\" does not have a Secure Token."
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" does not have a Secure Token."
 					return "${error_code}"
 				fi
 			fi
 		elif [[ -n "${st_admin_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: You must specify \"--secure-token-admin-account-name\" along with the Secure Token admin password."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: You must specify \"--secure-token-admin-account-name\" along with the Secure Token admin password."
 			return "${error_code}"
 		fi
 	fi
@@ -2867,16 +2815,13 @@ LOGIN_EXPECT_EOF
 	if $set_sharing_only_account; then
 		creating_user_type='Sharing Only Account'
 	elif $set_role_account; then
-		creating_user_type='Role Account'
+		creating_user_type="$([[ -n "${st_admin_account_name}" ]] && echo 'Secure Token ')Role Account"
 	elif $set_service_account; then
 		creating_user_type='Service Account'
 	else
 		if $set_hidden_user; then creating_user_type='Hidden '; fi
-		if $set_admin; then
-			creating_user_type+='Admin '
-		else
-			creating_user_type+='Standard '
-		fi
+		if [[ -n "${st_admin_account_name}" ]]; then creating_user_type+='Secure Token '; fi
+		creating_user_type+="$($set_admin && echo 'Admin ' || echo 'Standard ')"
 		if $set_auto_login; then creating_user_type+='Auto-Login '; fi
 		creating_user_type+='User'
 	fi
@@ -2898,11 +2843,11 @@ LOGIN_EXPECT_EOF
 		# Also, the passwords will be obfuscated (see below for more information about passwords obfuscation).
 
 		if $IS_PACKAGE; then
-			>&2 echo "mkuser ERROR ${error_code}: Not creating package since this is running from a package (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Not creating package since this is running from a package (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 			return "${error_code}"
 		elif $has_invalid_options; then # DO NOT make package if invalid options are specified that could create a user with possibly unintended settings.
 			>&2 echo "
-mkuser ERROR ${error_code}: NOT creating package since INVALID OPTIONS OR PARAMETERS were specified.
+mkuser ERROR ${error_code}-${LINENO}: NOT creating package since INVALID OPTIONS OR PARAMETERS were specified.
 Check ERRORS and correct the invalid options or parameters to make a user creation package.
 Check \"--help\" for detailed information about each available option."
 			return "${error_code}"
@@ -2911,7 +2856,7 @@ Check \"--help\" for detailed information about each available option."
 		if [[ -z "${pkg_identifier}" ]]; then
 			pkg_identifier="mkuser.pkg.${user_account_name:0:237}" # Truncate account name to 237 characters since it could be up to 244 characters which would go over the 248 character package identifier limit described below.
 		elif (( ${#pkg_identifier} > 248 )); then
-			>&2 echo "mkuser ERROR ${error_code}: Package identifier must be 248 characters or less. Specified package identifier is ${#pkg_identifier} characters long. See \"--help\" for more information about this limitation."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Package identifier must be 248 characters or less. Specified package identifier is ${#pkg_identifier} characters long. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 
 			# If the package identifier is over 248 bytes, both the "installer" command and "Installer" app fail with "An error occurred while extracting files from the package".
@@ -2928,7 +2873,7 @@ Check \"--help\" for detailed information about each available option."
 		fi
 
 		if [[ ! -f "${BASH_SOURCE[0]}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Failed to retrieve source of this script for package postinstall (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Failed to retrieve source of this script for package postinstall (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 			return "${error_code}"
 		fi
 
@@ -2957,12 +2902,12 @@ print_mkuser_function {
 ' "${BASH_SOURCE[0]}" 2> /dev/null)"
 
 		if [[ "${mkuser_function_source_for_package}" != 'mkuser() ('* || "${mkuser_function_source_for_package}" != *')' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Failed to extract \"mkuser\" function from source of this script for package postinstall (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Failed to extract \"mkuser\" function from source of this script for package postinstall (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 			return "${error_code}"
 		fi
 
 		quoted_valid_options_for_package=''
-		escaped_single_quote="'\''" # This must be a seperate variable or the bash string replacement within the following loop will not parse it correctly.
+		escaped_single_quote="'\''" # This must be a seperate variable or the bash string replacement within the following loop will not parse it correctly for bash.
 		for this_valid_option_for_package in "${valid_options_for_package[@]}"; do
 			if [[ -n "${this_valid_option_for_package}" ]]; then
 				# Escape any single quotes within this_valid_option_for_package like this: https://github.com/koalaman/shellcheck/wiki/SC1003
@@ -2979,19 +2924,19 @@ print_mkuser_function {
 		mkdir -p "${package_scripts_dir}"
 
 		# Since the package title dictates the width of the "Installer" app window, we do not want to make the package title too long which would make the "Installer" window wider than normal screen widths.
-		# Truncating the full and account names to 30 characters each or 60 characters if both are the same (since only one will be shown) seems to generally make reasonable windows widths.
+		# Truncating the full and account names to 25 characters each or 50 characters if both are the same (since only one will be shown) seems to generally make reasonable windows widths.
 		user_full_name_for_package_title="${user_full_name}"
 		user_account_name_for_package_title="${user_account_name}"
 
-		# Truncate both to 60 first to see if the truncated names are the same and only show one instead of only checking if the untruncated names would be the same.
-		if (( ${#user_full_name_for_package_title} > 60 )); then user_full_name_for_package_title="${user_full_name:0:60}…"; fi
-		if (( ${#user_account_name_for_package_title} > 60 )); then user_account_name_for_package_title="${user_account_name:0:60}…"; fi
+		# Truncate both to 50 first to see if the truncated names are the same and only show one instead of only checking if the untruncated names would be the same.
+		if (( ${#user_full_name_for_package_title} > 51 )); then user_full_name_for_package_title="${user_full_name:0:50}…"; fi
+		if (( ${#user_account_name_for_package_title} > 51 )); then user_account_name_for_package_title="${user_account_name:0:50}…"; fi
 
 		if [[ "${user_full_name_for_package_title}" == "${user_account_name_for_package_title}" ]]; then
 			user_full_and_account_name_display_for_package_title="\"${user_full_name_for_package_title}\""
 		else
-			if (( ${#user_full_name_for_package_title} > 30 )); then user_full_name_for_package_title="${user_full_name:0:30}…"; fi
-			if (( ${#user_account_name_for_package_title} > 30 )); then user_account_name_for_package_title="${user_account_name:0:30}…"; fi
+			if (( ${#user_full_name_for_package_title} > 26 )); then user_full_name_for_package_title="${user_full_name:0:25}…"; fi
+			if (( ${#user_account_name_for_package_title} > 26 )); then user_account_name_for_package_title="${user_account_name:0:25}…"; fi
 
 			user_full_and_account_name_display_for_package_title="\"${user_full_name_for_package_title}\" (${user_account_name_for_package_title})"
 		fi
@@ -3021,17 +2966,19 @@ current_user_name="\$(dscl /Search -search /Users UniqueID "\${current_user_id}"
 
 mkuser_installer_display_error() { # Only when running graphically via "Installer" app, display an alert if an error occurred since "Installer" doesn't actually show any specific error string.
 	if [[ -n "\${current_user_id}" ]] && (( COMMAND_LINE_INSTALL != 1 && current_user_id != 0 )) && pgrep -qx 'Installer'; then
-		display_error_message="\${2//\"/\\\\\"}"
-
+		error_message="\$2"
 		if [[ "\$1" == 'Did Not Attempt' ]]; then
-			display_error_message+='\n\nThis error is only from checks failing. User creation WAS NOT attempted and this system was not altered in any way.'
+			error_message+=\$'\n\nThis error is only from checks failing. User creation WAS NOT attempted and this system was not altered in any way.'
 		else
-			display_error_message+='\n\nView \"Show All Logs\" output of the \"Installer Log\" (within the \"Window\" menu) for more details. Or, you can view \"install.log\" within the \"Console\" app.\n\nTHIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE.'
+			error_message+=\$'\n\nView "Show All Logs" output of the "Installer Log" (within the "Window" menu) for more details. Or, you can view "install.log" within the "Console" app.\n\nTHIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE.'
 		fi
 
-		launchctl asuser "\${current_user_id}" sudo -u "\${current_user_name}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
+		# The package title is base64 encoded (when this script is created) since doing the dual escaping to be placed within a here-doc that's within another here-doc is more complicated than just encoding the string and decoding it within AppleScript.
+		# The "error_message" string is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
+		# The environment variable is retrieved within AppleScript using "printenv" via "do shell script" since "system attribute" mangles multibyte characters that may exist in the error message.
+		launchctl asuser "\${current_user_id}" sudo -u "\${current_user_name}" OSASCRIPT_ENV_ERROR_MESSAGE="\${error_message}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
 -- Telling "Installer" to "display alert" makes the icon correct and properly blocks the "Installer" app. This DOES NOT trigger TCC since "Installer" will be the parent process.
-tell application "Installer" to display alert "\$1 to Create ${creating_user_type} ${user_full_and_account_name_display_for_package_title//\"/\"} on This System" message "\${display_error_message}" as critical
+tell application "Installer" to display alert ("\$1 to Create ${creating_user_type} " & (do shell script "echo '$(echo -n "${user_full_and_account_name_display_for_package_title}" | base64)' | base64 -D") & " on This System") message (do shell script "printenv OSASCRIPT_ENV_ERROR_MESSAGE") as critical
 OSASCRIPT_DISPLAY_ALERT_EOF
 	fi
 }
@@ -3100,7 +3047,7 @@ PACKAGE_PREINSTALL_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting user picture...'
 
-if ! base64 -D <<< '$(gzip -9 -c "${user_picture_path}" | base64)' | zcat > '${extracted_resources_dir}/mkuser.picture' || [[ ! -f '${extracted_resources_dir}/mkuser.picture' ]]; then
+if ! echo '$(gzip -9 -c "${user_picture_path}" | base64)' | base64 -D | zcat > '${extracted_resources_dir}/mkuser.picture' || [[ ! -f '${extracted_resources_dir}/mkuser.picture' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3173,6 +3120,9 @@ PACKAGE_POSTINSTALL_EOF
 			# See (last paragraph) of OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT comments below for explanation of how the passwords are being (securely) deobfuscated in the following code.
 			# Only attempt to deobfuscate the passwords after checking that the specified user could be created (to not deobfuscate when user creation would fail anyway).
 
+			# The passwords deobfuscation script is also executed via "run script" in code piped to "osascript" so that its path is not even visible in the process list while running,
+			# even though that doesn't hide much since the passwords deobfuscation script path can be seen within the created package "preinstall" and "postinstall" scripts.
+
 			cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
 echo 'mkuser POSTINSTALL PACKAGE: Deobfuscating passwords...'
@@ -3190,13 +3140,13 @@ if [[ ! -f "\${passwords_deobfuscation_script_file_path}" ]]; then
 	exit 1
 fi
 
-wrapped_encrypted_passwords_and_key="\$(osascript "\${passwords_deobfuscation_script_file_path}")"
+wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | osascript 2> /dev/null)"
 
 if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; then
 	rm -f "\${passwords_deobfuscation_script_file_path}"
 fi
 
-if ! encrypted_passwords_and_keys="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" 3<<< "\${wrapped_encrypted_passwords_and_key##*$'\n'}")" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
+if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "\${wrapped_encrypted_passwords_and_key##*$'\n'}")" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3218,12 +3168,12 @@ for this_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
 			this_encrypted_password="\${this_encrypted_password_or_key:3}"
 			this_encryption_key="\${that_encrypted_password_or_key:3}"
 
-			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${this_encrypted_password}" 3<<< "${user_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "${user_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
 				decrypted_user_password="\${possible_decrypted_user_password:3}"
 				got_decrypted_user_password=true
 			fi
 
-			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< "\${this_encrypted_password}" 3<<< "${st_admin_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "${st_admin_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
 				decrypted_st_admin_password="\${possible_decrypted_st_admin_password:3}"
 				got_decrypted_st_admin_password=true
 			fi
@@ -3251,16 +3201,16 @@ if ! \$got_decrypted_user_password || ! \$got_decrypted_st_admin_password; then
 fi
 
 echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
+
+set -o pipefail # Enable pipefail to catch any "mkuser" error exit code since piping to "tee".
 PACKAGE_POSTINSTALL_EOF
 			if [[ -n "${st_admin_account_name}" ]]; then
 				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
-
-mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password --fd3-secure-token-admin-password <<< "\${decrypted_user_password}" 3<<< "\${decrypted_st_admin_password}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
+echo "\${decrypted_user_password}" | mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password --fd3-secure-token-admin-password 3<<< "\${decrypted_st_admin_password}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 PACKAGE_POSTINSTALL_EOF
 			else
 				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
-
-mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password <<< "\${decrypted_user_password}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
+echo "\${decrypted_user_password}" | mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 PACKAGE_POSTINSTALL_EOF
 			fi
 		else
@@ -3272,14 +3222,21 @@ if [[ ! -d '${extracted_resources_dir}' ]]; then
 	mkdir -p '${extracted_resources_dir}' # Make sure extracted_resources_dir is created for "mkuser.log" since it won't have been created if there was no included picture or passwords.
 fi
 
+set -o pipefail # Enable pipefail to catch any "mkuser" error exit code since piping to "tee".
 mkuser${quoted_valid_options_for_package} --do-not-confirm 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 PACKAGE_POSTINSTALL_EOF
 		fi
 
+		# "set -o pipefail" is used for the "mkuser" command since the output is piped to "tee" which makes that the final exit code and should always succeed.
+		# Using "set -o pipefail" means that the exit code will be set to the exit code of the last command in the pipeline to fail, if a failure occurs, which will properly catch an "mkuser" error.
+		# Could use "${PIPESTATUS[0]}" for the desired exit code as well, but that variable name is lowercased on "zsh" and would require a secondary check while "set -o pipefail" can be used the
+		# same way on "bash" or "zsh" if and when this code is ever made to be "zsh" compatible (with "ksh" emulation and other "bash"-like options set) while also retaining "bash" compatibility.
+
 		# MUST create *WHOLE* "postinstall" file *BEFORE* creating passwords deobfuscation script so that the checksum of the "postinstall" file can be used as a factor for the passwords deobfuscation to be allowed.
 		cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
-mkuser_return_code="\${PIPESTATUS[0]}" # Must use first exit code in PIPESTATUS since the normal final exit code will be for "tee" which should always succeed.
+mkuser_return_code="\$?"
+set +o pipefail # Disable pipefail after retrieving the exit code of "mkuser" command pipeline to reset normal exit code behavior.
 
 mkuser_log="\$(cat '${extracted_resources_dir}/mkuser.log')"
 
@@ -3355,15 +3312,15 @@ PACKAGE_POSTINSTALL_EOF
 			# encryption key and even then I hope that it would not be obvious, easy, or straightforward to do.
 
 			# After the encrypted passwords and passwords encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retreive the actual plain text
-			# passwords. The way that this "openssl" command uses bash "here-strings" instead of passing the encrypted passwords and passwords encryption key as regular parameters means that
+			# passwords. The way that this "openssl" command uses "pipes" and "here-strings" instead of passing the encrypted passwords and passwords encryption key as regular parameters means that
 			# the encrypted passwords and passwords encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
 			# installation process to be able to retrieve the encrypted passwords and passwords encryption key in plain text. And as I said before, if someone were to try to make a copy of
 			# this script and edit it to output the plain text passwords, that modified script would not be able to retrieve the encrypted passwords and passwords encryption key since the
 			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords deobfuscation script and it would therefore not return anything.
 			# It may seem less secure to do the passwords decryption within the "postinstall" script in this way instead of within the passwords deobfuscation script, but that is not actually
 			# the case since if the "openssl" decryption command was run within the passwords deobfuscation script it would be run via "do shell script" which would make the entire uninterpreted
-			# command visible in the process list like "sh -c openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< ENCRYPTED-PASSWORDS 3<<< PASSWORDS-ENCRYPTION-KEY" which clearly renders the ability
-			# of the here-strings to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
+			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< PASSWORDS-ENCRYPTION-KEY" which clearly renders the ability
+			# of the pipes and here-strings to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
 			# process because of how AppleScript executes commands with "do shell script". So, it is actually more secure to run the "openssl" command in the "postinstall" script which
 			# ensures that the encrypted passwords and passwords encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
 			# here-strings which are interpreted by bash and are not ever displayed in the process list.
@@ -3412,10 +3369,10 @@ PACKAGE_POSTINSTALL_EOF
 			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retreived as an empty string after decryption.
 
 			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_user_password="$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "DP:${user_password}" 3<<< "${user_account_name}${user_password_encryption_key}")"
+			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${user_account_name}${user_password_encryption_key}")"
 
 			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_st_admin_password="$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "DP:${st_admin_password}" 3<<< "${st_admin_account_name}${st_admin_password_encryption_key}")"
+			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${st_admin_account_name}${st_admin_password_encryption_key}")"
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
 EP:${encrypted_user_password}
@@ -3425,7 +3382,7 @@ EP:${encrypted_st_admin_password}"
 			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
 				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
 EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
-EP:$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]')" 3<<< "$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')")"
+EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')")"
 			done
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
@@ -3434,7 +3391,7 @@ EP:$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "$(openssl rand -base64 "$(jo
 			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
 
 			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
-			wrapped_encrypted_passwords="$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" 3<<< "${wrapping_passwords_encryption_key}")"
+			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${wrapping_passwords_encryption_key}")"
 			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra.
 
 			# Every variable name set within the script will be randomized each time it is created.
@@ -3489,13 +3446,15 @@ EP:$(openssl enc -aes-256-cbc -a -A -pass fd:3 <<< "$(openssl rand -base64 "$(jo
 				# character as is done in the kcpassword code, but if I add such a huge number to that and try to convert
 				# it back to a character, the encoding is wrong and does not get rendered as the proper single character.
 
-				osascript << OBFUSCATE_STRING_OSASCRIPT_EOF
-set stringID to id of "$1" as list
+				# The "$1" argument is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
+				# The fact that multibyte characters would get mangled when in an environment variable retrieved by AppleScript with "system attribute" should not be an issue since they will never be in these strings.
+				OSASCRIPT_ENV_OBFUSCATE_STRING="$1" osascript << OSASCRIPT_OBFUSCATE_STRING_EOF 2> /dev/null
+set stringID to id of (system attribute "OSASCRIPT_ENV_OBFUSCATE_STRING") as list
 repeat with thisCharacter in stringID
 	set contents of thisCharacter to thisCharacter + ${obfuscate_characters_shift_count}
 end repeat
 return string id stringID
-OBFUSCATE_STRING_OSASCRIPT_EOF
+OSASCRIPT_OBFUSCATE_STRING_EOF
 
 				# Doesn't seem like there would be any gain to set this output to a return variable (https://rus.har.mn/blog/2010-07-05/subshells/)
 				# since that would require a subshell inside the function which is equivalent to just calling the function with a subshell.
@@ -3552,11 +3511,13 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 
 			# Create random variable names to be used throughout the script.
 			mkuser_set_new_random_variable_name
+			script_path_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
 			parent_script_path_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			intended_parent_script_path_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			intended_grandparent_process_var="${this_random_variable_name}"
+			intended_ancestor_process_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
 			wrapped_encrypted_passwords_var="${this_random_variable_name}"
@@ -3579,10 +3540,11 @@ ${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
 if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then
 	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
 	if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then
+		set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
 		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
-		((${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")") as POSIX file) as alias)
+		((${script_path_var} as POSIX file) as alias)
 		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
-		if (((POSIX path of (path to me)) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
+		if (((POSIX path of (path to me)) is equal to ${script_path_var}) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
 			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
 			set ${parent_script_path_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$PPID -o ppid=) -o command= | cut -d ' ' -f 2")"))
 			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
@@ -3591,23 +3553,23 @@ if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -
 				${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
 				if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is equal to ((first word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'shasum -a 512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then
 					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
-					set ${intended_grandparent_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
+					set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
 					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
 					considering numeric strings
 						if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
-							set ${intended_grandparent_process_var} to (${intended_grandparent_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
+							set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
 						else
-							set ${intended_grandparent_process_var} to (${intended_grandparent_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
+							set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
 						end if
 					end considering
 					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
-					if (${intended_grandparent_process_var} is equal to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$(ps -p \$PPID -o ppid=) -o ppid=) -o command=")"))) then
+					if (${intended_ancestor_process_var} is equal to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$(ps -p \$(ps -p \$PPID -o ppid=) -o ppid=) -o ppid=) -o command=")"))) then
 						${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
 						try
-							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_grandparent_process_var})) -- Make sure the only running instance of...
+							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure the only running instance of...
 						on error
 							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
-							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_grandparent_process_var})) -- grandparent process is an ancestor of this process.
+							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- ancestor process is an ancestor of this process.
 							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
 							set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
 							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
@@ -3637,7 +3599,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 			if (( "$osacompile_exit_code" != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
 				rm -rf "${package_scripts_dir}"
 
-				>&2 echo "mkuser ERROR ${error_code}: \"osacompile\" (for passwords obfuscation within package) failed with exit code ${osacompile_exit_code}."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"osacompile\" (for passwords obfuscation within package) failed with exit code ${osacompile_exit_code}."
 				return "${error_code}"
 			fi
 
@@ -3648,7 +3610,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! openssl enc -d -aes-256-cbc -a -A -pass fd:3 <<< '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${postinstall_checksum}")' 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
+if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${postinstall_checksum}")' | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3715,7 +3677,7 @@ PACKAGE_PREINSTALL_EOF
 
 		if (( pkgbuild_exit_code != 0 )) || [[ ! -f "${package_tmp_output_path}" ]]; then
 			rm -rf "${package_tmp_dir}"
-			>&2 echo "mkuser ERROR ${error_code}: \"pkgbuild\" (first step in package creation) failed with exit code ${pkgbuild_exit_code}."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"pkgbuild\" (first step in package creation) failed with exit code ${pkgbuild_exit_code}."
 			return "${error_code}"
 		fi
 
@@ -3732,11 +3694,17 @@ PACKAGE_PREINSTALL_EOF
 
 		if (( productbuild_synthesize_exit_code != 0 )) || [[ ! -f "${package_distribution_xml_output_path}" ]]; then
 			rm -rf "${package_tmp_dir}"
-			>&2 echo "mkuser ERROR ${error_code}: \"productbuild --synthesize\" (second step in package creation) failed with exit code ${productbuild_synthesize_exit_code}."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"productbuild --synthesize\" (second step in package creation) failed with exit code ${productbuild_synthesize_exit_code}."
 			return "${error_code}"
 		fi
 
-		# Need to convert all values that could possibly have multi-byte characters to RTF encoding or else they will not be rendered properly within RTF.
+		# Need to escape any characters in the package title which would be cause and XML syntax error in the title text value.
+		# There are 5 characters that need to be escaped for XML overall, but only the following 2 need to be escaped for a text value: https://stackoverflow.com/a/1091953
+
+		user_full_and_account_name_display_for_package_title_escaped_for_xml="${user_full_and_account_name_display_for_package_title//&/&amp;}"
+		user_full_and_account_name_display_for_package_title_escaped_for_xml="${user_full_and_account_name_display_for_package_title_escaped_for_xml//</&lt;}"
+
+		# Need to convert all values that could possibly have multibyte characters to RTF encoding or else they will not be rendered properly within RTF.
 		# "textutil" includes a full RTF header and closing "}" as well as a trailing line break that all must be stripped out for our needs.
 
 		# Suppress ShellCheck warning that expressions don't expand in single quotes since this is "awk" code and "$0" are "awk" variables, not bash variables.
@@ -3787,7 +3755,7 @@ PACKAGE_PREINSTALL_EOF
 
 		cat << CUSTOM_DISTRIBUTION_XML_EOF > "${package_distribution_xml_output_path}"
 ${package_distribution_xml_header}
-    <title>Create ${creating_user_type} ${user_full_and_account_name_display_for_package_title}</title>
+    <title>Create ${creating_user_type} ${user_full_and_account_name_display_for_package_title_escaped_for_xml}</title>
     <welcome language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
 \fs26 \uc0\u55357 \u56550  \ul User Creation Package\ul0 \line
 \b {\field{\*\fldinst HYPERLINK "https://mkuser.sh"}{\fldrslt mkuser}} Version:\b0  ${MKUSER_VERSION}\line
@@ -3888,12 +3856,14 @@ CUSTOM_DISTRIBUTION_XML_EOF
 		rm -rf "${package_tmp_dir}"
 
 		if (( productbuild_exit_code != 0 )) || [[ ! -f "${pkg_path}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: \"productbuild\" (last step in package creation) failed with exit code ${productbuild_exit_code}."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"productbuild\" (last step in package creation) failed with exit code ${productbuild_exit_code}."
 			return "${error_code}"
 		fi
 
 		if ! $suppress_status_messages; then
-			echo -e "\nmkuser: Created ${creating_user_type} ${user_full_and_account_name_display} User Creation Package: $([[ "${pkg_path}" == '/'* ]] || echo "${PWD}/")${pkg_path}"
+			# Do an actual line break instead of "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
+			echo "
+mkuser: Created ${creating_user_type} ${user_full_and_account_name_display} User Creation Package: $([[ "${pkg_path}" == '/'* ]] || echo "${PWD}/")${pkg_path}"
 		fi
 
 		return 0
@@ -3940,7 +3910,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 	fi
 
 	if dscl /Search -read "/Users/${user_account_name}" RecordName &> /dev/null; then
-		>&2 echo "mkuser ERROR ${error_code}: Account name \"${user_account_name}\" already exists."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name \"${user_account_name}\" already exists."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -3948,21 +3918,21 @@ CUSTOM_DISTRIBUTION_XML_EOF
 	# Also make sure an existing full name doesn't have the desired account name.
 	assigned_account_name_as_full_name_dscl_search="$(dscl /Search -search /Users RealName "${user_account_name}" 2> /dev/null)"
 	if [[ -n "${assigned_account_name_as_full_name_dscl_search}" ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Account name \"${user_account_name}\" already assigned to full name of \"$(echo "${assigned_account_name_as_full_name_dscl_search}" | awk '{ print $1; exit }')\"."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name \"${user_account_name}\" already assigned to full name of \"$(echo "${assigned_account_name_as_full_name_dscl_search}" | awk '{ print $1; exit }')\"."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
 	assigned_full_name_dscl_search="$(dscl /Search -search /Users RealName "${user_full_name}" 2> /dev/null)" # Luckily, this RealName search is case-insensitive.
 	if [[ -n "${assigned_full_name_dscl_search}" ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Full name \"${user_full_name}\" already assigned to \"$(echo "${assigned_full_name_dscl_search}" | awk '{ print $1; exit }')\"."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" already assigned to \"$(echo "${assigned_full_name_dscl_search}" | awk '{ print $1; exit }')\"."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
 	# Also make sure an existing account name doesn't have the desired full name.
 	if dscl /Search -read "/Users/${user_full_name}" RecordName &> /dev/null; then # Luckily, this RecordName query is also case-insensitive.
-		>&2 echo "mkuser ERROR ${error_code}: Full name \"${user_full_name}\" already taken by an existing users account name."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" already taken by an existing users account name."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -4143,7 +4113,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 		# This mirrors the same behavior as "sysadminctl -addUser" and System Preferences, while "dscl . -create" does not assign any default UID.
 		# Oddly, after 501 has been assigned, "sysadminctl -addUser" seems to always skip 502 and go straight to 503 as well as skip all of 701-899 and then increment by 2's after 900 but we will not replicate that very odd (and incorrect?) behavior.
 		# Thanks to Simon Andersen for discovering this weird UID assignment behavior after UID 700.
-		# In at least macOS Monterey 12.1, "sysadminctl -addUser" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
+		# In at least macOS *12.1* Monterey, "sysadminctl -addUser" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
 
 		starting_uid="$( ( $set_role_account || $set_service_account ) && echo '200' || echo '501' )" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
 		user_uid="${starting_uid}"
@@ -4160,7 +4130,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 
 		max_allowed_uid="$($set_role_account && echo '400' || echo '2147483647')" # If a UID is being dynamically assigned to a Role Account (and NOT a Service Account), check that it didn't go above 400 in case UIDs 200-400 have all already been assigned. Otherwise, just make sure it's not over the signed 32-bit integer maximum.
 		if (( user_uid > max_allowed_uid )); then
-			>&2 echo "mkuser ERROR ${error_code}: $($set_role_account && echo 'Role Account ')User IDs cannot be over ${max_allowed_uid}, all User IDs in the range ${starting_uid}-${max_allowed_uid} already been assigned."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: $($set_role_account && echo 'Role Account ')User IDs cannot be over ${max_allowed_uid}, all User IDs in the range ${starting_uid}-${max_allowed_uid} already been assigned."
 			return "${error_code}"
 		fi
 
@@ -4171,14 +4141,14 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 	# Still need to verify that the UID does not exist if it was specified explicitly rather than just assigned dynamically. And, these checks are an extra safety net to make sure the UID assignment worked properly.
 	if [[ $'\n'"${all_assigned_uids}"$'\n' == *$'\n'"${user_uid}"$'\n'* ]]; then
 		# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
-		assigned_uid_dscacheutil_user="$(echo "${dscacheutil_users}" | awk_user_id="${user_uid}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "uid" && $2 == ENVIRON["awk_user_id"]) { print this_name }' | sort -u)"
+		assigned_uid_dscacheutil_user="$(echo "${dscacheutil_users}" | AWK_ENV_USER_ID="${user_uid}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "uid" && $2 == ENVIRON["AWK_ENV_USER_ID"]) { print this_name }' | sort -u)"
 		assigned_uid_dscacheutil_user="${assigned_uid_dscacheutil_user//$'\n'/", "}" # If somehow it's taken by multiple users, show them all seperated by commas.
 		# To show the user who already has this UID:
 		# DO NOT use "dscl /Search -search /Users UniqueID" since those UIDs are not guaranteed to be in the signed 32-bit integer range.
 		# CAN'T use "dscacheutil -q user -a uid" since it doesn't accept negative UIDs as parameters, so must "grep" all of "dscacheutil -q user" output instead.
 		# And, dscacheutil_users is already loaded above AND any possible missing AD and dot users are also also added to the output so that this check will be the most accurate and complete possible.
 
-		>&2 echo "mkuser ERROR ${error_code}: User ID \"${user_uid}\" already assigned to \"${assigned_uid_dscacheutil_user}\"."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID \"${user_uid}\" already assigned to \"${assigned_uid_dscacheutil_user}\"."
 		return "${error_code}"
 	else
 		assigned_uid_dscl_search="$(dscl /Search -search /Users UniqueID "${user_uid}" 2> /dev/null)"
@@ -4189,9 +4159,9 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 			assigned_uid_account_name="$(echo "${assigned_uid_dscl_search}" | awk '{ print $1; exit }')"
 
 			if $did_assign_uid; then
-				>&2 echo "mkuser ERROR ${error_code}: User ID assignment chose \"${user_uid}\", but it's already assigned to \"${assigned_uid_account_name}\" (THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID assignment chose \"${user_uid}\", but it's already assigned to \"${assigned_uid_account_name}\" (THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
 			else
-				>&2 echo "mkuser ERROR ${error_code}: User ID \"${user_uid}\" already assigned to \"${assigned_uid_account_name}\" (THIS SHOULD NORMALLY BE DETECTED IN THE PREVIOUS CHECK, PLEASE REPORT THIS ISSUE)."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID \"${user_uid}\" already assigned to \"${assigned_uid_account_name}\" (THIS SHOULD NORMALLY BE DETECTED IN THE PREVIOUS CHECK, PLEASE REPORT THIS ISSUE)."
 			fi
 
 			return "${error_code}"
@@ -4202,7 +4172,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 	if [[ -n "${user_guid}" ]]; then
 		assigned_guid_dscl_search="$(dscl /Search -search /Users GeneratedUID "${user_guid}" 2> /dev/null)"
 		if [[ -n "${assigned_guid_dscl_search}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Generated UID \"${user_guid}\" already assigned to \"$(echo "${assigned_guid_dscl_search}" | awk '{ print $1; exit }')\"."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Generated UID \"${user_guid}\" already assigned to \"$(echo "${assigned_guid_dscl_search}" | awk '{ print $1; exit }')\"."
 			return "${error_code}"
 		fi
 	fi
@@ -4279,7 +4249,7 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 
 			>&2 echo "mkuser WARNING: Group ID \"${user_gid}\" (${this_ad_group_name}) DOES exist, but primary check failed to detect it (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
 		else
-			>&2 echo "mkuser ERROR ${error_code}: Group ID \"${user_gid}\" does not exist."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Group ID \"${user_gid}\" does not exist."
 			return "${error_code}"
 		fi
 
@@ -4302,12 +4272,12 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 		if [[ -n "${assigned_home_folder_path_dscl_search}" ]]; then
 			# Also make sure home folder is not assigned to another user (it is possible for a home folder to be assigned but not yet created).
 
-			>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" already assigned to \"$(echo "${assigned_home_folder_path_dscl_search}" | awk '{ print $1; exit }')\"."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" already assigned to \"$(echo "${assigned_home_folder_path_dscl_search}" | awk '{ print $1; exit }')\"."
 			return "${error_code}"
 		fi
 
 		if [[ -e "${user_home_path}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Home folder \"${user_home_path}\" already exists."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" already exists."
 			return "${error_code}"
 		fi
 	fi
@@ -4338,7 +4308,7 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 		fi
 
 		# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
-		check_settings_user_gid_name="$(echo "${dscacheutil_groups}" | awk_user_gid="${user_gid:-20}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "gid" && $2 == ENVIRON["awk_user_gid"]) { print this_name }' | sort -u)"
+		check_settings_user_gid_name="$(echo "${dscacheutil_groups}" | AWK_ENV_USER_GID="${user_gid:-20}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "gid" && $2 == ENVIRON["AWK_ENV_USER_GID"]) { print this_name }' | sort -u)"
 		check_settings_user_gid_name="${check_settings_user_gid_name//$'\n'/, }" # If somehow it's taken by multiple users, show them all seperated by commas.
 		# DO NOT use "dscl /Search -search /Groups PrimaryGroupID" since those GIDs are not guaranteed to be in the signed 32-bit integer range.
 		# CAN'T use "dscacheutil -q group -a gid" since it doesn't accept negative GIDs as parameters, so must "grep" all of "dscacheutil -q group" output instead.
@@ -4395,7 +4365,7 @@ ${check_settings_output}"
 		fi
 
 		>&2 echo "
-mkuser ERROR ${error_code}: Check FAILED! Would NOT create ${creating_user_type} ${user_full_and_account_name_display} with the following settings since INVALID OPTIONS OR PARAMETERS were specified:
+mkuser ERROR ${error_code}-${LINENO}: Check FAILED! Would NOT create ${creating_user_type} ${user_full_and_account_name_display} with the following settings since INVALID OPTIONS OR PARAMETERS were specified:
 ${check_settings_output}
 Check ERRORS and correct the invalid options or parameters to create a user.
 Check \"--help\" for detailed information about each available option."
@@ -4403,24 +4373,26 @@ Check \"--help\" for detailed information about each available option."
 		return "${error_code}"
 	elif $has_invalid_options; then # DO NOT make package if invalid options are specified that could create a user with possibly unintended settings.
 		>&2 echo "
-mkuser ERROR ${error_code}: NOT creating ${creating_user_type} ${user_full_and_account_name_display} since INVALID OPTIONS OR PARAMETERS were specified.
+mkuser ERROR ${error_code}-${LINENO}: NOT creating ${creating_user_type} ${user_full_and_account_name_display} since INVALID OPTIONS OR PARAMETERS were specified.
 Check ERRORS and correct the invalid options or parameters to create a user.
 Check \"--help\" for detailed information about each available option."
 		return "${error_code}"
 	elif (( ${EUID:-$(id -u)} != 0 )); then
-		>&2 echo "mkuser ERROR ${error_code}: This tool must be run as root."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool must be run as root."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
 	if ! $do_not_confirm; then
-		echo -en "\nEnter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_name_display} on This System: "
+		# Do an actual line break instead of "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
+		echo -n "
+Enter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_name_display} on This System: "
 		read -r confirm_user_creation
 
 		echo ''
 
 		if ! [[ "${confirm_user_creation}" =~ ^[Yy] ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Did not confirm user creation."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Did not confirm user creation."
 			return "${error_code}"
 		fi
 	fi
@@ -4433,7 +4405,7 @@ Check \"--help\" for detailed information about each available option."
 	# - A user must be created with "dsimport" (or "dscl . -create") when preventing Secure Token on macOS 11 Big Sur and newer since that tag must be set
 	#   upon user creation or before setting the password, which cannot be done with "sysadminctl -addUser". "dscl . -create" can work for this case since the password
 	#   can be set with "dscl . -passwd" after setting the tag, but could not be used in all possible cases because of the last reason mentioned below.
-	#   See "set_prevent_secure_token_on_big_sur_and_newer" section below for more information about the tag to prevent Secure Tokens on Big Sur and newer.
+	#   See "set_prevent_secure_token_on_big_sur_and_newer" section below for more information about the tag to prevent Secure Tokens on macOS 11 Big Sur and newer.
 	# - A user must be created with "dsimport" (or "dscl . -create") when specifying a "GeneratedUID" since "sysadminctl -addUser" assigns a "GeneratedUID" upon creation
 	#   and has no options available to set a desired "GeneratedUID", while "dsimport" and "dscl . -create" can create a user with a specified "GeneratedUID".
 	#   To do this with "dscl . -create" the "GeneratedUID" attribute can be added to the initial user creation command: "dscl . -create /Users/[name] GeneratedUID [SOME-GUID]".
@@ -4446,8 +4418,9 @@ Check \"--help\" for detailed information about each available option."
 	dsimport_record_attributes=( 'RecordName' 'Password' 'UniqueID' 'PrimaryGroupID' 'RealName' 'NFSHomeDirectory' 'UserShell' 'GeneratedUID' 'AuthenticationHint' )
 	dsimport_record_values=( "${user_account_name}" "${user_password}" "${user_uid}" "${user_gid}" "${user_full_name}" "${user_home_path}" "${user_shell}" "${user_guid}" "${user_password_hint}" )
 
-	# NOTE: If "user_password" is a empty string, it will be ignored by "dsimport" and no password will be set (preventing login).
-	# In this case, the password will be set to an empty string after the user has been created using "dscl . -passwd".
+	# NOTE: If "user_password" is a empty string, it will be ignored by "dsimport" and no password will be set (preventing login) on macOS 11 Big Sur and newer.
+	# But, on macOS 10.15 Catalina and older, some unknown password is set that is not an empty string and login is still prevented.
+	# In either this case, the password will be properly set to an empty string after the user has been created using "dscl . -passwd".
 
 	# The only other values that could be empty in the array above are "user_gid", "user_guid", or "user_password_hint" and it's fine if they are ignored by "dsimport"
 	# since a "GeneratedUID" will be assigned upon creation and "PrimaryGroupID" will be set to the default of "20" (staff) if not specified.
@@ -4549,7 +4522,7 @@ Check \"--help\" for detailed information about each available option."
 	fi
 
 	if (( ${#dsimport_record_attributes[@]} != ${#dsimport_record_values[@]} )); then
-		>&2 echo "mkuser ERROR ${error_code}: Number of specified attributes does not match the number specified values (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Number of specified attributes does not match the number specified values (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -4572,10 +4545,10 @@ Check \"--help\" for detailed information about each available option."
 
 	# Escape all special characters in every value (I'm not sure if there are more characters that need to be escaped).
 	# The regular characters could be used below instead of hex codes, but I wanted to be consistent since the hex codes are what is specified in the "dsimport" record description.
-	dsimport_record_values=( "${dsimport_record_values[@]//$'\x5C'$'\x5C'/$'\x5C'$'\x5C'$'\x5C'$'\x5C'}" ) # Escape all "\x5C" ("\") which is the specified escape character (MUST DO THIS FIRST so the following escaped characters don't get unescaped).
-	dsimport_record_values=( "${dsimport_record_values[@]//$'\x0A'/$'\x5C'$'\x5C'$'\x0A'}" ) # Escape all "\x0A" ("\n") which is the specified end-of-record indicator.
-	dsimport_record_values=( "${dsimport_record_values[@]//$'\x3A'/$'\x5C'$'\x5C'$'\x3A'}" ) # Escape all "\x3A" (":") which is the specified field separator.
-	dsimport_record_values=( "${dsimport_record_values[@]//$'\x2C'/$'\x5C'$'\x5C'$'\x2C'}" ) # Escape all "\x2C" (",") which is the specified value separator (none of our passed values are arrays, but if array values are added in the future this would need to be changed to not escape those values).
+	dsimport_record_values=( "${dsimport_record_values[@]//$'\x5C\x5C'/$'\x5C\x5C\x5C\x5C'}" ) # Escape all "\x5C" ("\") which is the specified escape character (MUST DO THIS FIRST so the following escaped characters don't get unescaped).
+	dsimport_record_values=( "${dsimport_record_values[@]//$'\x0A'/$'\x5C\x5C\x0A'}" ) # Escape all "\x0A" ("\n") which is the specified end-of-record indicator.
+	dsimport_record_values=( "${dsimport_record_values[@]//$'\x3A'/$'\x5C\x5C\x3A'}" ) # Escape all "\x3A" (":") which is the specified field separator.
+	dsimport_record_values=( "${dsimport_record_values[@]//$'\x2C'/$'\x5C\x5C\x2C'}" ) # Escape all "\x2C" (",") which is the specified value separator (none of our passed values are arrays, but if array values are added in the future this would need to be changed to not escape those values).
 
 	# The record values to import (which match the specified attributes) with values separated by "\x3A" (":") (as specified in the record description) go on subsequent lines (we are only importing one record to create a single user).
 	IFS=$'\x3A' # This is just the ":" character, but I want to be consistent since the hex code is what is specified as the field separator.
@@ -4586,9 +4559,13 @@ Check \"--help\" for detailed information about each available option."
 	dsimport_output_plist_path="${TMPDIR:-/private/tmp/}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # TMPDIR is not set when running in "sudo bash". Ensure a unique file name that includes as much of the user_account_name as possible without going over the macOS 255 byte maximum.
 	rm -f "${dsimport_output_plist_path}" # "dsimport" would probably overwrite the file if it already exist, but delete it to be sure.
 
-	# Tried using process substitution instead of manually writing a file but "dsimport" errored with exit code 65 and stderr "Unable to open import file '/dev/fd/11'".
-	# BUT, specifying "/dev/stdin" and then passing the dsimport_record string via here-string works to pass a string instead of a file (like it does with PlistBuddy as well).
-	# Not creating a file and passing via stdin is more secure since a file would have to contain the password in plain text.
+	# Was initially manually writing a file and then passing it to "dsimport". Then tried using process substitution instead, but "dsimport" errored with exit code 65 and stderr "Unable to open import file '/dev/fd/11'".
+	# Next, I tried specifying "/dev/stdin" and then passing the "dsimport_record" string via here-string and that WORKED to pass a string instead of a file (like it does with "PlistBuddy" as well).
+	# Also, like "PlistBuddy", trying to pipe stdin to "dsimport" (instead of using a here-string) also fails (with the same exit code 65 as trying to use process substitution).
+	# Using a here-string (or here-doc) DOES momentarily create a temporary file in the filesystem (which I think it why it is able to work with "dsimport" at all),
+	# but I believe letting the shell handle the creation and deletion of that file instead of handling it manually in this code will result in the file only existing for least possible time.
+	# Also, since this code is guaranteed to be running as root at this point, any temporary file created by the shell would only be readable by another root processes.
+
 	dsimport /dev/stdin '/Local/Default' 'I' --outputfile "${dsimport_output_plist_path}" <<< "${dsimport_record}" # "dsimport" shouldn't output to stdout or stderr, but let it be displayed for useful user feedback if it ever does for some reason.
 	# The "I" conflict mode is for Ignore, so that the import will fail if a "RecordName", "UniqueID", "RealName", or "GeneratedUID" already exists (but we know it doesn't from previous checks).
 	dsimport_exit_code="$?" # Save the "dsimport" exit code to be checked after reading and deleting the "dsimport_output_plist_path" file.
@@ -4603,7 +4580,7 @@ Check \"--help\" for detailed information about each available option."
 	# such as setting as admin if specified, creating home folder, and setting up auto-login if specified.
 
 	if (( dsimport_exit_code != 0 )); then # Do not check "dsimport" exit code directly by putting the command within an "if" since we want to delete the imported file either way (before returning if there was an error).
-		>&2 echo "mkuser ERROR ${error_code}: \"dsimport\" failed with non-zero exit code of ${dsimport_exit_code}."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"dsimport\" failed with non-zero exit code of ${dsimport_exit_code}."
 		return "${error_code}"
 
 		# "dsimport" seems to always exit 0 even when it fails to create a user (and never outputs to stdout or stderr), but doesn't hurt to check the exit code anyway.
@@ -4644,7 +4621,7 @@ Check \"--help\" for detailed information about each available option."
 		dsimport_failure_reasons="$(echo "${dsimport_plist_results}" | awk -F '<key>|</key>' '/<\/key>$/ && ($2 != "Users") { print $2 }')"
 		dsimport_failure_reasons="${dsimport_failure_reasons//$'\n'/ + }"
 
-		>&2 echo "mkuser ERROR ${error_code}: \"dsimport\" failed with reasons: ${dsimport_failure_reasons:-UNKNOWN}"
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"dsimport\" failed with reasons: ${dsimport_failure_reasons:-UNKNOWN}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -4661,7 +4638,7 @@ Check \"--help\" for detailed information about each available option."
 
 		did_detect_user_after_delay=false
 		for (( detect_user_delay_seconds = 1; detect_user_delay_seconds <= 5; detect_user_delay_seconds ++ )); do
-			# When testing outrageously long passwords (in the megabytes range), sometimes the user was not detection immediately after creation and the "Failed to detect account name" error would be hit.
+			# When testing outrageously long passwords (in the megabytes range), sometimes the user was not detected immediately after creation and the "Failed to detect account name" error would be hit.
 			# But, when I would check for the user myself manually, it would exist. So, it seems in some extreme cases, waiting a second or two after creation is important to be able to detect the user.
 			# Even though these outrageously long passwords are not allowed to be used, it doesn't hurt to keep this extra delayed check in here just in case since it won't get hit if the user if detected immediately.
 
@@ -4675,57 +4652,60 @@ Check \"--help\" for detailed information about each available option."
 		if $did_detect_user_after_delay; then
 			>&2 echo "mkuser WARNING: Detected ${user_full_and_account_name_display} user after ${detect_user_delay_seconds} second delay."
 		else
-			>&2 echo "mkuser ERROR ${error_code}: Failed to detect account name \"${user_account_name}\" after user creation."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Failed to detect account name \"${user_account_name}\" after user creation."
 			return "${error_code}"
 		fi
 	fi
 	(( error_code ++ ))
 
-	created_dscacheutil_user="$(dscacheutil -q user -a name "${user_account_name}")" # Retrieve user info from "dscacheutil" to verify all values from cache as well as "dscl" and to make sure the new user has been cached.
+	created_dscacheutil_user="$(dscacheutil -q user -a name "${user_account_name}")" # Retrieve user info from "dscacheutil" to verify all values from cache
+	# as well as the keys we want to compare against from "dscl" to make sure the new user has been properly created and cached.
+	# Only get "dscl" keys we check instead of all of them to load much faster (as well as save a bit of RAM) by not unnecessarily loading picture data, etc.
+	created_dscl_user="$(dscl -plist . -read "/Users/${user_account_name}" UniqueID PrimaryGroupID NFSHomeDirectory UserShell RealName GeneratedUID 2> /dev/null)"
 
-	created_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${user_account_name}" UniqueID 2> /dev/null)" 2> /dev/null)"
+	created_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
 	if [[ "${created_user_uid}" != "${user_uid}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"uid: ${user_uid}"$'\n'* ]]; then
-		>&2 echo -e "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but with incorrect User ID (${created_user_uid:-N/A} != ${user_uid}).\n${created_dscacheutil_user}"
+		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect User ID (${created_user_uid:-N/A} != ${user_uid}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_gid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:PrimaryGroupID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${user_account_name}" PrimaryGroupID 2> /dev/null)" 2> /dev/null)"
+	created_user_gid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:PrimaryGroupID:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
 	if [[ "${created_user_gid}" != "${user_gid:-20}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"gid: ${user_gid:-20}"$'\n'* ]]; then
-		>&2 echo -e "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but with incorrect Group ID (${created_user_gid:-N/A} != ${user_gid:-20}).\n${created_dscacheutil_user}"
+		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect Group ID (${created_user_gid:-N/A} != ${user_gid:-20}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_home_path="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:NFSHomeDirectory:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${user_account_name}" NFSHomeDirectory 2> /dev/null)" 2> /dev/null)"
+	created_user_home_path="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:NFSHomeDirectory:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
 	if [[ "${created_user_home_path}" != "${user_home_path}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"dir: ${user_home_path}"$'\n'* ]]; then
-		>&2 echo -e "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but with incorrect home folder (${created_user_home_path:-N/A} != ${user_home_path}).\n${created_dscacheutil_user}"
+		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect home folder (${created_user_home_path:-N/A} != ${user_home_path}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_shell="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UserShell:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${user_account_name}" UserShell 2> /dev/null)" 2> /dev/null)"
+	created_user_shell="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UserShell:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
 	if [[ "${created_user_shell}" != "${user_shell}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"shell: ${user_shell}"$'\n'* ]]; then
-		>&2 echo -e "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but with incorrect login shell (${created_user_shell:-N/A} != ${user_shell}).\n${created_dscacheutil_user}"
+		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect login shell (${created_user_shell:-N/A} != ${user_shell}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_full_name="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:RealName:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${user_account_name}" RealName 2> /dev/null)" 2> /dev/null)"
+	created_user_full_name="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:RealName:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
 	if [[ "${created_user_full_name}" != "${user_full_name}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"gecos: ${user_full_name}"$'\n'* ]]; then
-		>&2 echo -e "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but with incorrect full name (${created_user_full_name:-N/A} != ${user_full_name}).\n${created_dscacheutil_user}"
+		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect full name (${created_user_full_name:-N/A} != ${user_full_name}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${user_account_name}" GeneratedUID 2> /dev/null)" 2> /dev/null)"
+	created_user_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
 	if [[ -n "${user_guid}" ]]; then
 		if [[ "${created_user_guid}" != "${user_guid}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but with incorrect Generated UID (${created_user_guid:-N/A} != ${user_guid})."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect Generated UID (${created_user_guid:-N/A} != ${user_guid})."
 			return "${error_code}"
 		fi
 	elif [[ -z "${created_user_guid}" ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but without a Generated UID (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but without a Generated UID (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 		return "${error_code}"
 	else
 		user_guid="${created_user_guid}" # If no "user_guid" was specified, set it to the "created_user_guid" since it's needed for the SharePoint "com_apple_sharing_uuid" attribute if sharing the Public folder (when specified) as well as confirming a Secure Token was granted (when specified).
@@ -4756,15 +4736,72 @@ Check \"--help\" for detailed information about each available option."
 	fi
 
 	if [[ "${user_password}" == '*' ]]; then
-		if [[ "$(dscl . -read "/Users/${user_account_name}" Password 2>&1)" != 'Password: *' || "$(dscl . -read "/Users/${user_account_name}" AuthenticationAuthority 2>&1)" != "$($set_prevent_secure_token_on_big_sur_and_newer && echo 'AuthenticationAuthority: ;DisabledTags;SecureToken' || echo 'No such key: AuthenticationAuthority')" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to verify NO password."
+		intended_authentication_authority="$($set_prevent_secure_token_on_big_sur_and_newer && echo 'AuthenticationAuthority: ;DisabledTags;SecureToken' || echo 'No such key: AuthenticationAuthority')"
+
+		if [[ "$(dscl . -read "/Users/${user_account_name}" HeimdalSRPKey KerberosKeys ShadowHashData _writers_passwd Password 2>&1 | sort)" != $'No such key: HeimdalSRPKey\nNo such key: KerberosKeys\nNo such key: ShadowHashData\nNo such key: _writers_passwd\nPassword: *' || "$(dscl . -read "/Users/${user_account_name}" AuthenticationAuthority 2>&1)" != "${intended_authentication_authority}" ]]; then
+			# If there is no system password policy (such as by default on macOS 10.13 High Sierra), the password will have gotten set to "*" instead of not having any password set and "*" being literally set to the Password attribute to signify no password (as intended).
+			# So, if a password got set, verify that it incorrectly got set to "*" AS LONG AS it won't unintentionally grant this account the first Secure Token, otherwise just assume it did AS LONG AS there is no password policy.
+			# This could also happen if a custom password policy allowed a single character password, which is why we are verifying the password when it is safe to do so (ie. would not grant the first Secure Token to this account, which cannot be undone).
+			# If somehow a password got set, some password policy is set, and it isn't safe to check the actual password since that could grant the account the first Secure Token, or somehow some password other than asterisk got set, just stop and present an error.
+
+			password_unintentionally_got_set_to_asterisk=false
+
+			if ! $boot_volume_is_apfs || (( darwin_major_version >= 19 || user_uid < 500 )) || [[ "$(diskutil apfs listUsers / 2> /dev/null)" == *'+-- '* ]]; then
+				# If boot volume is not APFS, Secure Tokens don't exist.
+				# If on macOS 11 Big Sur or newer, any unintended Secure Token would have been granted during account creation when the password was set, so checking the password won't make a difference.
+				# If on macOS 10.15 Catalina, the first Secure Token would only be granted to the first *administrator* to authenticate, which this user will not be (yet).
+				# If on macOS 10.14 Mojave or older, the first Secure Token would only be granted to the first user with a UID of 500 or greater to authenticate, so if the UID is below 500 a Secure Token would never be granted.
+				# If the first Secure Token has already been granted, another will not be granted automatically upon authentication (and won't make a difference if that Secure Token is one that already got unintentionally granted to this account).
+
+				if verify_user_password_result="$(mkuser_verify_password "${user_account_name}" "${user_password}" 2>&1)" && [[ "${verify_user_password_result}" == 'VERIFIED' ]]; then
+					password_unintentionally_got_set_to_asterisk=true
+				fi
+			elif [[ -z "$(PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContent' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null)" ]]; then
+				# If verifying the password could possibly grant this account the first Secure Token, just check if there is NO system password policy and assume that the unintentional password is an asterisk.
+				# Not being able to safely check the password would only happen on macOS 10.14 Mojave or older when this users UID is 500 or greater and no Secure Token has been granted yet.
+				# But since this is most likely to occur on macOS 10.13 High Sierra where no password policy is set by default, this is an important case to check for.
+				# This intentionally DOES NOT catch the case where it's not safe to check the password and a custom password policy allowed a single character password (which is likely increadibly rare) and an error will just be presented in that case instead.
+
+				password_unintentionally_got_set_to_asterisk=true
+			fi
+
+			if $password_unintentionally_got_set_to_asterisk; then
+				if [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* && "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* && $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
+					# Delete all the associated password attributes AS LONG AS this account doesn't have a Secure Token.
+
+					if $set_prevent_secure_token_on_big_sur_and_newer; then
+						dscl . -create "/Users/${user_account_name}" AuthenticationAuthority ';DisabledTags;SecureToken' # Do not want to delete the entire AuthenticationAuthority because we want to perserve this tag when it was specified by the user
+					else
+						dscl . -delete "/Users/${user_account_name}" AuthenticationAuthority &> /dev/null
+					fi
+
+					dscl . -delete "/Users/${user_account_name}" HeimdalSRPKey &> /dev/null
+					dscl . -delete "/Users/${user_account_name}" KerberosKeys &> /dev/null
+					dscl . -delete "/Users/${user_account_name}" ShadowHashData &> /dev/null
+					dscl . -delete "/Users/${user_account_name}" _writers_passwd &> /dev/null
+					dscl . -create "/Users/${user_account_name}" Password '*'
+
+					# These keys within the accountPolicyData plist would also not have been created if the password was properly not set in the first place.
+					dscl . -deletepl "/Users/${user_account_name}" accountPolicyData failedLoginCount &> /dev/null
+					dscl . -deletepl "/Users/${user_account_name}" accountPolicyData failedLoginTimestamp &> /dev/null
+					dscl . -deletepl "/Users/${user_account_name}" accountPolicyData passwordLastSetTime &> /dev/null
+
+					>&2 echo "mkuser WARNING: Deleted all unintentional password attributes since the password got set to \"*\" instead of NO password (because \"pwpolicy\" allowed it)."
+				else
+					>&2 echo "mkuser WARNING: Password got set to \"*\" instead of NO password (because \"pwpolicy\" allowed it), AND THIS ACCOUNT GOT GRANTED A SECURE TOKEN SO CAN'T REMOVE IT (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+				fi
+			fi
+		fi
+
+		if [[ "$(dscl . -read "/Users/${user_account_name}" HeimdalSRPKey KerberosKeys ShadowHashData _writers_passwd Password 2>&1 | sort)" != $'No such key: HeimdalSRPKey\nNo such key: KerberosKeys\nNo such key: ShadowHashData\nNo such key: _writers_passwd\nPassword: *' || "$(dscl . -read "/Users/${user_account_name}" AuthenticationAuthority 2>&1)" != "${intended_authentication_authority}" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify NO password."
 			return "${error_code}"
 		fi
 	else
 		if [[ -z "${user_password}" ]]; then
-			# If no password is specified, it must be manually set to an empty string since if an empty string password is
-			# included in the "dsimport" file, no password will be set at all rather then setting the password to an empty string.
-			# If the password is not set to an empty string, the user will not be able to log in with no password or at all.
+			# If no password is specified, it must be manually set to an empty string since if an empty string password is included in the "dsimport" file,
+			# no password will be set at all on macOS 11 Big Sur and newer and some unknown password will be set on macOS 10.15 Catalina and older rather then setting the password to an empty string.
+			# In either case, if the password is not explicitly set to an empty string, the user will not be able to log in with a blank/empty password or at all.
 
 			dscl . -passwd "/Users/${user_account_name}" ''
 		fi
@@ -4773,8 +4810,9 @@ Check \"--help\" for detailed information about each available option."
 		# But, these authentications WILL grant the first Secure Token on macOS 10.14 Mojave and macOS 10.13 High Sierra, but that is desirable over possible situations where no Secure Token will get granted at all.
 		# See all the "SECURE TOKEN NOTES" sections within the "--prevent-secure-token-on-big-sur-and-newer" help info for more about how macOS grants the first Secure Token on different versions of macOS.
 
-		if ! mkuser_verify_password "${user_account_name}" "${user_password}"; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to verify password."
+		if ! verify_user_password_result="$(mkuser_verify_password "${user_account_name}" "${user_password}" 2>&1)" || [[ "${verify_user_password_result}" != 'VERIFIED' ]]; then
+			>&2 echo "${verify_user_password_result}"
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify password."
 			return "${error_code}"
 		fi
 	fi
@@ -4784,7 +4822,7 @@ Check \"--help\" for detailed information about each available option."
 		# See notes above (where "_writers_" attributes are set) for information about why this is deleted down here when password changes are prohibited.
 
 		if ! dscl . -delete "/Users/${user_account_name}" _writers_passwd &> /dev/null || [[ "$(dscl . -read "/Users/${user_account_name}" _writers_passwd 2>&1)" != 'No such key: _writers_passwd' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to prohibit user password changes."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to prohibit user password changes."
 			return "${error_code}"
 		fi
 	fi
@@ -4808,7 +4846,7 @@ Check \"--help\" for detailed information about each available option."
 			# during normal user creation. Although, when specifying a custom home folder, "sysadminctl -addUser" will assign the folder
 			# but not create it automatically. Regardless, "sysadminctl -addUser" doesn't cover all the possible cases mentioned previously.
 
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to create home folder \"${user_home_path}\"."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create home folder \"${user_home_path}\"."
 			return "${error_code}"
 		fi
 
@@ -4820,7 +4858,7 @@ Check \"--help\" for detailed information about each available option."
 		# Also hide home folder if user is set as hidden (only if root level folder isn't already hidden such as "/private").
 
 		if ! chflags 'hidden' "${user_home_path}" || [[ -z "$(find "${user_home_path}" -flags +hidden -maxdepth 0 2> /dev/null)" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to hide home folder \"${user_home_path}\"."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to hide home folder \"${user_home_path}\"."
 			return "${error_code}"
 		fi
 	fi
@@ -4837,11 +4875,11 @@ Check \"--help\" for detailed information about each available option."
 		# This is because the Public folder SharePoint's default RecordName "${user_full_name}’s Public Folder" would be 244 bytes when the full name is 226 bytes.
 		# It seems that all OpenDirectory RecordName's have a 244 byte limit, just like the User RecordName has this same byte length limit.
 
-		# WEIRD SIDE NOTE: When a RecordName contains multi-byte characters, it seems that sometimes the max bytes before the record breaks can be a few more than 244.
+		# WEIRD SIDE NOTE: When a RecordName contains multibyte characters, it seems that sometimes the max bytes before the record breaks can be a few more than 244.
 		# When testing by adding characters 1-by-1 in Directory Utility and switching to the data view to see the current byte length, with mutli-byte characters in the string,
 		# sometimes I could set to 247 bytes and save and it worked fine and then saving 1 more breaks it and with different mult-byte characters I could fit 248 bytes and 1 more breaks it.
 		# But that is just an oddity and I could not discern any specific pattern to when or why exactly more byte might be allowed in a RecordName.
-		# And, when there are NO multi-byte chars, the limit seems to always just be 244 bytes flat and 1 more will break the record.
+		# And, when there are NO multibyte chars, the limit seems to always just be 244 bytes flat and 1 more will break the record.
 		# So, 244 bytes is the maximum safe limit in all cases that we will stick to throughout this code.
 
 		# But, before worrying about the 244 byte limit, truncate the full name and suffix characters to fit within 244 characters.
@@ -4862,17 +4900,29 @@ Check \"--help\" for detailed information about each available option."
 
 			user_share_point_name="${user_full_name_for_share_point}…${user_share_point_name_suffix}"
 
-			# Even when the full name contains no multi-byte characters, this loop will ALWAYS be entered since the "’" in the suffix is a 3-byte character, which will make the user_share_point_name always over 244 bytes even if we already truncated to 244 characters.
+			# Even when the full name contains no multibyte characters, this loop will ALWAYS be entered since the "’" in the suffix is a 3-byte character, which will make the user_share_point_name always over 244 bytes even if we already truncated to 244 characters.
 			# This is fine though since it means the desired "…" 3-byte character will always be added when truncating and fit into the proper byte limit even if the full name is made up of only 1-byte characters.
 		fi
 
-		# Replace any invalid characters (":" and "/") in the SharePoint RecordName with underscores "_".
-		# These characters are invalid since the RecordNames are also plist filenames within the "dslocal" folder structure.
-		# Through testing, the ":" seemed to not cause an issue even though it it an invalid filesystem character on macOS, but remove it anyway to be safe.
-		# But, a full name includes a "/" character DOES cause issues with the SharePoint RecordName, so it definitely needs to be removed.
-		# Doing these replacements after truncating the full name since this does not change the byte count and doing it here means characters that would have made it into the RecordName are being replaced.
-		user_share_point_name="${user_share_point_name//:/_}"
+		# Replace any forward slash (/) or percent (%) characters in the SharePoint RecordName with underscores (_) for the following reasons:
+		# When forward slash (/) or percent (%) characters are included in a full name for user created by "sysadminctl -addUser" or System Preferences, they are allowed and properly displayed in the Shared folder name in the File Sharing section of the Sharing pane in System Preferences (as well as in Directory Utility).
+		# What happens internally is that percent (%) characters are replaced with "%25" and forward slash (/) characters are replaced with "%2F", since literal forward slashes cannot exist in folder or file names and the RecordName is a plist filename, and then any escape character (the %) would also need to be escaped to not be misinterpreted when used literally.
+		# In fact, "sharing -a" does this same escape/replacing automatically, so it may seem that these characters could be left in and "sharing -a" would take care of this escaping for us.
+		# While this seems true at first glance, I found a bug when trying to use "dscl . -create" with a SharePoint RecordName that contains these forward slash (/) or percent (%) characters.
+		# When using "dscl . -read" (and all "sharing" commands) the RecordName must be specified in its display form with literal forward slash (/) or percent (%) characters.
+		# When using "dscl . -delete" the RecordName must be specified with the forward slash (/) or percent (%) characters escaped to their "%2F" and "%25" forms, respectively.
+		# So far so good since those commands can still work and function properly when the RecordName is specified correctly.
+		# BUT, when trying to use "dscl . -create", neither of these forms (or any other variations I tried) would work and "dscl" would display an "Uncaught Exception" error stating "[__NSArrayM insertObject:atIndex:]: object cannot be nil" (tested and observed on macOS 10.13 High Sierra and macOS 12 Monterey, which is enough to justify not using these characters in SharePoint RecordNames).
+		# Since I could not figure out how to properly use "dscl . -create" to workaround this bug when either the forward slash (/) or percent (%) characters were present in a RecordName, they will both be replaced with underscores (_) so that "dscl . -create" can be used with these SharePoint RecordNames to be able to properly add the required attributes to the SharePoint record.
+		# Doing these replacements AFTER truncating the full name since this does not change the byte count and doing it here means only the characters that would have made it into the RecordName are being replaced.
+
+		user_share_point_name="${user_share_point_name//%/_}"
 		user_share_point_name="${user_share_point_name//\//_}"
+
+		# SIDE NOTE ABOUT THE COLON (:) CHARACTER BEING ALLOWED IN SHAREPOINT RECORDNAME (WHICH IS A PLIST FILENAME IN THE DSLOCAL FOLDER STRUCTURE):
+		# The colon (:) character is not allowed in Finder, but actually is a valid character in file and folder names and will confusingly be displayed in Finder as a forward slash (/).
+		# If you add a forward slash (/) to a file or folder name in Finder, it will be allowed and the actual file or folder name set will have a colon (:) in place of the forward slash (/).
+		# But, unlike in Finder, Shared folder names with colons (:) in them are properly displayed as colons in the File Sharing section of the Sharing pane in System Preferences (as well as in Directory Utility) instead of a forward slash, so they can be allowed here without causing any error or confusion.
 
 		if $do_not_share_public_folder || $set_hidden_home || [[ "${user_home_path}" != '/Users/'* ]]; then
 			if [[ "$(sharing -l)" == *$'\t'"${user_share_point_name}"$'\n'* ]] || dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
@@ -4892,14 +4942,14 @@ Check \"--help\" for detailed information about each available option."
 
 					if [[ -n "${user_share_point_group_name}" ]]; then
 						if ! dseditgroup -o delete "${user_share_point_group_name}" &> /dev/null || [[ -n "$(dscacheutil -q group -a name "${user_share_point_group_name}")" ]]; then # Check non-existence with "dscacheutil" to make sure the group deletion has been cached.
-							>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to delete SharePoint Group \"${user_share_point_group_name}\" for hidden user."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete SharePoint Group \"${user_share_point_group_name}\" for hidden user."
 							return "${error_code}"
 						fi
 					fi
 				fi
 
 				if ! sharing -r "${user_share_point_name}" || [[ "$(sharing -l)" == *$'\t'"${user_share_point_name}"$'\n'* ]] || dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
-					>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to delete SharePoint \"${user_share_point_name}\" for hidden user."
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete SharePoint \"${user_share_point_name}\" for hidden user."
 					return "${error_code}"
 				fi
 			fi
@@ -4944,7 +4994,7 @@ Check \"--help\" for detailed information about each available option."
 				# It is important to search for the GID specifically since its not possible to list all AD groups and some AD GIDs could
 				# have been omitted from previous listings while this direct query will find it regardless of LDAP listing limitations.
 
-				>&2 echo "mkuser ERROR ${error_code}: SharePoint Group ID assignment chose \"${user_share_point_group_id}\", but it's already assigned to \"$(echo "${assigned_share_point_gid_dscl_search}" | awk '{ print $1; exit }')\" (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: SharePoint Group ID assignment chose \"${user_share_point_group_id}\", but it's already assigned to \"$(echo "${assigned_share_point_gid_dscl_search}" | awk '{ print $1; exit }')\" (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 				return "${error_code}"
 			fi
 
@@ -4967,50 +5017,51 @@ Check \"--help\" for detailed information about each available option."
 			unset IFS
 
 			if dscl /Search -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
-				>&2 echo "mkuser ERROR ${error_code}: SharePoint Group Name assignment chose \"${user_share_point_group_name}\", but it already exists (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: SharePoint Group Name assignment chose \"${user_share_point_group_name}\", but it already exists (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 				return "${error_code}"
 			fi
 
 			# Create the SharePoint (using "sharing -a").
 			if ! sharing -a "${user_home_path}/Public" -n "${user_share_point_name}" || [[ "$(sharing -l)" != *$'\t'"${user_share_point_name}"$'\n'* ]] || ! dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add SharePoint \"${user_share_point_name}\"."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint \"${user_share_point_name}\"."
 				return "${error_code}"
 			fi
 
 			# All of the following attributes for the "dscl" commands are "dsAttrTypeNative" types, but that prefix can be omitted when using "dscl".
 
+			user_share_point_name_escaped_for_dscl_delete_and_create="${user_share_point_name//\\/\\\\}" # Oddly need to escape backslashes in "dscl . -delete" and "dscl . -create" but NOT "dscl . -read".
+			# The former 2 fail WITHOUT backslashes escaped (eDSUnknownNodeName and no error but nothing created, respectively) and the latter fails WITH backslashes escaped (eDSRecordNotFound).
+
 			# The "sharing -a" SharePoint will contain the following 4 attributes which are not created for SharePoints created via "sysadminctl -addUser" and System Preferences, so delete them.
-			if ! dscl . -delete "/SharePoints/${user_share_point_name}" afp_use_parent_owner &> /dev/null || \
-				! dscl . -delete "/SharePoints/${user_share_point_name}" afp_use_parent_privs &> /dev/null || \
-				! dscl . -delete "/SharePoints/${user_share_point_name}" smb_readonly &> /dev/null || \
-				! dscl . -delete "/SharePoints/${user_share_point_name}" smb_sealed &> /dev/null || \
-				[[ "$(dscl . -read "/SharePoints/${user_share_point_name}" afp_use_parent_owner 2>&1)" != 'No such key: afp_use_parent_owner' || \
-					"$(dscl . -read "/SharePoints/${user_share_point_name}" afp_use_parent_privs 2>&1)" != 'No such key: afp_use_parent_privs' || \
-					"$(dscl . -read "/SharePoints/${user_share_point_name}" smb_readonly 2>&1)" != 'No such key: smb_readonly' || \
-					"$(dscl . -read "/SharePoints/${user_share_point_name}" smb_sealed 2>&1)" != 'No such key: smb_sealed' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to delete outdated keys from SharePoint."
+			if ! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" afp_use_parent_owner &> /dev/null || \
+				! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" afp_use_parent_privs &> /dev/null || \
+				! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_readonly &> /dev/null || \
+				! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_sealed &> /dev/null || \
+				[[ "$(dscl . -read "/SharePoints/${user_share_point_name}" afp_use_parent_owner afp_use_parent_privs smb_readonly smb_sealed 2>&1 | sort)" != $'No such key: afp_use_parent_owner\nNo such key: afp_use_parent_privs\nNo such key: smb_readonly\nNo such key: smb_sealed' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete legacy attributes from SharePoint."
 				return "${error_code}"
 			fi
 
 			# The "sharing -a" SharePoint will NOT contain the following 5 (or 4) attributes which ARE created for SharePoints created via "sysadminctl -addUser" and System Preferences, so add them.
 			if (( darwin_major_version >= 19 )); then
 				# This attribute was added in macOS 10.15 Catalina and did not exist in older versions of macOS.
-				if ! dscl . -create "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid "${user_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:com_apple_sharing_uuid:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null)" 2> /dev/null)" != "${user_guid}" ]]; then
-					>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add user's GeneratedUID to SharePoint."
+				if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" com_apple_sharing_uuid "${user_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:com_apple_sharing_uuid:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null)" 2> /dev/null)" != "${user_guid}" ]]; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add user's GeneratedUID to SharePoint."
 					return "${error_code}"
 				fi
 			fi
 
 			root_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read '/Users/root' GeneratedUID 2> /dev/null)" 2> /dev/null)"
-			if ! dscl . -create "/SharePoints/${user_share_point_name}" ftp_name "${user_share_point_name}" || \
-				! dscl . -create "/SharePoints/${user_share_point_name}" sharepoint_account_uuid "${root_guid}" || \
-				! dscl . -create "/SharePoints/${user_share_point_name}" smb_createmask '644' || \
-				! dscl . -create "/SharePoints/${user_share_point_name}" smb_directorymask '755' || \
-				[[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:ftp_name:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" ftp_name 2> /dev/null)" 2> /dev/null)" != "${user_share_point_name}" || \
-					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_account_uuid:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_account_uuid 2> /dev/null)" 2> /dev/null)" != "${root_guid}" || \
-					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:smb_createmask:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" smb_createmask 2> /dev/null)" 2> /dev/null)" != '644' || \
-					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:smb_directorymask:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" smb_directorymask 2> /dev/null)" 2> /dev/null)" != '755' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add modern keys to SharePoint."
+			if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" ftp_name "${user_share_point_name}" || \
+				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_account_uuid "${root_guid}" || \
+				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_createmask '644' || \
+				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_directorymask '755' || \
+				! dscl_read_modern_sharepoint_attributes_plist="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" ftp_name sharepoint_account_uuid smb_createmask smb_directorymask 2> /dev/null)" ||
+				[[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:ftp_name:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${user_share_point_name}" || \
+					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_account_uuid:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${root_guid}" || \
+					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:smb_createmask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != '644' || \
+					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:smb_directorymask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != '755' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add modern attributes to SharePoint."
 				return "${error_code}"
 			fi
 
@@ -5021,7 +5072,7 @@ Check \"--help\" for detailed information about each available option."
 
 				# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl -addUser" and System Preferences does.
 				if ! dseditgroup -q -o create -i "${user_share_point_group_id}" -r "${user_share_point_name}" -a 'everyone' -t 'group' "${user_share_point_group_name}" || ! dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then # Check existence with "dscacheutil" to verify GID and to make sure the new group has been cached.
-					>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add SharePoint Group \"${user_share_point_group_name}\"."
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint Group \"${user_share_point_group_name}\"."
 					return "${error_code}"
 				fi
 			else
@@ -5030,17 +5081,19 @@ Check \"--help\" for detailed information about each available option."
 
 			# Hide the SharePoint Group like "sysadminctl -addUser" and System Preferences does.
 			if ! dscl . -create "/Groups/${user_share_point_group_name}" IsHidden '1' || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:IsHidden:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" IsHidden 2> /dev/null)" 2> /dev/null)" != '1' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to hide SharePoint Group."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to hide SharePoint Group."
 				return "${error_code}"
 			fi
 
 			# The "sharing -a" SharePoint will also NOT contain the "sharepoint_group_id" attribute which refers back to the GeneratedUID
 			# of the SharePoint Group (com.apple.sharepoint.group.#), therefore is must be added after creating the SharePoint Group.
 			sharepoint_group_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" GeneratedUID 2> /dev/null)" 2> /dev/null)"
-			if [[ -z "${sharepoint_group_guid}" ]] || ! dscl . -create "/SharePoints/${user_share_point_name}" sharepoint_group_id "${sharepoint_group_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_group_id:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null)" 2> /dev/null)" != "${sharepoint_group_guid}" ]]; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add SharePoint Group GeneratedUID to SharePoint."
+			if [[ -z "${sharepoint_group_guid}" ]] || ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_group_id "${sharepoint_group_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_group_id:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null)" 2> /dev/null)" != "${sharepoint_group_guid}" ]]; then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint Group GeneratedUID to SharePoint."
 				return "${error_code}"
 			fi
+		else
+			>&2 echo "mkuser WARNING: NOT sharing Public folder since SharePoint \"${user_share_point_name}\" already exists, maybe from a previous user that was not fully deleted (CONTINUING ANYWAY)."
 		fi
 	fi
 	(( error_code ++ ))
@@ -5062,7 +5115,7 @@ Check \"--help\" for detailed information about each available option."
 		admin_groups=( 'admin' '_appserverusr' '_appserveradm' )
 		for this_admin_group in "${admin_groups[@]}"; do
 			if ! dseditgroup -o edit -a "${user_account_name}" -t user "${this_admin_group}"; then
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to add to \"${this_admin_group}\" group."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add to \"${this_admin_group}\" group."
 				return "${error_code}"
 			fi
 
@@ -5074,9 +5127,11 @@ Check \"--help\" for detailed information about each available option."
 						# I've seen "dsmemberutil checkmembership" incorrectly fail (cache not updating quickly enough?), so flush the "dsmemberutil" cache and check again before erroring.
 						# Unlike "dscacheutil -flushcache", "man dsmemberutil" does not have any note about "dsmemberutil flushcache" only being used in extreme cases, so seems fine to use here.
 					else
-						>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to verify \"${this_admin_group}\" group membership."
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify \"${this_admin_group}\" group membership."
 						return "${error_code}"
 					fi
+				else
+					break
 				fi
 			done
 		done
@@ -5088,11 +5143,11 @@ Check \"--help\" for detailed information about each available option."
 		# The multiple group entries exist even if "dscacheutil -flushcache" is run. So, the following check will verify the user exists in any of the entries.
 		dscache_groups="$(dscacheutil -q group)" # Only query all groups from "dscacheutil" once.
 		for this_admin_group in "${admin_groups[@]}"; do
-			if [[ " $(echo "${dscache_groups}" | awk_admin_group="${this_admin_group}" awk -F ': ' '($1 == "name") { this_name = $2 } (this_name == ENVIRON["awk_admin_group"] && $1 == "users") { print $2 }' | tr -s '[:space:]' ' ') " != *" ${user_account_name} "* ]]; then
+			if [[ " $(echo "${dscache_groups}" | AWK_ENV_ADMIN_GROUP="${this_admin_group}" awk -F ': ' '($1 == "name") { this_name = $2 } (this_name == ENVIRON["AWK_ENV_ADMIN_GROUP"] && $1 == "users") { print $2 }' | tr -s '[:space:]' ' ') " != *" ${user_account_name} "* ]]; then
 				# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
 				# Since multiple entries for a single group can exist, there may be line breaks. But DO NOT use "xargs" to convert these lines to be seperated by spaces in case it's an incredibly huge list and "xargs" will include line break after a number of arguments or bytes.
 
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to verify \"${this_admin_group}\" group membership in Directory Service cache."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify \"${this_admin_group}\" group membership in Directory Service cache."
 				return "${error_code}"
 			fi
 		done
@@ -5100,7 +5155,7 @@ Check \"--help\" for detailed information about each available option."
 	(( error_code ++ ))
 
 	if $set_prevent_secure_token_on_big_sur_and_newer && [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
-		>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but Secure Token got granted when it should not have."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but Secure Token got granted when it should not have."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
@@ -5110,8 +5165,12 @@ Check \"--help\" for detailed information about each available option."
 			echo "mkuser: Setting ${user_full_and_account_name_display} user to automatically login..."
 		fi
 
+		## THE FOLLOWING KCPASSWORD ENCODING AND DECODING CODE IS BASED ON https://github.com/brunerd/macAdminTools/blob/main/Scripts/setAutoLogin.sh & https://github.com/brunerd/macAdminTools/blob/main/Scripts/getAutoLogin.sh
+		## Copyright (c) 2021 Joel Bruner
+		## Licensed under the MIT License (The full MIT License text can be referenced at the top of the "mkuser" function.)
+
 		# At this point, this kcpassword code is basically an adaptation of https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/ since I found that the "xxd" method used in that code
-		# handles multi-byte characters propery while printf's ord/chr equivalents that I was originally using do not (https://unix.stackexchange.com/questions/92447/bash-script-to-get-ascii-values-for-alphabet/92448#92448).
+		# handles multibyte characters propery while printf's ord/chr equivalents that I was originally using do not (https://unix.stackexchange.com/questions/92447/bash-script-to-get-ascii-values-for-alphabet/92448#92448).
 
 		# I originally wrote a direct port of the Python kcpassword creation code from pycreateuserpkg (which used the flawed printf ord/chr technique): https://github.com/gregneagle/pycreateuserpkg/blob/main/locallibs/kcpassword.py
 		# Which is based on this Python code by Tom Taylor: https://github.com/timsutton/osx-vm-templates/blob/master/scripts/support/set_kcpassword.py
@@ -5120,7 +5179,7 @@ Check \"--help\" for detailed information about each available option."
 		# And then, even longer after I wrote my own port, Joel Brunerd released this bash code for kcpassword creation which uses a different "xxd" technique instead of printf ord/chr: https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/
 
 		# At first, I started incorporating some useful techniques from Joel Brunerd's code (as well as Erik Berglund's bash port), but stuck to using the printf ord/chr technique for converting Unicode characters.
-		# Then, I discovered that the printf ord/chr technique fails on multi-byte non-English characters such as Emoji, Japanese, or any accented characters and I found that the "xxd" technique for converting multi-byte characters to hex and back worked properly.
+		# Then, I discovered that the printf ord/chr technique fails on multibyte characters (such as diacritics or Japanese, for example) and I found that the "xxd" technique for converting multibyte characters to hex and back worked properly.
 		# So, I reworked this code to use the "xxd" technique and that is why I now consider this code to basically be an adaptation of Joel Brunerd's code rather than a port of the Python code I started with.
 		# This code also includes other changes and comments based on my own research.
 
@@ -5164,10 +5223,10 @@ Check \"--help\" for detailed information about each available option."
 
 		encoded_password_hex_string+="${cipher_key[this_password_hex_char_index % cipher_key_length]}" # Add the next cipher character as termination (as described above).
 
-		encoded_password="$(xxd -r -p <<< "${encoded_password_hex_string}")" # Convert the encoded hex string back to Unicode characters. Can pass to "xxd" with here-string since whitespace (such as a trailing line break) are ignored when converting hex.
+		encoded_password="$(echo "${encoded_password_hex_string}" | xxd -r -p)" # Convert the encoded hex string back to Unicode characters. Do not need "echo -n" since whitespace (such as a trailing line break) are ignored when converting hex.
 
 		if [[ -z "${encoded_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to encode password for auto-login."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to encode password for auto-login."
 			return "${error_code}"
 		fi
 
@@ -5198,7 +5257,7 @@ Check \"--help\" for detailed information about each available option."
 		echo -n "${encoded_password}" > '/private/etc/kcpassword'
 
 		if [[ ! -f '/private/etc/kcpassword' || "$(cat /private/etc/kcpassword)" != "${encoded_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to create kcpassword file for auto-login."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create kcpassword file for auto-login."
 			return "${error_code}"
 		fi
 
@@ -5223,10 +5282,10 @@ Check \"--help\" for detailed information about each available option."
 		done
 		unset IFS
 
-		decoded_password="$(xxd -r -p <<< "${decoded_password_hex_string}")" # Convert the decoded hex string back to Unicode characters. Can pass to "xxd" with here-string since whitespace (such as a trailing line break) are ignored when converting hex.
+		decoded_password="$(echo "${decoded_password_hex_string}" | xxd -r -p)" # Convert the decoded hex string back to Unicode characters. Do not need "echo -n" since whitespace (such as a trailing line break) are ignored when converting hex.
 
 		if [[ "${decoded_password}" != "${user_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to decode kcpassword file for auto-login."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to decode kcpassword file for auto-login."
 			return "${error_code}"
 		fi
 	fi
@@ -5236,7 +5295,7 @@ Check \"--help\" for detailed information about each available option."
 		defaults write '/Library/Preferences/com.apple.loginwindow' autoLoginUser -string "${user_account_name}"
 
 		if [[ "$(defaults read '/Library/Preferences/com.apple.loginwindow' autoLoginUser)" != "${user_account_name}" ]]; then # Intentionally letting "defaults" output to stderr for useful user feedback.
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to set autoLoginUser for auto-login."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to set autoLoginUser for auto-login."
 			return "${error_code}"
 		fi
 	fi
@@ -5252,7 +5311,7 @@ Check \"--help\" for detailed information about each available option."
 		# "launchctl asuser" does not seem to necessary or helpful when running "touch" as another user, "sudo -u" is sufficient. But, if "sudo -u" fails (like it seems to for UID "-1"), just create the file as "root" instead.
 
 		if [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first login."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first login."
 			return "${error_code}"
 		fi
 	fi
@@ -5267,7 +5326,7 @@ Check \"--help\" for detailed information about each available option."
 		chown 0:0 '/private/var/db/.AppleSetupDone' # Make sure this file is properly owned by root:wheel.
 
 		if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
 			return "${error_code}"
 		fi
 	fi
@@ -5281,55 +5340,70 @@ Check \"--help\" for detailed information about each available option."
 				echo "mkuser: Using existing Secure Token admin \"${st_admin_account_name}\" to grant ${user_full_and_account_name_display} user a Secure Token..."
 			fi
 
-			user_password_escaped_for_expect="${user_password//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
-			user_password_escaped_for_expect="${user_password_escaped_for_expect//\"/\\\"}" # escape any double quote (") characters within the password so they do not prematurely end the password string passed to "send".
+			# When run in a Terminal, the CLI interactive password prompts of "sysadminctl -secureTokenOn" fails to accept passwords over 128 bytes for some reason for the grantee OR the Secure Token admin granter (interactive "dscl . -authonly" has the same issue),
+			# but when run like is done below by passing the passwords via stdin, that odd 128 byte bug/limitation seems to not be an issue, and while I don't really understand why it is quite nice to not have that limitation (the input must be getting processed differently somehow).
+			# But, all CLI interactive password prompts (including the "read -rs" prompts in this script) CANNOT accept secure input of 1024 bytes or more, which this technique is also limited by.
+			# And while that doesn't matter for our usage since mkuser does not allow new user passwords over 511 bytes, an existing Secure Token admin granter password made by other means could theoretically have a password of 1024 bytes (or longer) which would fail to authenticate in the following command.
+			# While passing passwords this way does actually allow a 1023 byte password for the grantee, there seems to be some other odd limitation (or bug) that I don't fully understand that limits the Secure Token admin granter password length to 1022 bytes instead of 1023 bytes.
+			# What's odd is that when a Secure Token admin granter password of 1023 bytes is attempted, the failure error message states that the *grantee* password was wrong when that password is not the issue and it is actually the length of the granter password that is causing the failure.
+			# This 1022 byte Secure Token admin granter limitation has been confirmed on macOS 10.14 Mojave, macOS 10.15 Catalina, macOS 11 Big Sur, and macOS 12 Monterey but it's actually NOT a limitation on macOS 10.13 High Sierra where 1023 byte admin granter passwords are allowed,
+			# but still not going to allow 1023 byte Secure Token admin granter passwords on macOS 10.13 High Sierra for simplicity and consistency across macOS versions.
+			# Therefore, Secure Token admin passwords used with to mkuser are limited to 1022 bytes so that they are always useable and any longer are rejected before user creation rather than failing when attempting to grant a Secure Token when the password is actually correct.
 
-			st_admin_password_escaped_for_expect="${st_admin_password//\\/\\\\}" # escape any backslash (\) characters within the password so they are not interpreted as special characters by "send".
-			st_admin_password_escaped_for_expect="${st_admin_password_escaped_for_expect//\"/\\\"}"
+			# This process was previously done using "expect", but that had the 128 byte password length limitation as described above, and "expect" also did not support emoji (but does support other multibyte characters) so would fail if either password contained emoji.
+			# While that is likely a very rare edge case, passing the passwords via stdin as done below is much simpler and more robust as it handles longer passwords and emoji just fine.
 
-			# This CLI interactive password prompt fails to accept passwords over 128 bytes for the user OR the Secure Token admin (just like "dscl . -authonly")
-			# Longer passwords (tested up to 10,000 bytes) can work when passed directly as arguments.
-			# BUT passing the passwords as arguments would make them visible in the process list and is an unacceptable security violation for this script.
-			# So, password lengths for the user and Secure Token admin are limited to 128 bytes when granting a Secure Token.
+			# This technique of passing stdin via pipe to "sysadminctl -secureTokenOn" has been tested on macOS 10.13 High Sierra, macOS 10.14 Mojave, macOS 10.15 Catalina, macOS 11 Big Sur, and macOS 12 Monterey.
+			# The passwords could also be passed to stdin via here-doc or here-string which have the same behavior and limitations as piping, but those techniques
+			# create a momentary temporary file in the filesystem while piping does not, so piping is a more secure way to pass sensitive data to commands.
 
-			for (( grant_secure_token_attempt = 1; grant_secure_token_attempt <= 3; grant_secure_token_attempt ++ )); do
-				# See comments above "expect" code for "spawn dscl . -authonly" verification for why we
-				# are doing up to 3 re-attempts if a timeout happens instead of setting a longer timeout.
+			# SIDE NOTES ABOUT ODD BEHAVIOR ON macOS 10.13 High Sierra:
+			# While macOS 10.13 High Sierra allows 1023 byte Secure Token admin granter passwords, it also allows much longer grantee passwords, which I tested with up to 1,000,000 byte long passwords.
+			# But, when trying to then use these Secure Token users with passwords longer than 1023 bytes as the Secure Token admin granter for another account, their password verification fails (via the native OpenDirectory methods used in the "mkuser_verify_password" function as well as "dscl . -authonly" and they cannot authenticate in System Preferences).
+			# When testing this further, I found that while a user with a password over 1023 bytes can be granted a Secure Token, something about Secure Tokens is not actually compatible with those longer passwords and their password effectively gets broken and no longer works at all once the Secure Token is granted.
+			# If a Secure Token is not granted, these passwords longer than 1023 bytes continue to work fine in all authentication and verification tests I did as long as the user doesn't have a Secure Token.
+			# So, that means a 1023 byte password can be used to grant a Secure Token, but any longer will never work because those length passwords get broken once the account is granted a Secure Token.
+			# On some newer version of macOS I had previously tested that longer passwords (up to 10,000 bytes) can work when passed to "sysadminctl -secureTokenOn" directly as arguments, BUT passing the passwords as arguments would make them visible in the process list so it was never a secure option for usage in mkuser.
+			# And, I don't remember if I ever tried authenticating those accounts with passwords over 1023 bytes after they had been granted a Secure Token or used them to grant another user a Secure Token since I wasn't aware of this issue when I did that quick testing with passing longer passwords to "sysadminctl -secureTokenOn" as arguments in the past.
+			# I haven't bothered fully testing if this brokenness with Secure Tokens and passwords longer than 1023 is actually the same on newer versions of macOS or if it has been fixed since that would just be for my own curiosity as it's not even possible to grant accounts with passwords longer than 1023 bytes a Secure Token with the technique used in mkuser in the first place.
+			# None of this brokenness affects mkuser directly at all since these longer passwords would never be allowed to be granted a Secure Token, or allowed to be used to grant a Secure Token.
+			# This information is just documentation of my testing when I was trying to understand some odd behavior on macOS 10.13 High Sierra that didn't make sense at first.
 
-				grant_secure_token_output="$(expect << SYSADMINCTL_SECURE_TOKEN_ON_EXPECT_EOF
-spawn sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword -
-expect {
-	"Enter password for ${st_admin_account_name} :" {
-		send -- "${st_admin_password_escaped_for_expect}\r"
-		exp_continue
-	}
-	"Enter password for ${user_full_name} :" {
-		send -- "${user_password_escaped_for_expect}\r"
-		exp_continue
-	}
-	timeout {
-		exit 255
-	}
-}
-SYSADMINCTL_SECURE_TOKEN_ON_EXPECT_EOF
-)"
+			# Do an actual line break instead of "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the passwords.
+			grant_secure_token_output="$(echo "${st_admin_password}
+${user_password}" | sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword - 2>&1)"
 
-				grant_secure_token_exit_code="$?" # Exit code will be 0 even if there was an error, but that's fine and doesn't hurt to check it anyway since we're also checking (in every possible way) that the user was actually granted a Secure Token.
+			grant_secure_token_exit_code="$?" # Exit code will be 0 even if there was an error, but that's fine and doesn't hurt to check it anyway since we're also checking (in every possible way) that the user was actually granted a Secure Token.
 
-				if (( grant_secure_token_exit_code == 255 )); then
-					>&2 echo "mkuser WARNING: Attempt ${grant_secure_token_attempt} of 3 to grant ${user_full_and_account_name_display} user a Secure Token timed out."
-				else
-					break
-				fi
-			done
-
-			if (( grant_secure_token_exit_code != 0 )) || [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
-				echo "${grant_secure_token_output}" | grep -F 'sysadminctl[' >&2 # Output sysadminctl output lines since it will be useful to know exactly what went wrong.
-				>&2 echo "mkuser ERROR ${error_code}: Created user \"${user_account_name}\", but failed to grant Secure Token using existing Secure Token admin \"${st_admin_account_name}\"."
+			if (( grant_secure_token_exit_code != 0 )) || [[ "${grant_secure_token_output}" != *'] - Done!'* || "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
+				echo "${grant_secure_token_output}" | grep -F 'sysadminctl[' >&2 # If there was an error, show the sysadminctl output lines since it may be informative.
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to grant Secure Token using existing Secure Token admin \"${st_admin_account_name}\"."
 				return "${error_code}"
 			fi
 		elif ! $suppress_status_messages; then
 			echo "mkuser: Do not need to manually grant ${user_full_and_account_name_display} user a Secure Token (as specified) since user already has one (maybe from a Bootstrap Token)..."
+		fi
+	fi
+	(( error_code ++ ))
+
+	if $boot_volume_is_apfs && [[ -n "${st_admin_account_name}" || ( "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* && "$(diskutil apfs listUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* && $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ) ]]; then
+		# Update Preboot Volume separately from granting a Secure Token so that the Preboot Volume will also get updated when macOS has granted this account the first Secure Token or if the account was granted a Secure Token from a Bootstrap Token.
+
+		got_first_secure_token="$([[ -z "${st_admin_account_name}" ]] && echo 'true' || echo 'false')"
+
+		if ! $suppress_status_messages; then
+			echo "mkuser: Updating Preboot Volume after $($got_first_secure_token && echo 'macOS granted' || echo 'granting') ${user_full_and_account_name_display} user $($got_first_secure_token && echo 'the first' || echo 'a') Secure Token (PLEASE WAIT, THIS MAY TAKE 10 SECONDS OR LONGER)..."
+		fi
+
+		# Update the Preboot Volume after a Secure Token is granted since I've seen that the new account may not be included in the FileVault login window (if FileVault is enabled),
+		# and may not be included in Recovery for Startup Security authentication (if the account is an administrator on a T2 or Apple Silicon Mac).
+		# So, it seems like it may just be best practice to always update the Preboot Volume after a new Secure Token user is added no matter what.
+		# The only downside is that this process is not super quick, it can take around 10 seconds or so (but could be shorter or longer as the time depends on how many total Secure Token users exist).
+
+		if ! diskutil_apfs_update_preboot_output="$(diskutil apfs updatePreboot / 2>&1)" || [[ "${diskutil_apfs_update_preboot_output}" != *$'UpdatePreboot: Exiting Update Preboot operation with overall error=(ZeroMeansSuccess)=0\nFinished APFS operation' ]]; then
+			echo "${diskutil_apfs_update_preboot_output}" | tail -2 >&2 # If there was an error, show the last 2 updatePreboot output lines since it may be informative.
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to update the Preboot Volume after $($got_first_secure_token && echo 'macOS granted' || echo 'granting') Secure Token."
+			return "${error_code}"
 		fi
 	fi
 	(( error_code ++ ))
