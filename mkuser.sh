@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.2.3-1'
+	readonly MKUSER_VERSION='2022.3.2-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -95,7 +95,13 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	error_code='1' # This error code will be incremented as it passes each potential error.
 
 	if [[ -n "${ZSH_VERSION}" ]]; then
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool is not compatible with zsh and must be run in bash instead."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool is not compatible with \"zsh\" and must be run in \"bash\" instead."
+		return "${error_code}"
+	elif [[ -z "${BASH_VERSION}" ]]; then
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool is not compatible with this shell and must be run in \"bash\" instead."
+		return "${error_code}"
+	elif [[ "${BASH}" != '/bin/bash' ]]; then
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool is not compatible with \"sh\" and must be run in \"bash\" instead."
 		return "${error_code}"
 	elif [[ -d '/System/Installation' && ! -f '/usr/bin/pico' ]]; then # The specified folder should exist in recoveryOS and the file should not.
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool cannot be run within recoveryOS."
@@ -133,7 +139,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	while IFS='' read -r this_option_line; do
 		long_options_as_array_reverse_sorted+=( "${this_option_line}" )
 		long_options_as_array_reverse_sorted_without_word_hyphens+=( "--${this_option_line//-/}" ) # This list will be used to allow options to be passed without the word separating hyphens.
-	done <<< "$(echo "${all_options_as_list}" | grep '^.\{3\}' | sort -r)" # Must be reverse sorted to always find the longest partial match first in a loop.
+	done < <(echo "${all_options_as_list}" | grep '^.\{3\}' | sort -r) # Must be reverse sorted to always find the longest partial match first in a loop.
 
 	long_options_count="${#long_options_as_array_reverse_sorted[@]}"
 
@@ -433,7 +439,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--stdin-password" (or multiple "--password" options specified).
 								if [[ "$1" != *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
 									user_password="$1"
-									# Do not include "--password" in valid_options_for_package because it will be modified to obfuscate the password within a package and then passed with "--stdin-password" after being deobfuscated.
+									# Do not include "--password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 								else
 									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
 									has_invalid_options=true
@@ -454,7 +460,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is open so that the script doesn't hang forever if "--stdin-password" is used with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
 							user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (will validate the password is either empty string or 4 characters or more).
-							# Do not include "--stdin-password" in valid_options_for_package since it will always be added to package installations which include an obfuscated password (after the password has been deobfuscated).
+							# Do not include "--stdin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 
 							if [[ "$user_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
 								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
@@ -482,7 +488,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 					if [[ -z "${user_password}" ]]; then
 						user_password='*'
-						# Do not include "--no-password" in valid_options_for_package because it will be modified to obfuscate the "*" password within a package and then passed with "--stdin-password" after being deobfuscated.
+						# Do not include "--no-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 					else
 						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option because \"--password\" (or \"--stdin-password\") has already been specified."
 						has_invalid_options=true
@@ -554,7 +560,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							if [[ "$1" != '-'* ]]; then
 								if ! $set_no_picture && [[ -z "${user_picture_path}" ]]; then
 									user_picture_path="$1" # Will not be set if file does not exist, but will still create user without error (with a random picture).
-									# Do not include "--picture" in valid_options_for_package because it will be modified to point to a copy of the picture file within a package.
+									# Do not include "--picture" in valid_options_for_package because the picture will be compressed and encoded within a package and then decoded and decompressed into a new file path which will be specified in the package.
 								else
 									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 									has_invalid_options=true
@@ -700,10 +706,10 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					;;
 				--secure-token-admin-password|--st-admin-pass|--st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--secure-token-admin-password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
-						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite password if already set with "--fd3-secure-token-admin-password" (or multiple "--secure-token-admin-password" options specified).
+						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite password if already set with "--fd-secure-token-admin-password" (or multiple "--secure-token-admin-password" options specified).
 							if [[ "$1" != *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
 								st_admin_password="$1"
-								# Do not include "--secure-token-admin-password" in valid_options_for_package because it will be modified to obfuscate the password within a package and then passed with "--fd3-secure-token-admin-password" after being deobfuscated.
+								# Do not include "--secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 							else
 								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
 								has_invalid_options=true
@@ -716,10 +722,39 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						shift
 					fi # Allow explicity blank/empty value since a Secure Token admins passwords can be blank/empty. The password will be verified before usage though.
 					;;
+				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+					if [[ "$1" == '/dev/fd/'* ]]; then # Make sure a file descriptor path is specified.
+						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd-secure-token-admin-password" options specified).
+							if st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list (will validate the password is either empty string or 4 characters or more).
+								# Do not include "--fd-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+
+								if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
+									has_invalid_options=true
+								fi
+							else
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because no file descriptor \"$1\" contents detected, specify with \"<(echo 'PASSWORD')\" process substitution. If you are running this command manually in Terminal and using \"sudo\", the file descriptor may be getting processed by \"sudo\" instead of \"mkuser\"."
+								has_invalid_options=true
+							fi
+						else
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
+							has_invalid_options=true
+						fi
+
+						shift
+					else
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because no file descriptor \"/dev/fd/##\" specified, specify with \"<(echo 'PASSWORD')\" process substitution."
+						has_invalid_options=true
+					fi
+
+					# Allow explicity blank/empty value since a Secure Token admins passwords can be blank/empty. The password will be verified before usage though.
+					;;
 				--fd3-secure-token-admin-password|--fd3-st-admin-pass|--fd3-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+					>&2 echo "mkuser WARNING: The \"${this_unaltered_option}\" option IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION! The more secure \"--fd-secure-token-admin-password\" should be used instead. See \"--help\" for more information."
+
 					if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd3-secure-token-admin-password" options specified).
-						if read -u 3 -r st_admin_password 2> /dev/null; then # Optionally get password from fd3 so that the password is never visible in the process list (will validate the password is 4 characters or more).
-							# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package since it will always be added to package installations which include an obfuscated password (after the password has been deobfuscated).
+						if st_admin_password="$(cat '/dev/fd/3' 2> /dev/null)"; then # Optionally get password from fd3 so that the password is never visible in the process list (will validate the password is 4 characters or more).
+							# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 
 							if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
 								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
@@ -951,15 +986,18 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	(( error_code ++ ))
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-	local open_command_asuser_or_not=( 'open' ) # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
-	if (( ${EUID:-$(id -u)} == 0 )); then # Must only run as user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
-		current_user_id="$(scutil <<< 'show State:/Users/ConsoleUser' | awk '($1 == "UID") { print $NF; exit }')"
+	local open_command_asuser_or_not=()
+	if (( ${EUID:-$(id -u)} == 0 )); then
+		# Must only run as current user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
+
+		current_user_id="$(echo 'show State:/Users/ConsoleUser' | scutil | awk '($1 == "UID") { print $NF; exit }')"
 		if (( current_user_id != 0 )); then
 			current_user_name="$(dscl /Search -search /Users UniqueID "${current_user_id}" 2> /dev/null | awk '{ print $1; exit }')"
 
-			open_command_asuser_or_not=( 'launchctl' 'asuser' "${current_user_id}" 'sudo' '-u' "${current_user_name}" 'open' )
+			open_command_asuser_or_not+=( 'launchctl' 'asuser' "${current_user_id}" 'sudo' '-u' "${current_user_name}" )
 		fi
 	fi
+	open_command_asuser_or_not+=( 'open' ) # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
 
 	if $show_version; then
 		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://mkuser.sh\n\nUpdate Check: "
@@ -1084,7 +1122,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Must be 244 characters/bytes or less and must contain at least one letter.
     The account name must not already be assigned to another user.
     If omitted, the full name will be converted into a valid account name
-      by coverting it to meet the requirements stated above.
+      by converting it to meet the requirements stated above.
 
     ${ansi_bold}244 CHARACTER/BYTE ACCOUNT NAME LENGTH LIMIT NOTES:${clear_ansi}
     The account name is used as the OpenDirectory RecordName, which has a hard
@@ -1241,16 +1279,18 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     For more information about how passwords are securely obfuscated within
       the package, read the comments within the code of this script starting at:
       ${ansi_underline}OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT${clear_ansi}
-    Also, when the passwords are deobfuscated during package installation,
-      they will NOT be visible in the process list because they will be passed
-      via \"stdin\" using ${ansi_bold}--stdin-password${clear_ansi} (and ${ansi_bold}--fd3-secure-token-admin-password${clear_ansi})
-      regardless of how the passwords were specified when creating the package.
+    Also, when the passwords are deobfuscated during the package installation,
+      they will NOT be visible in the process list since they will only exist as
+      variables within the script and be passed to an internal ${ansi_bold}mkuser${clear_ansi} function.
 
 
   ${ansi_bold}--stdin-password, --stdin-pass, --sp${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} (stdin) >
 
     Include this option with no parameter to pass the password via \"stdin\"
       using a pipe (${ansi_bold}|${clear_ansi}) or here-string (${ansi_bold}<<<${clear_ansi}), etc.
+    ${ansi_bold}Although, it is recommended to use a pipe instead of a here-string${clear_ansi}
+      because a pipe is more secure since a here-string creates a temporary
+      file which contains the specified password while a pipe does not.
     Passing the password via \"stdin\" instead of directly with the ${ansi_bold}--password${clear_ansi}
       option hides the password from the process list.
     The help information for the ${ansi_bold}--password${clear_ansi} option above also applies to
@@ -1752,16 +1792,39 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       passwords are properly accepted when passed that way.
 
 
+  ${ansi_bold}--fd-secure-token-admin-password, --fd-st-admin-pass, --fd-st-pass${clear_ansi}
+    < ${ansi_underline}file descriptor path${clear_ansi} (via process substitution) >
+
+    The file descriptor path must be specified via process substitution.
+    The process substitution command must ${ansi_bold}echo${clear_ansi} the Secure Token admin password.
+    If you haven't used process substitution before, it looks like this:
+    ${ansi_bold}mkuser [OPTIONS] --fd-secure-token-admin-password ${ansi_underline}<(echo '<PASS>')${clear_ansi}${ansi_bold} [OPTIONS]${clear_ansi}
+    Passing the password via process substitution instead of directly with the
+      ${ansi_bold}--secure-token-admin-password${clear_ansi} option hides the password from the process
+      list and does not create any temporary file containing the password.
+    Since ${ansi_bold}echo${clear_ansi} is a builtin in ${ansi_bold}bash${clear_ansi} and ${ansi_bold}zsh${clear_ansi} and not an external binary command,
+      the ${ansi_bold}echo${clear_ansi} command containing the password as an argument
+      is also never visible in the process list.
+    The help information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option above also
+      applies to Secure Token admin passwords passed via process substitution.
+    This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+
   ${ansi_bold}--fd3-secure-token-admin-password, --fd3-st-admin-pass, --fd3-st-pass${clear_ansi}
     < ${ansi_underline}no parameter${clear_ansi} (fd3) >
+
+    ${ansi_bold}THIS OPTION IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION!${clear_ansi}
+    THE MORE SECURE ${ansi_bold}--fd-secure-token-admin-password${clear_ansi} SHOULD BE USED INSTEAD.
+    ${ansi_underline}THIS IS BECAUSE USING A HERE-STRING MOMENTARILY CREATES A TEMPORARY FILE${clear_ansi}
+      ${ansi_underline}WHICH CONTAINS THE SPECIFIED PASSWORD WHILE PROCESS SUBSTITUTION DOES NOT.${clear_ansi}
 
     Include this option with no parameter to pass the Secure Token admin
       password via file descriptor 3 (fd3), using an \"fd3\" here-string (${ansi_bold}3<<<${clear_ansi}).
     If you haven't used \"fd3\" here-strings before, it looks like this:
       ${ansi_bold}mkuser [OPTIONS] --fd3-secure-token-admin-password [OPTIONS] ${ansi_underline}3<<< '<PASS>'${clear_ansi}
     Passing the password via \"fd3\" instead of directly with the
-      ${ansi_bold}--secure-token-admin-password${clear_ansi} option hides the password
-      from the process list.
+      ${ansi_bold}--secure-token-admin-password${clear_ansi} option hides the password from the
+      process list, BUT CREATES A TEMPORARY FILE CONTAINING THE PASSWORD.
     The help information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option above
       also applies to Secure Token admin passwords passed via \"fd3\".
     This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
@@ -2036,7 +2099,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			# If no account name specified, use the full name and convert it into a valid account name containing only lowercase letters, numbers, hyphen/minus, underscore, and period characters.
 			# If an account name contains invalid characters, "dsimport" will not create the user and the invalid account name will be listed in the "Failed" and "Users not imported because of bad short names" keys of the "--outputfile" plist.
 
-			# Use "stringByApplyingTransform" Cocoa method via JavaScript for Automation (JXA) Objective-C bridge to properly convert full name to latin characters for the account name and remove diacritics leaving the base character instead of just stripping out the characters with diacritics (and also convert to lowercase and strip other illegal characters via JavaScript since it's convenient).
+			# Use "stringByApplyingTransform" Objective-C method via JavaScript for Automation (JXA) Objective-C bridge to properly convert full name to latin characters for the account name and remove diacritics leaving the base character instead of just stripping out the characters with diacritics (and also convert to lowercase and strip other illegal characters via JavaScript since it's convenient).
 			# This means that a full name like "上海" will be properly converted to "shanghai" and "P̃īçø" will be converted to "pico" for the account name like System Preferences does.
 			# Helpful links for the "stringByApplyingTransform" custom transform rules: https://nshipster.com/cfstringtransform/ & https://oleb.net/blog/2016/01/icu-text-transforms/
 			# Useful "Iлｔèｒｎåｔïｏｎɑｌíƶａｔï߀ԉ ą ć ę ł ń ó ś ź ż ä ö ü ß" test string from: https://javascript.plainenglish.io/not-so-obvious-removal-of-diacritics-in-javascript-explained-and-done-right-52f4aeb3c85
@@ -2052,7 +2115,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			# It seems like using CFStringTokenizer would be the solution, but I haven't tried to do that yet in JXA: https://stackoverflow.com/questions/37685877/how-to-customize-cfstring-transliteration-in-cocoa-cocoa-touch-foundation/42330497#42330497 & https://stackoverflow.com/questions/1752946/how-to-get-the-first-n-words-from-a-nsstring-in-objective-c/1753141#1753141
 
 			if [[ -z "${user_account_name}" ]]; then
-				# If something went wrong with the Cocoa conversion via JXA and the result is an empty string, fall back to just stripping the illegal characters from the full name and setting it to lowercase in bash (which will just completely remove any characters with diacritics).
+				# If something went wrong with the Objective-C conversion via JXA and the result is an empty string, fall back to just stripping the illegal characters from the full name and setting it to lowercase in bash (which will just completely remove any characters with diacritics).
 
 				user_account_name="$(echo "${user_full_name//[^${A_Z}${a_z}${DIGITS}_.-]/}" | tr '[:upper:]' '[:lower:]')"
 			fi
@@ -2619,7 +2682,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: CANNOT prompt for Secure Token admin password since user password was passed via stdin. Use another option to specify the user password or the Secure Token admin password. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 		elif [[ -n "${st_admin_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"--secure-token-admin-password-prompt\" option because \"--secure-token-admin-password\" or \"--fd3-secure-token-admin-password\" has already been specified."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"--secure-token-admin-password-prompt\" option because \"--secure-token-admin-password\" or \"--fd-secure-token-admin-password\" has already been specified."
 			return "${error_code}"
 		elif [[ -z "${st_admin_account_name}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: CANNOT prompt for Secure Token admin password since \"--secure-token-admin-account-name\" is not specified."
@@ -2652,12 +2715,11 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		fi
 
 		# If the password is verified to be correct for the specified account name, the string "VERIFIED" will be returned (via stdout) with an exit code of 0.
-		# If the password is not correct for the specified account name (or the account name doesn't exist), an error message will be returned (via stderr) with an exit code of 1.
+		# If the password is NOT correct for the specified account name (or the account name doesn't exist), an error message will be returned (via stderr) with an exit code of 1.
 
-		# Since the encoded password is placed directly within a shell string that is piped to "osascript" and then is only ever passed to native Objective-C methods,
-		# the password is handled as securely as possible and is never visible in the process list. See "password ($2)" comments below about the security considerations of this process.
+		# The password is handled as securely as possible and is never visible in the process list. See "password ($2)" comments below about the security considerations of this process.
 
-		# Unlike other secure password verification technique, this technique does not have any (known) length or character limitations (for example, "expect" does not support emoji and would fail to verify them in a password).
+		# Unlike other secure password verification techniques, this technique does not have any (known) length or character limitations (for example, "expect" does not support emoji and would fail to verify them in a password).
 		# See the old "mkuser" code for more information about length limitations and the much more complex code that was required before: https://github.com/freegeek-pdx/mkuser/blob/552933a6f06daa43c5c9cf4a1c3a813a838a1d82/mkuser.sh#L2660
 		# This password verification technique was tested with passwords up to 1,000,000 bytes long (didn't bother testing longer) and with multibyte characters (including emoji) in the password.
 		# I've also tested and confirmed that this native password verification is an authentication which triggers macOS to grant the first Secure Token to the first user to authenticate with a UID of 500 or greater on macOS 10.13 High Sierra and macOS 10.14 Mojave,
@@ -2674,80 +2736,67 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# for running processes using "ps -E" on macOS 10.15 Catalina and older. But, on macOS 11 Big Sur and newer the environment variables are only visible if SIP is disabled.
 		# Since this code is tested to support macOS 10.13 High Sierra and newer, environment variables should not be considered a secure way to pass sensitive data, they are
 		# essentially as secure as passing data directly in the arguments of a command, which is not secure at all since they are always visible in the process list.
-		# But, the password has to be passed to or placed in this code somehow, so I investigated the security of all the different ways to pass stdin to processes by using "lsof -p <PID>"
+		# But, the password has to be passed to this code somehow, so I investigated the security of all the different ways to pass stdin to processes by using "lsof -p <PID>"
 		# to observe the files associated with a process and found that here-docs and here-strings both create regular temporary files within "/private/var/tmp/" in both bash and zsh.
 		# Even though these files existed so briefly that I could never read the contents of them, they did contain the contents of the data passed to stdin via here-doc or here-string
 		# (which I confirmed by matching the filesize shown in "lsof" with the known size of the data being passed).
 		# The only other way to pass data via stdin is by using "echo" and a pipe "|". By observing the output of "lsof -p <PID>" when piping code to "osascript",
 		# I found that piped data is NOT created in the filesystem and exists only as a special "PIPE" type and is NOT a regular file with a node number and path in the filesystem.
-		# Since "echo" is a builtin in bash and zsh and not an external binary command, the "echo" command containing the script as an argument is also never visible in the process list.
+		# Since "echo" is a builtin in bash and zsh and not an external binary command, the "echo" command containing the password as an argument is also never visible in the process list.
 		# Therefore, I am considering echoing and piping to be the most secure way to pass senstive data to other processes.
-		# That means the password must be placed directly in the JXA code that will be piped to the "osascript" command.
-		# To avoid all possible issues (such as special character escaping and malicious code execution) when placing a raw user input string directly within the JXA code,
-		# the password string is first base64 encoded *in the shell* and then the base64 encoded string is placed directly in the JXA code.
-		# This is done using "$(echo -nE "$2" | base64)", and since "echo" is a builtin in bash and zsh the password will not be visible in the process list for that command
-		# (the "-E" option of "echo" is used to be sure backslashes are never interpreted if run in zsh with default options since this password verification function may be used by others).
-		# Since only the base64 encoded string is placed directly within the JXA code, there is no way the base64 string itself can contain any special characters or intentionally malicious JXA code.
-		# This base64 string is then decoded from into the actual password within JXA by Objective-C methods, which also never reveals the base64 string or the decoded password in the process list.
-		# Since that base64 string is decoded by Objective-C methods, it is returned as an NSString object which can never be interpreted as code, and no special characters within it need to be escaped.
+		# This is done using "echo -nE "$2" | ...", the "-E" option of "echo" is used to be sure backslashes are never interpreted if run in zsh with default options since this password verification function may be used by others.
+		# Then, that stdin is retrieved within JXA using Objective-C methods (similar to how the environment variable is retrieved), which also never reveals the password in the process list.
+		# Since the password is retrieved using Objective-C methods (like the environment variable), it is returned as an NSString object which can never be interpreted as code, and no special characters within it need to be escaped.
 
-		local base64_encoded_password
-		base64_encoded_password="$(echo -nE "$2" | base64)"
-
-		# Since the "base64_encoded_password" shell variable is placed within the contents of a double quoted shell string all special shell characters need to be avoided or escaped.
-		# I have chose to avoid the special shell characters instead of needing to use backslashes to escape them throughout this code (since it's is accidentally miss a necessary escape).
-		# Therefore, "ObjC.wrap()" is always used instead of the "$()" alias so that the later is not misinterpreted as command substitution.
-		# Also, JavaScript backticks "`" are never used for template literal strings for the same reason, and the
-		# "${var}" syntax for variables in template literal string would also be misinterpreted as shell variables.
-		# Finally, all double quotes within JavaScript strings do need to be escaped to not prematurely close the shell string containing the whole script.
-		# These considerations could have been avoided by passing the password as an environment variables as described above, but since
-		# that is NOT secure, and this code is simple, it was not hard to avoid the JXA and JavaScript syntax that conflicts with shell code.
-
-		local verify_password_result # See comments above about the security importance of using echo and pipe (which seems sloppy) instead of a here-doc (which seems cleaner) to pass this JXA code to "osascript".
-		verify_password_result="$(echo "
-ObjC.import('OpenDirectory') // 'Foundation' framework is available in JXA by default, but need to import 'OpenDirectory' framework manually (for the required password verification methods):
+		local verify_password_result
+		# Suppress ShellCheck warning that expressions don't expand in single quotes since this is intended.
+		# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
+		# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
+		# shellcheck disable=SC2016
+		verify_password_result="$(echo -nE "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
+ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
-let accountName = $.NSProcessInfo.processInfo.environment.objectForKey('OSASCRIPT_ENV_ACCOUNT_NAME')
-let password = $.NSString.alloc.initWithDataEncoding($.NSData.alloc.initWithBase64EncodedStringOptions('${base64_encoded_password}', 0), $.NSUTF8StringEncoding)
+let accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
+let password = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.availableData, $.NSUTF8StringEncoding)
 
-// Code in Apple's open source OpenDirectory 'TestApp.m' contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
+// Code in the open source OpenDirectory "TestApp.m" from Apple contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
 
-let odSearchNodeError = ObjC.wrap() // Create a 'nil' object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+let odSearchNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
 let odSearchNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeAuthentication, odSearchNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
 
-let verifyPasswordResult = 'Verify Password (Load Node) ERROR: Unknown error loading OpenDirectory \"/Search\" node.'
+let verifyPasswordResult = `Verify Password (Load Node) ERROR: Unknown error loading OpenDirectory "/Search" node.`
 
-if (!odSearchNode.isNil() && odSearchNode.nodeName.js == '/Search') {
-	let odUserRecordError = ObjC.wrap()
-	let odUserRecord = odSearchNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, ObjC.wrap(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
+if (!odSearchNode.isNil() && odSearchNode.nodeName.js == "/Search") {
+	let odUserRecordError = $()
+	let odUserRecord = odSearchNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, $(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
 
 	if (!odUserRecord.isNil() && odUserRecord.recordName.js == accountName.js) {
-		let odVerifyPasswordError = ObjC.wrap()
+		let odVerifyPasswordError = $()
 		let odPasswordVerified = odUserRecord.verifyPasswordError(password, odVerifyPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427894-verifypassword?language=objc
 
 		if (odPasswordVerified === true) { // Make sure odPasswordVerified is a boolean of true and no other truthy value.
-			verifyPasswordResult = 'VERIFIED'
+			verifyPasswordResult = "VERIFIED"
 		} else if (!odVerifyPasswordError.isNil() && odVerifyPasswordError.localizedDescription) {
-			verifyPasswordResult = 'Verify Password ERROR: ' + odVerifyPasswordError.localizedDescription.js + ' (Error Code: ' + odVerifyPasswordError.code + ')'
+			verifyPasswordResult = `Verify Password ERROR: ${odVerifyPasswordError.localizedDescription.js} (Error Code: ${odVerifyPasswordError.code})`
 		} else {
-			verifyPasswordResult = 'Verify Password ERROR: Unknown error verifying password.'
+			verifyPasswordResult = "Verify Password ERROR: Unknown error verifying password."
 		}
 	} else if (!odUserRecordError.isNil() && odUserRecordError.localizedDescription) {
-		verifyPasswordResult = 'Verify Password (Load Record) ERROR: ' + odUserRecordError.localizedDescription.js + ' (Error Code: ' + odUserRecordError.code + ')'
+		verifyPasswordResult = `Verify Password (Load Record) ERROR: ${odUserRecordError.localizedDescription.js} (Error Code: ${odUserRecordError.code})`
 	} else {
-		verifyPasswordResult = 'Verify Password (Load Record) ERROR: OpenDirectory RecordName (user account name \"' + accountName.js + '\") does not exist.'
+		verifyPasswordResult = `Verify Password (Load Record) ERROR: OpenDirectory RecordName (user account name "${accountName.js}") does not exist.`
 	}
 } else if (!odSearchNodeError.isNil() && odSearchNodeError.localizedDescription) {
-	verifyPasswordResult = 'Verify Password (Load Node) ERROR: ' + odSearchNodeError.localizedDescription.js + ' (Error Code: ' + odSearchNodeError.code + ')'
+	verifyPasswordResult = `Verify Password (Load Node) ERROR: ${odSearchNodeError.localizedDescription.js} (Error Code: ${odSearchNodeError.code})`
 }
 
-// DO NOT 'console.log()' the result since that will go to stderr which is being redirected to '/dev/null' so that only our result string is ever retrieved via stdout.
+// DO NOT "console.log()" the result since that will go to stderr which is being redirected to "/dev/null" so that only our result string is ever retrieved via stdout.
 // This is because I have seen an irrelevant error about failing to establish a connection to the WindowServer (on macOS 10.13 High Sierra at least) that could be
 // included in stderr even when password verification was successful which would mess up checking for the exact success string if we were to capture stderr in the output.
 
-verifyPasswordResult // Just having 'verifyPasswordResult' as the last statement will make JXA send the value to stdout.
-" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' 2> /dev/null)"
+verifyPasswordResult // Just having "verifyPasswordResult" as the last statement will make JXA send the value to stdout.
+' 2> /dev/null)"
 
 		if [[ "${verify_password_result}" == 'VERIFIED' ]]; then
 			echo "${verify_password_result}"
@@ -2829,7 +2878,7 @@ verifyPasswordResult // Just having 'verifyPasswordResult' as the last statement
 	user_full_and_account_name_display="\"${user_full_name}\"$([[ "${user_full_name}" != "${user_account_name}" ]] && echo " (${user_account_name})")"
 
 	# The following subshell_function_pid will be used for "caffeinate" right now as well as "shlock" later on.
-	subshell_function_pid="$(bash -c 'echo "$PPID"')" # Must do this silly thing to be able to get the PID of the *subshell function* rather than the parent script in case this function is included in a larger script that we do not want to "caffeinate" for the entire run or "shlock" on the wrong PID.
+	subshell_function_pid="$(sh -c 'echo "$PPID"')" # Must do this silly thing to be able to get the PID of the *subshell function* rather than the parent script in case this function is included in a larger script that we do not want to "caffeinate" for the entire run or "shlock" on the wrong PID.
 
 	caffeinate -dimsu -w "${subshell_function_pid}" & # Use "caffeinate" to keep computer awake while the user is being created. The user creation should always be pretty quick, but this doesn't hurt.
 
@@ -2906,15 +2955,17 @@ print_mkuser_function {
 			return "${error_code}"
 		fi
 
-		quoted_valid_options_for_package=''
+		quoted_valid_options_for_package=()
+		quoted_valid_options_for_package_check_without_picture=()
 		escaped_single_quote="'\''" # This must be a seperate variable or the bash string replacement within the following loop will not parse it correctly for bash.
 		for this_valid_option_for_package in "${valid_options_for_package[@]}"; do
 			if [[ -n "${this_valid_option_for_package}" ]]; then
 				# Escape any single quotes within this_valid_option_for_package like this: https://github.com/koalaman/shellcheck/wiki/SC1003
-				quoted_valid_options_for_package+=" '${this_valid_option_for_package//\'/$escaped_single_quote}'"
+				this_quoted_valid_options_for_package="'${this_valid_option_for_package//\'/$escaped_single_quote}'"
+				quoted_valid_options_for_package+=( "${this_quoted_valid_options_for_package}" )
+				quoted_valid_options_for_package_check_without_picture+=( "${this_quoted_valid_options_for_package}" ) # This will be identical to quoted_valid_options_for_package except the "--picture" option will not be added so that we can run a "--check-only" before extracting the picture.
 			fi
 		done
-		quoted_valid_options_for_package_check_without_picture="${quoted_valid_options_for_package}" # This will be identical to quoted_valid_options_for_package except the "--picture" option will not be added so that we can run a "--check-only" before extracting the picture.
 
 		package_unique_id="$(date '+%s')-$(jot -r 1 100000000 999999999)" # The current unix time plus 9 random digits should be pretty universally unique.
 		package_tmp_dir="${TMPDIR:-/private/tmp/}mkuser_pkg+${package_unique_id}"
@@ -2955,13 +3006,15 @@ print_mkuser_function {
 		cat << PACKAGE_POSTINSTALL_EOF > "${package_scripts_dir}/postinstall"
 #!/bin/bash
 
+PATH='/usr/bin:/bin:/usr/sbin:/sbin'
+
 script_name="\$(basename "\${BASH_SOURCE[0]}" | tr '[:lower:]' '[:upper:]')" # This script header will be used for both "postinstall" and "preinstall" (if it exists).
 
 if [[ "\$1" != 'check-only-from-preinstall' ]]; then # Do not log "Starting..." if being run from "preinstall" for check only.
 	echo "mkuser \${script_name} PACKAGE: Starting..."
 fi
 
-current_user_id="\$(scutil <<< 'show State:/Users/ConsoleUser' | awk '(\$1 == "UID") { print \$NF; exit }')"
+current_user_id="\$(echo 'show State:/Users/ConsoleUser' | scutil | awk '(\$1 == "UID") { print \$NF; exit }')"
 current_user_name="\$(dscl /Search -search /Users UniqueID "\${current_user_id}" 2> /dev/null | awk '{ print \$1; exit }')"
 
 mkuser_installer_display_error() { # Only when running graphically via "Installer" app, display an alert if an error occurred since "Installer" doesn't actually show any specific error string.
@@ -2977,8 +3030,10 @@ mkuser_installer_display_error() { # Only when running graphically via "Installe
 		# The "error_message" string is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
 		# The environment variable is retrieved within AppleScript using "printenv" via "do shell script" since "system attribute" mangles multibyte characters that may exist in the error message.
 		launchctl asuser "\${current_user_id}" sudo -u "\${current_user_name}" OSASCRIPT_ENV_ERROR_MESSAGE="\${error_message}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
+set userFullAndAccountNameDisplay to (do shell script "echo '$(echo -n "${user_full_and_account_name_display_for_package_title}" | base64)' | base64 -D")
+set errorMessage to (do shell script "printenv OSASCRIPT_ENV_ERROR_MESSAGE")
 -- Telling "Installer" to "display alert" makes the icon correct and properly blocks the "Installer" app. This DOES NOT trigger TCC since "Installer" will be the parent process.
-tell application "Installer" to display alert ("\$1 to Create ${creating_user_type} " & (do shell script "echo '$(echo -n "${user_full_and_account_name_display_for_package_title}" | base64)' | base64 -D") & " on This System") message (do shell script "printenv OSASCRIPT_ENV_ERROR_MESSAGE") as critical
+tell application "Installer" to display alert ("\$1 to Create ${creating_user_type} " & userFullAndAccountNameDisplay & " on This System") message errorMessage as critical
 OSASCRIPT_DISPLAY_ALERT_EOF
 	fi
 }
@@ -2989,8 +3044,8 @@ if [[ "\${PWD}" != *'PKInstallSandbox'* || "\${PWD}" != *'${pkg_identifier}'* ]]
 	fi
 
 	package_error='PACKAGE ERROR: Script parent working directory is invalid (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser \${script_name} \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 
@@ -3000,8 +3055,8 @@ if [[ "\$1" != 'check-only-from-preinstall' && "\$3" != '/' ]]; then # This shou
 	fi
 
 	package_error='PACKAGE ERROR: Users can only be created on the boot volume. Must set boot volume as target to install user creation package.'
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser \${script_name} \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 PACKAGE_POSTINSTALL_EOF
@@ -3034,8 +3089,8 @@ if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 	chmod 000 '${extracted_resources_dir}' # by root since it could contain the passwords deobfuscation script.
 else
 	package_error='PACKAGE ERROR: Extracted resources directory path is not correct (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser PREINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 PACKAGE_PREINSTALL_EOF
@@ -3053,25 +3108,24 @@ if ! echo '$(gzip -9 -c "${user_picture_path}" | base64)' | base64 -D | zcat > '
 	fi
 
 	package_error='PACKAGE ERROR: Failed to extract user picture (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser PREINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 PACKAGE_PREINSTALL_EOF
 
 			if [[ "${user_picture_path}" == '/Library/User Pictures/'* ]]; then
 				# If a default user picture is specified, check if it exists on the target system and use it instead of the copy that is included in the package (which will have been extracted if needed as a fallback in case the same default user picture doesn't exist for some reason).
-				quoted_valid_options_for_package+=" --picture \"\$([[ -f '${user_picture_path}' && \"\$(file -bI '${user_picture_path}' 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' '${user_picture_path}') <= 1000000 )) && echo '${user_picture_path}' || echo '${extracted_resources_dir}/mkuser.picture')\""
+				quoted_valid_options_for_package+=( '--picture' "\"\$([[ -f '${user_picture_path}' && \"\$(file -bI '${user_picture_path}' 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' '${user_picture_path}') <= 1000000 )) && echo '${user_picture_path}' || echo '${extracted_resources_dir}/mkuser.picture')\"" )
 			else
-				quoted_valid_options_for_package+=" --picture '${extracted_resources_dir}/mkuser.picture'"
+				quoted_valid_options_for_package+=( '--picture' "'${extracted_resources_dir}/mkuser.picture'" )
 			fi
 		fi
 
 		echo "
 ${mkuser_function_source_for_package}" >> "${package_scripts_dir}/postinstall"
 
-		mkuser_check_only_fake_stdinpassword_if_password_is_set=''
-		if [[ -n "${user_password}" ]]; then mkuser_check_only_fake_stdinpassword_if_password_is_set=" --stdin-password <<< 'FAKE-PASSW0RD for-mkuser-check-only'"; fi
+		if [[ -n "${user_password}" ]]; then quoted_valid_options_for_package_check_without_picture+=( '--password' "'FAKE-PASSW0RD for-mkuser-check-only'" ); fi
 
 		cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
@@ -3080,7 +3134,7 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 
 	echo "mkuser \$([[ "\$1" == 'check-only-from-preinstall' ]] && echo 'PREINSTALL' || echo 'POSTINSTALL') PACKAGE: Checking if user can be created before doing anything..."
 
-	mkuser_check_only_error_output="\$(mkuser${quoted_valid_options_for_package_check_without_picture} --suppress-status-messages --check-only${mkuser_check_only_fake_stdinpassword_if_password_is_set} 2>&1)" # Redirect stderr to save to variable.
+	mkuser_check_only_error_output="\$(mkuser ${quoted_valid_options_for_package_check_without_picture[*]} --suppress-status-messages --check-only 2>&1)" # Redirect stderr to save to variable.
 
 	mkuser_check_only_return_code="\$?"
 
@@ -3097,11 +3151,11 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 			mkuser_check_only_error_output="\$(echo "\${mkuser_check_only_error_output}" | cut -c 8-)"
 		fi
 
-		mkuser_installer_display_error 'Did Not Attempt' "\${mkuser_check_only_error_output}"
-
 		if [[ "\$1" != 'check-only-from-preinstall' ]]; then
 			>&2 echo 'mkuser POSTINSTALL PACKAGE ERROR: Did not attempt to create user since checks failed.' # Do not display this error since the actual error was just displayed.
 		fi
+
+		mkuser_installer_display_error 'Did Not Attempt' "\${mkuser_check_only_error_output}"
 
 		exit "\${mkuser_check_only_return_code}"
 	elif [[ "\$1" == 'check-only-from-preinstall' ]]; then
@@ -3111,6 +3165,8 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 		exit 0
 	fi
 fi
+
+mkuser_options=( ${quoted_valid_options_for_package[*]} '--do-not-confirm' )
 PACKAGE_POSTINSTALL_EOF
 
 		# Create long random filename between to be used for the passwords deobfuscation script file so that the checksum of "postinstall" is always unique (which is verified during passwords deobfuscation).
@@ -3135,8 +3191,8 @@ if [[ ! -f "\${passwords_deobfuscation_script_file_path}" ]]; then
 	fi
 
 	package_error='PACKAGE ERROR: Passwords deobfuscation script in package does not exist (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser POSTINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 
@@ -3146,14 +3202,14 @@ if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; the
 	rm -f "\${passwords_deobfuscation_script_file_path}"
 fi
 
-if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "\${wrapped_encrypted_passwords_and_key##*$'\n'}")" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
+if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
 
 	package_error="PACKAGE ERROR: Failed to decrypt wrapped passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser POSTINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 
@@ -3168,12 +3224,12 @@ for this_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
 			this_encrypted_password="\${this_encrypted_password_or_key:3}"
 			this_encryption_key="\${that_encrypted_password_or_key:3}"
 
-			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "${user_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo "${user_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
 				decrypted_user_password="\${possible_decrypted_user_password:3}"
 				got_decrypted_user_password=true
 			fi
 
-			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "${st_admin_account_name}\${this_encryption_key}" 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo "${st_admin_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
 				decrypted_st_admin_password="\${possible_decrypted_st_admin_password:3}"
 				got_decrypted_st_admin_password=true
 			fi
@@ -3195,36 +3251,20 @@ if ! \$got_decrypted_user_password || ! \$got_decrypted_st_admin_password; then
 	fi
 
 	package_error="PACKAGE ERROR: Failed to decrypt new user or Secure Token admin passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser POSTINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 
-echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
+# In this situation it is secure to include passwords as parameters since the "mkuser" command is just a local function call whose arguments will not show in the process list (as opposed to being an external command).
+mkuser_options+=( '--password' "\${decrypted_user_password}" )
+PACKAGE_POSTINSTALL_EOF
 
-set -o pipefail # Enable pipefail to catch any "mkuser" error exit code since piping to "tee".
-PACKAGE_POSTINSTALL_EOF
 			if [[ -n "${st_admin_account_name}" ]]; then
-				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
-echo "\${decrypted_user_password}" | mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password --fd3-secure-token-admin-password 3<<< "\${decrypted_st_admin_password}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
-PACKAGE_POSTINSTALL_EOF
-			else
-				cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
-echo "\${decrypted_user_password}" | mkuser${quoted_valid_options_for_package} --do-not-confirm --stdin-password 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
+				cat << 'PACKAGE_POSTINSTALL_EOF' >> "${package_scripts_dir}/postinstall"
+mkuser_options+=( '--secure-token-admin-password' "${decrypted_st_admin_password}" )
 PACKAGE_POSTINSTALL_EOF
 			fi
-		else
-			cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
-
-echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
-
-if [[ ! -d '${extracted_resources_dir}' ]]; then
-	mkdir -p '${extracted_resources_dir}' # Make sure extracted_resources_dir is created for "mkuser.log" since it won't have been created if there was no included picture or passwords.
-fi
-
-set -o pipefail # Enable pipefail to catch any "mkuser" error exit code since piping to "tee".
-mkuser${quoted_valid_options_for_package} --do-not-confirm 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
-PACKAGE_POSTINSTALL_EOF
 		fi
 
 		# "set -o pipefail" is used for the "mkuser" command since the output is piped to "tee" which makes that the final exit code and should always succeed.
@@ -3235,6 +3275,14 @@ PACKAGE_POSTINSTALL_EOF
 		# MUST create *WHOLE* "postinstall" file *BEFORE* creating passwords deobfuscation script so that the checksum of the "postinstall" file can be used as a factor for the passwords deobfuscation to be allowed.
 		cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
+echo 'mkuser POSTINSTALL PACKAGE: Creating user...'
+
+if [[ ! -d '${extracted_resources_dir}' ]]; then
+	mkdir -p '${extracted_resources_dir}' # Make sure extracted_resources_dir is created for "mkuser.log" since it won't have been created if there was no included picture or passwords.
+fi
+
+set -o pipefail # Enable pipefail to catch any "mkuser" error exit code since piping to "tee".
+mkuser "\${mkuser_options[@]}" 2>&1 | tee '${extracted_resources_dir}/mkuser.log'
 mkuser_return_code="\$?"
 set +o pipefail # Disable pipefail after retrieving the exit code of "mkuser" command pipeline to reset normal exit code behavior.
 
@@ -3312,18 +3360,18 @@ PACKAGE_POSTINSTALL_EOF
 			# encryption key and even then I hope that it would not be obvious, easy, or straightforward to do.
 
 			# After the encrypted passwords and passwords encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retreive the actual plain text
-			# passwords. The way that this "openssl" command uses "pipes" and "here-strings" instead of passing the encrypted passwords and passwords encryption key as regular parameters means that
-			# the encrypted passwords and passwords encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
+			# passwords. The way that this "openssl" command uses "pipes" and "process substitution" instead of passing the encrypted passwords and passwords encryption key as regular parameters means
+			# that the encrypted passwords and passwords encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
 			# installation process to be able to retrieve the encrypted passwords and passwords encryption key in plain text. And as I said before, if someone were to try to make a copy of
 			# this script and edit it to output the plain text passwords, that modified script would not be able to retrieve the encrypted passwords and passwords encryption key since the
 			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords deobfuscation script and it would therefore not return anything.
 			# It may seem less secure to do the passwords decryption within the "postinstall" script in this way instead of within the passwords deobfuscation script, but that is not actually
 			# the case since if the "openssl" decryption command was run within the passwords deobfuscation script it would be run via "do shell script" which would make the entire uninterpreted
-			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< PASSWORDS-ENCRYPTION-KEY" which clearly renders the ability
-			# of the pipes and here-strings to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
+			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo PASSWORDS-ENCRYPTION-KEY)" which clearly renders the ability
+			# of the pipes and process substitution to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
 			# process because of how AppleScript executes commands with "do shell script". So, it is actually more secure to run the "openssl" command in the "postinstall" script which
 			# ensures that the encrypted passwords and passwords encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
-			# here-strings which are interpreted by bash and are not ever displayed in the process list.
+			# process substitution which are interpreted by bash and are not ever displayed in the process list.
 
 			# Since writing the description above (which is still accurate), another layer of encryption has been added to each password stored within the encrypted passwords inside the passwords deobfuscation script.
 			# Instead of the plain text passwords being retrieved by passing the encrypted passwords and passwords encryption key (returned by the passwords deobfuscation script) to "openssl",
@@ -3369,10 +3417,10 @@ PACKAGE_POSTINSTALL_EOF
 			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retreived as an empty string after decryption.
 
 			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${user_account_name}${user_password_encryption_key}")"
+			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${user_account_name}${user_password_encryption_key}"))"
 
 			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${st_admin_account_name}${st_admin_password_encryption_key}")"
+			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${st_admin_account_name}${st_admin_password_encryption_key}"))"
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
 EP:${encrypted_user_password}
@@ -3382,7 +3430,7 @@ EP:${encrypted_st_admin_password}"
 			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
 				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
 EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
-EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')")"
+EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes-256-cbc -a -A -pass file:<(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]'))"
 			done
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
@@ -3391,7 +3439,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
 
 			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
-			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${wrapping_passwords_encryption_key}")"
+			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${wrapping_passwords_encryption_key}"))"
 			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra.
 
 			# Every variable name set within the script will be randomized each time it is created.
@@ -3448,13 +3496,16 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 
 				# The "$1" argument is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
 				# The fact that multibyte characters would get mangled when in an environment variable retrieved by AppleScript with "system attribute" should not be an issue since they will never be in these strings.
-				OSASCRIPT_ENV_OBFUSCATE_STRING="$1" osascript << OSASCRIPT_OBFUSCATE_STRING_EOF 2> /dev/null
-set stringID to id of (system attribute "OSASCRIPT_ENV_OBFUSCATE_STRING") as list
+				# Passing the AppleScript code directly via "-e" option instead of via stdin as a here-doc since a here-doc creates a temporary file and this is called many times.
+				# It's more efficient to just pass this small bit of code directly instead of having the shell make a new temporary file each time it's run.
+				OSASCRIPT_ENV_OBFUSCATE_STRING="$1" osascript -e "
+set stringID to id of (system attribute \"OSASCRIPT_ENV_OBFUSCATE_STRING\") as list
 repeat with thisCharacter in stringID
 	set contents of thisCharacter to thisCharacter + ${obfuscate_characters_shift_count}
 end repeat
 return string id stringID
 OSASCRIPT_OBFUSCATE_STRING_EOF
+" 2> /dev/null
 
 				# Doesn't seem like there would be any gain to set this output to a return variable (https://rus.har.mn/blog/2010-07-05/subshells/)
 				# since that would require a subshell inside the function which is equivalent to just calling the function with a subshell.
@@ -3477,13 +3528,13 @@ OSASCRIPT_OBFUSCATE_STRING_EOF
 			wrapping_passwords_encryption_key_chunk_var_assignments_shuffled=()
 			while IFS='' read -r wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line; do
 				wrapping_passwords_encryption_key_chunk_var_assignments_shuffled+=( "${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line}" )
-			done <<< "$(echo "set ${wrapping_passwords_encryption_key_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:0:${wrapping_passwords_encryption_key_chunk_length}}")\")
+			done < <(echo "set ${wrapping_passwords_encryption_key_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:0:${wrapping_passwords_encryption_key_chunk_length}}")\")
 set ${wrapping_passwords_encryption_key_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:${wrapping_passwords_encryption_key_chunk_length}:${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
 set ${wrapping_passwords_encryption_key_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 2 )):${wrapping_passwords_encryption_key_chunk_length}}")\")
 set ${wrapping_passwords_encryption_key_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 3 )):${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
 set ${wrapping_passwords_encryption_key_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 4 )):${wrapping_passwords_encryption_key_chunk_length}}")\")
 set ${wrapping_passwords_encryption_key_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 5 )):${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 6 ))}")\")" | sort -R)"
+set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 6 ))}")\")" | sort -R)
 
 			# Break encrypted passwords into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
 			wrapped_encrypted_passwords_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the encrypted passwords key within the script.
@@ -3498,13 +3549,13 @@ set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscat
 			wrapped_encrypted_passwords_chunk_var_assignments_shuffled=()
 			while IFS='' read -r wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line; do
 				wrapped_encrypted_passwords_chunk_var_assignments_shuffled+=( "${wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line}" )
-			done <<< "$(echo "set ${wrapped_encrypted_passwords_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:0:${wrapped_encrypted_passwords_chunk_length}}")\")
+			done < <(echo "set ${wrapped_encrypted_passwords_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:0:${wrapped_encrypted_passwords_chunk_length}}")\")
 set ${wrapped_encrypted_passwords_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:${wrapped_encrypted_passwords_chunk_length}:${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
 set ${wrapped_encrypted_passwords_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 2 )):${wrapped_encrypted_passwords_chunk_length}}")\")
 set ${wrapped_encrypted_passwords_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 3 )):${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
 set ${wrapped_encrypted_passwords_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 4 )):${wrapped_encrypted_passwords_chunk_length}}")\")
 set ${wrapped_encrypted_passwords_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 5 )):${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 6 ))}")\")" | sort -R)"
+set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 6 ))}")\")" | sort -R)
 
 			# Get checksum of "postinstall" script to be verified within the script.
 			postinstall_checksum="$(shasum -a 512 "${package_scripts_dir}/postinstall" | cut -d ' ' -f 1)"
@@ -3534,7 +3585,7 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 			# Compile file with ".scpt" extension since "osacompile" uses the extension to determine what type of file to create.
 			# The compiled script will be renamed to passwords_deobfuscation_script_file_random_name with the ".pswd" extension after creation.
 			osacompile -x -o "${package_tmp_dir}/passwords-deobfuscation.scpt" << PACKAGE_PASSWORD_OSACOMPILE_EOF
-use AppleScript version "2.4"
+use AppleScript version "2.7"
 use scripting additions
 ${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
 if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then
@@ -3610,14 +3661,14 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -pass fd:3 3<<< "${postinstall_checksum}")' | openssl enc -d -aes-256-cbc -a -A -pass fd:3 3<<< "\$(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1)" | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
+if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes-256-cbc -a -A -pass file:<(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1) | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
 
 	package_error='PACKAGE ERROR: Failed to decrypt passwords deobfuscation script (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE).'
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	>&2 echo "mkuser PREINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 	exit 1
 fi
 
@@ -3952,7 +4003,7 @@ mkuser: Created ${creating_user_type} ${user_full_and_account_name_display} User
 	# UID 4294967294 using "dscl" it would be allowed since it's not already assigned as and actual UID according to "dscl" and manual calculation would be needed to know whether or not this would conflict with an existing UID in the signed 32-bit integer form.
 	# If we allowed any range, someone could also assign -8589934594 and/or -4294967298 and/or 8589934590 and/or 12884901886 and so on which all also equal UID -2 when converted to the signed 32-bit integer form.
 	# This applies to any and all UIDs, for example: 502 = -17179868682 = -12884901386 = -4294966794 = 4294967798 = 8589935094 = 12884902390, etc.
-	# Now, it is possible to covert any and all of these UIDs to their signed 32-bit form to check if it exists, but it would be extremely tedious to manually check if *any possible form* of any UID already exists.
+	# Now, it is possible to convert any and all of these UIDs to their signed 32-bit form to check if it exists, but it would be extremely tedious to manually check if *any possible form* of any UID already exists.
 	# We can avoid the first half of this complexity by only allowing UIDs in within the signed 32-bit integer range, but if we were to only check for existing UIDs using "dscl . -list /Users", we would not find all possible conflicts because the actual UIDs in an infinite range would be returned in that list.
 	# ALL of this possible complexity can be avoided if we only ever allow UIDs in the signed 32-bit integer range AND only ever check for existing UIDs using "dscacheutil" which will always be in their signed 32-bit integer form.
 	# Nothing stops people from creating accounts with conflicting UIDs themselves using "dscl" directly, but "mkuser" will not contribute to any possible conflicting UIDs this way.
@@ -4557,11 +4608,11 @@ Enter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_na
 
 	dsimport_file_unique_suffix="$(date '+%s')-$(jot -r 1 100000000 999999999)"
 	dsimport_output_plist_path="${TMPDIR:-/private/tmp/}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # TMPDIR is not set when running in "sudo bash". Ensure a unique file name that includes as much of the user_account_name as possible without going over the macOS 255 byte maximum.
-	rm -f "${dsimport_output_plist_path}" # "dsimport" would probably overwrite the file if it already exist, but delete it to be sure.
+	rm -rf "${dsimport_output_plist_path}" # "dsimport" would probably overwrite the file if it already exist, but delete it to be sure.
 
-	# Was initially manually writing a file and then passing it to "dsimport". Then tried using process substitution instead, but "dsimport" errored with exit code 65 and stderr "Unable to open import file '/dev/fd/11'".
-	# Next, I tried specifying "/dev/stdin" and then passing the "dsimport_record" string via here-string and that WORKED to pass a string instead of a file (like it does with "PlistBuddy" as well).
-	# Also, like "PlistBuddy", trying to pipe stdin to "dsimport" (instead of using a here-string) also fails (with the same exit code 65 as trying to use process substitution).
+	# Was initially manually writing a file and then passing it to "dsimport". Then tried using process substitution instead, but "dsimport" errored with exit code 65 and stderr "Unable to open import file '/dev/fd/##'" (because process substitution creates a pipe instead of a regular file).
+	# Next, I tried specifying "/dev/stdin" and then passing the "dsimport_record" string via here-string and that WORKED to pass a string instead of a file (like it does with "PlistBuddy" as well, because here-strings create a regular temporary file to read).
+	# Also, like "PlistBuddy", trying to pipe stdin to "dsimport" (instead of using a here-string) also fails (with the same exit code 65 as trying to use process substitution, because a pipe doesn't create a regular file to read).
 	# Using a here-string (or here-doc) DOES momentarily create a temporary file in the filesystem (which I think it why it is able to work with "dsimport" at all),
 	# but I believe letting the shell handle the creation and deletion of that file instead of handling it manually in this code will result in the file only existing for least possible time.
 	# Also, since this code is guaranteed to be running as root at this point, any temporary file created by the shell would only be readable by another root processes.
@@ -4661,44 +4712,54 @@ Enter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_na
 	created_dscacheutil_user="$(dscacheutil -q user -a name "${user_account_name}")" # Retrieve user info from "dscacheutil" to verify all values from cache
 	# as well as the keys we want to compare against from "dscl" to make sure the new user has been properly created and cached.
 	# Only get "dscl" keys we check instead of all of them to load much faster (as well as save a bit of RAM) by not unnecessarily loading picture data, etc.
-	created_dscl_user="$(dscl -plist . -read "/Users/${user_account_name}" UniqueID PrimaryGroupID NFSHomeDirectory UserShell RealName GeneratedUID 2> /dev/null)"
 
-	created_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
+	# Save this "dscl" output (which will be passed to PlistBuddy multiple times) to a file so that only one file is created instead of using a here-string over and over which creates a new temp file each time.
+	created_dscl_user_plist_path="${dsimport_output_plist_path/+output.plist/+verify.plist}" # Reuse the unique filename already created for dsimport_output_plist_path but replace the suffix (which is safe with the previous max length calculations since the new suffix is the same length).
+	rm -rf "${created_dscl_user_plist_path}"
+	dscl -plist . -read "/Users/${user_account_name}" UniqueID PrimaryGroupID NFSHomeDirectory UserShell RealName GeneratedUID > "${created_dscl_user_plist_path}" 2> /dev/null
+
+	created_user_uid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UniqueID:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_uid}" != "${user_uid}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"uid: ${user_uid}"$'\n'* ]]; then
+		rm -f "${created_dscl_user_plist_path}"
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect User ID (${created_user_uid:-N/A} != ${user_uid}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_gid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:PrimaryGroupID:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
+	created_user_gid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:PrimaryGroupID:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_gid}" != "${user_gid:-20}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"gid: ${user_gid:-20}"$'\n'* ]]; then
+		rm -f "${created_dscl_user_plist_path}"
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect Group ID (${created_user_gid:-N/A} != ${user_gid:-20}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_home_path="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:NFSHomeDirectory:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
+	created_user_home_path="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:NFSHomeDirectory:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_home_path}" != "${user_home_path}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"dir: ${user_home_path}"$'\n'* ]]; then
+		rm -f "${created_dscl_user_plist_path}"
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect home folder (${created_user_home_path:-N/A} != ${user_home_path}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_shell="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UserShell:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
+	created_user_shell="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UserShell:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_shell}" != "${user_shell}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"shell: ${user_shell}"$'\n'* ]]; then
+		rm -f "${created_dscl_user_plist_path}"
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect login shell (${created_user_shell:-N/A} != ${user_shell}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_full_name="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:RealName:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
+	created_user_full_name="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:RealName:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_full_name}" != "${user_full_name}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"gecos: ${user_full_name}"$'\n'* ]]; then
+		rm -f "${created_dscl_user_plist_path}"
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect full name (${created_user_full_name:-N/A} != ${user_full_name}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	created_user_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "${created_dscl_user}" 2> /dev/null)"
+	created_user_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
+	rm -f "${created_dscl_user_plist_path}"
 	if [[ -n "${user_guid}" ]]; then
 		if [[ "${created_user_guid}" != "${user_guid}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect Generated UID (${created_user_guid:-N/A} != ${user_guid})."
@@ -5416,5 +5477,3 @@ ${user_password}" | sysadminctl -secureTokenOn "${user_account_name}" -password 
 )
 
 mkuser "$@"
-
-exit "$?"

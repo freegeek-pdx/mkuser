@@ -55,7 +55,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > The account name cannot start with a period (.) or hyphen/minus (-).<br/>
 > Must be 244 characters/bytes or less and must contain at least one letter.<br/>
 > The account name must not already be assigned to another user.<br/>
-> If omitted, the full name will be converted into a valid account name by coverting it to meet the requirements stated above.
+> If omitted, the full name will be converted into a valid account name by converting it to meet the requirements stated above.
 >
 > **244 CHARACTER/BYTE ACCOUNT NAME LENGTH LIMIT NOTES:**<br/>
 > The account name is used as the OpenDirectory RecordName, which has a hard 244 byte length limit (and the allowed characters are always 1 byte each).<br/>
@@ -159,13 +159,14 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > **PASSWORDS IN PACKAGE NOTES:**<br/>
 > When outputting a user creation package (with the `--package` option), the specified password (along with the existing Secure Token admin password, if specified) will be securely obfuscated within the package in such a way that the passwords can only be deobfuscated by the specific and unique script generated during package creation and only when run during the package installation process.<br/>
 > For more information about how passwords are securely obfuscated within the package, read the comments within the code of this script starting at: *OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT*<br/>
-> Also, when the passwords are deobfuscated during package installation, they will NOT be visible in the process list because they will be passed via "stdin" using `--stdin-password` (and `--fd3-secure-token-admin-password`) regardless of how the passwords were specified when creating the package.
+> Also, when the passwords are deobfuscated during the package installation, they will NOT be visible in the process list since they will only exist as variables within the script and be passed to an internal `mkuser` function.
 
 <br/>
 
 #### `--stdin-password, --stdin-pass, --sp` < *no parameter* (stdin) >
 
 > Include this option with no parameter to pass the password via "stdin" using a pipe (`|`) or here-string (`<<<`), etc.<br/>
+> **Although, it is recommended to use a pipe instead of a here-string** because a pipe is more secure since a here-string creates a temporary file which contains the specified password while a pipe does not.<br/>
 > Passing the password via "stdin" instead of directly with the `--password` option hides the password from the process list.<br/>
 > The help information for the `--password` option above also applies to passwords passed via "stdin".<br/>
 > **NOTICE:** Specifying `--stdin-password` also ENABLES `--do-not-confirm` since accepting "stdin" disrupts the ability to use other command line inputs.
@@ -472,11 +473,27 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 <br/>
 
+#### `--fd-secure-token-admin-password, --fd-st-admin-pass, --fd-st-pass` < *file descriptor path* (via process substitution) >
+
+> The file descriptor path must be specified via process substitution.<br/>
+> The process substitution command must `echo` the Secure Token admin password.<br/>
+> If you haven't used process substitution before, it looks like this: `mkuser [OPTIONS] --fd-secure-token-admin-password <(echo '<PASS>') [OPTIONS]`<br/>
+> Passing the password via process substitution instead of directly with the `--secure-token-admin-password` option hides the password from the process list and does not create any temporary file containing the password.<br/>
+> Since `echo` is a builtin in `bash` and `zsh` and not an external binary command, the `echo` command containing the password as an argument is also never visible in the process list.<br/>
+> The help information for the `--secure-token-admin-password` option above also applies to Secure Token admin passwords passed via process substitution.<br/>
+> This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
+
+<br/>
+
 #### `--fd3-secure-token-admin-password, --fd3-st-admin-pass, --fd3-st-pass` < *no parameter* (fd3) >
 
+> **THIS OPTION IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION!**<br/>
+> THE MORE SECURE `--fd-secure-token-admin-password` SHOULD BE USED INSTEAD.<br/>
+> *THIS IS BECAUSE USING A HERE-STRING MOMENTARILY CREATES A TEMPORARY FILE WHICH CONTAINS THE SPECIFIED PASSWORD WHILE PROCESS SUBSTITUTION DOES NOT.*
+>
 > Include this option with no parameter to pass the Secure Token admin password via file descriptor 3 (fd3), using an "fd3" here-string (`3<<<`).<br/>
 > If you haven't used "fd3" here-strings before, it looks like this: `mkuser [OPTIONS] --fd3-secure-token-admin-password [OPTIONS] 3<<< '<PASS>'`<br/>
-> Passing the password via "fd3" instead of directly with the `--secure-token-admin-password` option hides the password from the process list.<br/>
+> Passing the password via "fd3" instead of directly with the `--secure-token-admin-password` option hides the password from the process list, BUT CREATES A TEMPORARY FILE CONTAINING THE PASSWORD.<br/>
 > The help information for the `--secure-token-admin-password` option above also applies to Secure Token admin passwords passed via "fd3".<br/>
 > This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
 
