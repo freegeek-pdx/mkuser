@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.3.2-1'
+	readonly MKUSER_VERSION='2022.3.7-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -1291,8 +1291,13 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     ${ansi_bold}Although, it is recommended to use a pipe instead of a here-string${clear_ansi}
       because a pipe is more secure since a here-string creates a temporary
       file which contains the specified password while a pipe does not.
+    If you haven't used an ${ansi_bold}echo${clear_ansi} and pipe (${ansi_bold}|${clear_ansi}) before, it looks like this:
+      ${ansi_bold}${ansi_underline}echo '<PASS>' |${clear_ansi}${ansi_bold} mkuser [OPTIONS] --stdin-password [OPTIONS]${clear_ansi}
     Passing the password via \"stdin\" instead of directly with the ${ansi_bold}--password${clear_ansi}
       option hides the password from the process list.
+    Since ${ansi_bold}echo${clear_ansi} is a builtin in ${ansi_bold}bash${clear_ansi} and ${ansi_bold}zsh${clear_ansi} and not an external binary command,
+      the ${ansi_bold}echo${clear_ansi} command containing the password as an argument
+      is also never visible in the process list.
     The help information for the ${ansi_bold}--password${clear_ansi} option above also applies to
       passwords passed via \"stdin\".
     ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--stdin-password${clear_ansi} also ENABLES ${ansi_bold}--do-not-confirm${clear_ansi} since
@@ -3202,7 +3207,7 @@ if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; the
 	rm -f "\${passwords_deobfuscation_script_file_path}"
 fi
 
-if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
+if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3224,12 +3229,12 @@ for this_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
 			this_encrypted_password="\${this_encrypted_password_or_key:3}"
 			this_encryption_key="\${that_encrypted_password_or_key:3}"
 
-			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo "${user_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${user_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
 				decrypted_user_password="\${possible_decrypted_user_password:3}"
 				got_decrypted_user_password=true
 			fi
 
-			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo "${st_admin_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
 				decrypted_st_admin_password="\${possible_decrypted_st_admin_password:3}"
 				got_decrypted_st_admin_password=true
 			fi
@@ -3367,7 +3372,7 @@ PACKAGE_POSTINSTALL_EOF
 			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords deobfuscation script and it would therefore not return anything.
 			# It may seem less secure to do the passwords decryption within the "postinstall" script in this way instead of within the passwords deobfuscation script, but that is not actually
 			# the case since if the "openssl" decryption command was run within the passwords deobfuscation script it would be run via "do shell script" which would make the entire uninterpreted
-			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes-256-cbc -a -A -pass file:<(echo PASSWORDS-ENCRYPTION-KEY)" which clearly renders the ability
+			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo PASSWORDS-ENCRYPTION-KEY)" which clearly renders the ability
 			# of the pipes and process substitution to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
 			# process because of how AppleScript executes commands with "do shell script". So, it is actually more secure to run the "openssl" command in the "postinstall" script which
 			# ensures that the encrypted passwords and passwords encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
@@ -3414,13 +3419,15 @@ PACKAGE_POSTINSTALL_EOF
 			# Each encrypted string will attempt decrypted by trying all the encryption key lines with the account name at the beginning until one works.
 			# To know the decryption worked, the encrypted passwords will also be prefixed with "DP:" (Decrypted Password) so that we can check for that consistent prefix since failed decryptions can still result in gibberish output.
 			# We will know which account name the password is for by the fact that it was decrypted using that account name at the beginning of the encryption key.
-			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retreived as an empty string after decryption.
+			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retrieved as an empty string after decryption.
+
+			# NOTE: See https://github.com/freegeek-pdx/mkuser/issues/2 for information about why "-md sha512" is specified for all "openssl enc" commands.
 
 			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${user_account_name}${user_password_encryption_key}"))"
+			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${user_account_name}${user_password_encryption_key}"))"
 
 			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${st_admin_account_name}${st_admin_password_encryption_key}"))"
+			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}${st_admin_password_encryption_key}"))"
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
 EP:${encrypted_user_password}
@@ -3430,7 +3437,7 @@ EP:${encrypted_st_admin_password}"
 			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
 				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
 EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
-EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes-256-cbc -a -A -pass file:<(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]'))"
+EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]'))"
 			done
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
@@ -3439,7 +3446,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
 
 			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
-			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${wrapping_passwords_encryption_key}"))"
+			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${wrapping_passwords_encryption_key}"))"
 			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra.
 
 			# Every variable name set within the script will be randomized each time it is created.
@@ -3661,7 +3668,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes-256-cbc -a -A -pass file:<(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1) | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
+if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1) | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
