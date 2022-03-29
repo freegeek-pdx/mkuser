@@ -167,7 +167,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 > Include this option with no parameter to pass the password via "stdin" using a pipe (`|`) or here-string (`<<<`), etc.<br/>
 > **Although, it is recommended to use a pipe instead of a here-string** because a pipe is more secure since a here-string creates a temporary file which contains the specified password while a pipe does not.<br/>
-> If you haven't used an `echo` pipe (`|`) before, it looks like this: `echo '<PASS>' | mkuser [OPTIONS] --stdin-password [OPTIONS]`<br/>
+> If you haven't used an `echo` and pipe (`|`) before, it looks like this: `echo '<PASS>' | mkuser [OPTIONS] --stdin-password [OPTIONS]`<br/>
 > Passing the password via "stdin" instead of directly with the `--password` option hides the password from the process list.<br/>
 > Since `echo` is a builtin in `bash` and `zsh` and not an external binary command, the `echo` command containing the password as an argument is also never visible in the process list.<br/>
 > The help information for the `--password` option above also applies to passwords passed via "stdin".<br/>

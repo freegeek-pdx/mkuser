@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.3.7-1'
+	readonly MKUSER_VERSION='2022.3.29-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -2094,7 +2094,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	# Do all of these checks before preparing a package (if specified) since none of these are specific to the installation system.
 
 	if ! $suppress_status_messages; then
-		echo 'mkuser: Validating specified options and parameters...'
+		echo "mkuser: Validating specified options and parameters (version ${MKUSER_VERSION} on macOS $(sw_vers -productVersion) $(sw_vers -buildVersion))..."
 	fi
 
 	boot_volume_is_apfs="$([[ "$(PlistBuddy -c 'Print :FilesystemType' /dev/stdin <<< "$(diskutil info -plist /)" 2> /dev/null)" == 'apfs' ]] && echo 'true' || echo 'false')" # Need to check if boot volume is APFS to know whether or not a Secure Token can be granted.
@@ -3016,7 +3016,7 @@ PATH='/usr/bin:/bin:/usr/sbin:/sbin'
 script_name="\$(basename "\${BASH_SOURCE[0]}" | tr '[:lower:]' '[:upper:]')" # This script header will be used for both "postinstall" and "preinstall" (if it exists).
 
 if [[ "\$1" != 'check-only-from-preinstall' ]]; then # Do not log "Starting..." if being run from "preinstall" for check only.
-	echo "mkuser \${script_name} PACKAGE: Starting..."
+	echo "mkuser \${script_name} PACKAGE: Starting (version ${MKUSER_VERSION} on macOS \$(sw_vers -productVersion) \$(sw_vers -buildVersion))..."
 fi
 
 current_user_id="\$(echo 'show State:/Users/ConsoleUser' | scutil | awk '(\$1 == "UID") { print \$NF; exit }')"
@@ -3207,7 +3207,18 @@ if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; the
 	rm -f "\${passwords_deobfuscation_script_file_path}"
 fi
 
-if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
+if [[ "\${wrapped_encrypted_passwords_and_key}" != *$'\n'* ]]; then
+	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
+		rm -rf '${extracted_resources_dir}'
+	fi
+
+	package_error="PACKAGE ERROR: Failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+	>&2 echo "mkuser POSTINSTALL \${package_error}"
+	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
+	exit 1
+fi
+
+if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3229,12 +3240,12 @@ for this_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
 			this_encrypted_password="\${this_encrypted_password_or_key:3}"
 			this_encryption_key="\${that_encrypted_password_or_key:3}"
 
-			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${user_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "${user_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
 				decrypted_user_password="\${possible_decrypted_user_password:3}"
 				got_decrypted_user_password=true
 			fi
 
-			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
+			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
 				decrypted_st_admin_password="\${possible_decrypted_st_admin_password:3}"
 				got_decrypted_st_admin_password=true
 			fi
@@ -3372,7 +3383,7 @@ PACKAGE_POSTINSTALL_EOF
 			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords deobfuscation script and it would therefore not return anything.
 			# It may seem less secure to do the passwords decryption within the "postinstall" script in this way instead of within the passwords deobfuscation script, but that is not actually
 			# the case since if the "openssl" decryption command was run within the passwords deobfuscation script it would be run via "do shell script" which would make the entire uninterpreted
-			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(echo PASSWORDS-ENCRYPTION-KEY)" which clearly renders the ability
+			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo PASSWORDS-ENCRYPTION-KEY)" which clearly renders the ability
 			# of the pipes and process substitution to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
 			# process because of how AppleScript executes commands with "do shell script". So, it is actually more secure to run the "openssl" command in the "postinstall" script which
 			# ensures that the encrypted passwords and passwords encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
@@ -3424,10 +3435,10 @@ PACKAGE_POSTINSTALL_EOF
 			# NOTE: See https://github.com/freegeek-pdx/mkuser/issues/2 for information about why "-md sha512" is specified for all "openssl enc" commands.
 
 			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${user_account_name}${user_password_encryption_key}"))"
+			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${user_account_name}${user_password_encryption_key}"))"
 
 			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}${st_admin_password_encryption_key}"))"
+			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}${st_admin_password_encryption_key}"))"
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
 EP:${encrypted_user_password}
@@ -3437,7 +3448,7 @@ EP:${encrypted_st_admin_password}"
 			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
 				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
 EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
-EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]'))"
+EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes256 -md sha512 -a -A -pass file:<(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]'))"
 			done
 
 			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
@@ -3446,7 +3457,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
 
 			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
-			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${wrapping_passwords_encryption_key}"))"
+			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${wrapping_passwords_encryption_key}"))"
 			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra.
 
 			# Every variable name set within the script will be randomized each time it is created.
@@ -3569,13 +3580,19 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 
 			# Create random variable names to be used throughout the script.
 			mkuser_set_new_random_variable_name
+			script_pwd_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
 			script_path_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			this_ancestor_pid_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			parent_script_path_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			intended_parent_script_path_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			intended_ancestor_process_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			actual_ancestor_process_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
 			wrapped_encrypted_passwords_var="${this_random_variable_name}"
@@ -3594,52 +3611,88 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 			osacompile -x -o "${package_tmp_dir}/passwords-deobfuscation.scpt" << PACKAGE_PASSWORD_OSACOMPILE_EOF
 use AppleScript version "2.7"
 use scripting additions
-${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
-if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
-	if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then
-		set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
-		((${script_path_var} as POSIX file) as alias)
-		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
-		if (((POSIX path of (path to me)) is equal to ${script_path_var}) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
-			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
-			set ${parent_script_path_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$PPID -o ppid=) -o command= | cut -d ' ' -f 2")"))
-			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
-			set ${intended_parent_script_path_var} to ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')")) & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
-			if ((${intended_parent_script_path_var} is equal to ${parent_script_path_var}) or (${intended_parent_script_path_var} is equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then -- parent_script_path_var may start with /tmp/ symlink instead of /private/tmp/.
-				${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
-				if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is equal to ((first word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'shasum -a 512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then
-					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
-					set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
-					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
-					considering numeric strings
-						if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
-							set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
+try
+	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
+	if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then
+		set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
+		if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) and (${script_pwd_var} contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) and (${script_pwd_var} contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then
+			set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
+			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
+			try
+				((${script_path_var} as POSIX file) as alias)
+				${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
+				if (((POSIX path of (path to me)) is equal to ${script_path_var}) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
+					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
+					set ${this_ancestor_pid_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$PPID -o ppid=")"))
+					set ${parent_script_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command= | cut -d ' ' -f 2")")))
+					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
+					set ${intended_parent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
+					if ((${intended_parent_script_path_var} is equal to ${parent_script_path_var}) or (${intended_parent_script_path_var} is equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then -- parent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
+						${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
+						if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is equal to ((first word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'shasum -a 512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then
+							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
+							set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
+							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
+							considering numeric strings
+								if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
+									set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
+								else
+									set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
+								end if
+							end considering
+							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
+							try
+								set ${actual_ancestor_process_var} to ""
+								repeat until (${actual_ancestor_process_var} is equal to ${intended_ancestor_process_var}) -- Traverse up the whole process tree searching for the intended ancestor process since if this package is being installed from within another package the intended ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
+									set ${this_ancestor_pid_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")))
+									set ${actual_ancestor_process_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")))
+								end repeat
+								if (${intended_ancestor_process_var} is equal to ${actual_ancestor_process_var}) then
+									${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
+									try
+										do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure the only running instance of...
+										return 9
+									on error
+										try
+											${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
+											do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- ancestor process is an ancestor of this process.
+											${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
+											set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
+											${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
+											set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
+											return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
+										on error
+											return 10
+										end try
+									end try
+								else
+									return 8
+								end if
+							on error
+								return 7
+							end try
 						else
-							set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
+							return 6
 						end if
-					end considering
-					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
-					if (${intended_ancestor_process_var} is equal to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$(ps -p \$(ps -p \$(ps -p \$PPID -o ppid=) -o ppid=) -o ppid=) -o command=")"))) then
-						${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
-						try
-							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure the only running instance of...
-						on error
-							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
-							do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- ancestor process is an ancestor of this process.
-							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
-							set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
-							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
-							set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
-							return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
-						end try
+					else
+						return 5
 					end if
+				else
+					return 4
 				end if
-			end if
+			on error
+				return 3
+			end try
+		else
+			return 2
 		end if
+	else
+		return 1
 	end if
-end if
+on error
+	return -1
+end try
 on ${deobfuscate_string_func}(${obfuscated_string_var})
 	try
 		${obfuscate_characters_shift_count_jumble_var_lines}
@@ -3668,7 +3721,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes-256-cbc -md sha512 -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes-256-cbc -md sha512 -a -A -pass file:<(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1) | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
+if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1) | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -3919,9 +3972,8 @@ CUSTOM_DISTRIBUTION_XML_EOF
 		fi
 
 		if ! $suppress_status_messages; then
-			# Do an actual line break instead of "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
-			echo "
-mkuser: Created ${creating_user_type} ${user_full_and_account_name_display} User Creation Package: $([[ "${pkg_path}" == '/'* ]] || echo "${PWD}/")${pkg_path}"
+			# Use the specially quoted $'\n' to be interpreted as a line break instead of just "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
+			echo $'\n'"mkuser: Created ${creating_user_type} ${user_full_and_account_name_display} User Creation Package: $([[ "${pkg_path}" == '/'* ]] || echo "${PWD}/")${pkg_path}"
 		fi
 
 		return 0
@@ -4442,9 +4494,8 @@ Check \"--help\" for detailed information about each available option."
 	(( error_code ++ ))
 
 	if ! $do_not_confirm; then
-		# Do an actual line break instead of "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
-		echo -n "
-Enter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_name_display} on This System: "
+		# Use the specially quoted $'\n' to be interpreted as a line break instead of just "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
+		echo -n $'\n'"Enter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_name_display} on This System: "
 		read -r confirm_user_creation
 
 		echo ''
@@ -5437,9 +5488,8 @@ Enter \"Y\" to Confirm Creating ${creating_user_type} ${user_full_and_account_na
 			# None of this brokenness affects mkuser directly at all since these longer passwords would never be allowed to be granted a Secure Token, or allowed to be used to grant a Secure Token.
 			# This information is just documentation of my testing when I was trying to understand some odd behavior on macOS 10.13 High Sierra that didn't make sense at first.
 
-			# Do an actual line break instead of "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the passwords.
-			grant_secure_token_output="$(echo "${st_admin_password}
-${user_password}" | sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword - 2>&1)"
+			# Use the specially quoted $'\n' to be interpreted as a line break instead of just "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the passwords.
+			grant_secure_token_output="$(echo "${st_admin_password}"$'\n'"${user_password}" | sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword - 2>&1)"
 
 			grant_secure_token_exit_code="$?" # Exit code will be 0 even if there was an error, but that's fine and doesn't hurt to check it anyway since we're also checking (in every possible way) that the user was actually granted a Secure Token.
 
