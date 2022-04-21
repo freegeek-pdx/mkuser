@@ -36,7 +36,7 @@ Options and their parameters can be separated by whitespace, equals (=), and can
 For example, `--uid <UID>`, `--uid=<UID>`, `--uid<UID>`, `-u <UID>`, `-u=<UID>`, and `-u<UID>` are all valid.<br/>
 When combining single character options with their parameter, be careful to not set a parameter whose first letter is also a valid single character option as this would be interpreted as combined single character options.<br/>
 For example, `-nuser` would get interpreted as `-n -u=ser` (which would error for multiple reasons) instead of `-n=user` since `-u` is also a valid option.<br/>
-In these cases, the options and parameters should be seperated instead.<br/>
+In these cases, the options and parameters should be separated instead.<br/>
 But, something like `-u401` will always be safe since `-4` is not a valid option.
 
 If ANY options or parameters are invalid, the user or package WILL NOT be created.<br/>
@@ -132,14 +132,20 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--password, --pass, -p` < *string* >
 
-> The password must be at least 4 characters and 511 bytes or less.<br/>
-> Except, when enabling auto-login, the maximum limit is 251 bytes.<br/>
-> Also, blank/empty passwords are allowed when FileVault IS NOT enabled.<br/>
+> The password must meet the systems password content policy requirements.<br/>
+> The default password content requirements are that it must be at least 4 characters, or a blank/empty password when FileVault IS NOT enabled.
+>
+> If no password content policy is set (such as by default on macOS 10.13 High Sierra), the default requirements *will still be enforced* by `mkuser`.<br/>
+> Also, only the default password requirements will be enforced when outputting a user creation package, see notes below for more information.
+>
+> *Regardless of the password content policy*, `mkuser` enforces a maximum password length of 511 bytes, or 251 bytes when enabling auto-login.<br/>
+> See notes below for more details about these maximum length limitations.
+>
 > There are no limitations on the characters allowed in the password, except that it cannot contain line breaks.<br/>
-> If omitted, blank/empty password will be specified.
+> If omitted, a blank/empty password will be specified.
 >
 > **BLANK/EMPTY PASSWORD NOTES:**<br/>
-> Blank/empty passwords are not allowed by macOS when FileVault is enabled.<br/>
+> Blank/empty passwords are not allowed by default when FileVault is enabled.<br/>
 > When FileVault is not enabled, a user with a blank/empty password WILL be able to log in and authenticate GUI prompts, but WILL NOT be able to authenticate "Terminal" commands like `sudo`, `su`, or `login`, for example.
 >
 > **AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES:**<br/>
@@ -157,7 +163,10 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Longer passwords took overly long for the Arduino to type or macOS to paste.
 >
 > **PASSWORDS IN PACKAGE NOTES:**<br/>
-> When outputting a user creation package (with the `--package` option), the specified password (along with the existing Secure Token admin password, if specified) will be securely obfuscated within the package in such a way that the passwords can only be deobfuscated by the specific and unique script generated during package creation and only when run during the package installation process.<br/>
+> When outputting a user creation package (with the `--package` option), only the default password content requirements are checked since the password content policy may be different on the target system.<br/>
+> The target systems password content policy will be checked when the package is installed and the user will not be created if the password does not meet the target systems password content policy requirements.
+>
+> The specified password (along with the existing Secure Token admin password, if specified) will be securely obfuscated within the package in such a way that the passwords can only be deobfuscated by the specific and unique script generated during package creation and only when run during the package installation process.<br/>
 > For more information about how passwords are securely obfuscated within the package, read the comments within the code of this script starting at: *OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT*<br/>
 > Also, when the passwords are deobfuscated during the package installation, they will NOT be visible in the process list since they will only exist as variables within the script and be passed to an internal `mkuser` function.
 
@@ -186,7 +195,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 #### `--no-password, --no-pass, --np` < *no parameter* >
 
 > Include this option with no parameter to set no password at all instead of a blank/empty password (like when the `--password` option is omitted).<br/>
-> This option is equivalent to setting the password to "\*" with `--password '*'` and is here as a seperate option for convenience and information.<br/>
+> This option is equivalent to setting the password to "\*" with `--password '*'` and is here as a separate option for convenience and information.<br/>
 > Setting the password to "\*" is a special character that indicates to macOS that this user does not have any meaningful password set.<br/>
 > When a user has the "\*" password set, it cannot login by any means and it will also not get any AuthenticationAuthority set in the user record.<br/>
 > When the "\*" password is set AND no AuthenticationAuthority exists, the user will not show in the users list in "Users & Groups" pane of the "System Preferences" and will also not show up in the login window.<br/>
@@ -315,7 +324,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Also, when running on macOS 11 Big Sur or newer, "Sharing Only" accounts get a special tag added to the AuthenticationAuthority attribute of the user record to let macOS know not to grant a Secure Token.<br/>
 > See `--prevent-secure-token-on-big-sur-and-newer` help for more information about preventing macOS from granting an account the first Secure Token.
 >
-> This is here as a seperate option for convenience and information.<br/>
+> This is here as a separate option for convenience and information.<br/>
 > When using this option, you CANNOT also specify `--administrator`, since "Sharing Only" accounts should not be administrators.<br/>
 > Also, you cannot specify `--role-account` or `--service-account` with this option since they are mutually exclusive account types.<br/>
 > For more information about "Sharing Only" accounts, visit: <https://support.apple.com/guide/mac-help/mchlp15577>
@@ -343,7 +352,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > See `--no-login` help for more information about login shell "/usr/bin/false".<br/>
 > See `--hidden` help for more information about hiding users (`--hide userOnly`).
 >
-> This is here as a seperate option for convenience and information.<br/>
+> This is here as a separate option for convenience and information.<br/>
 > So, this same example account could be created with `mkuser` using: `--account-name _role --uid 201 --role-account`
 >
 > Unlike `sysadminctl -addUser` which requires the User ID to be specified manually, `mkuser` can assign the next available User ID starting from *200*.<br/>
@@ -441,7 +450,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > If you're using `mkuser` to create users before going through Setup Assistant, and you want the user created by first boot Setup Assistant to be granted the first Secure Token, be sure to take the necessary steps for each version of macOS (as outline above) to ensure any users created by `mkuser` are not granted the first Secure Token.<br/>
 > Once the first Secure Token has been granted by macOS, you must use `sysadminctl -secureTokenOn` to grant other users a Secure Token and authenticate the command with an existing Secure Token administrator either interactively or by passing their credentials with the `-adminUser` and `-adminPassword` options.<br/>
 > Or, `mkuser` can securely take care of this for you when creating new users if you pass an existing Secure Token admins credentials using the `--secure-token-admin-account-name` option along with one of the three different Secure Token admin password options below.<br/>
-> See the *SECURE TOKEN 1022 BYTE PASSWORD LENGTH LIMIT NOTES* in the help information for the `--secure-token-admin-password` option below  and the *PASSWORDS IN PACKAGE NOTES* in help information for the `--password` option above for more information about how passwords are handled securely by `mkuser`, all of which also apply to Secure Token admin passwords.<br/>
+> See the *SECURE TOKEN 1022 BYTE PASSWORD LENGTH LIMIT NOTES* in the help information for the `--secure-token-admin-password` option below and the *PASSWORDS IN PACKAGE NOTES* in help information for the `--password` option above for more information about how passwords are handled securely by `mkuser`, all of which also apply to Secure Token admin passwords.<br/>
 > Users created in the "Users & Groups" pane of the "System Preferences" will only get a Secure Token when the pane has been unlocked by an existing Secure Token administrator.<br/>
 > Similarly, users created using `sysadminctl -addUser` will only get a Secure Token when the command is authenticated with an existing Secure Token administrator (the same way as when using the `sysadminctl -secureTokenOn` option).<br/>
 > The only exception to this subsequent Secure Token behavior is when utilizing MDM with a Bootstrap Token.
@@ -526,7 +535,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 > Include this option with no parameter to prevent this user from logging in.<br/>
 > This option is equivalent to setting the login shell to "/usr/bin/false" which can also be done directly with `--login-shell /usr/bin/false`.<br/>
-> This is here as a seperate option for convenience and information.<br/>
+> This is here as a separate option for convenience and information.<br/>
 > When the login shell is set to "/usr/bin/false", the user is will not show in the "Users & Groups" pane of the "System Preferences" and will also not show up in the non-FileVault login window list of users.
 >
 > If FileVault is enabled and one of these users has a password and is granted a Secure Token, they WILL show in the FileVault login window and can decrypt the volume, but then the non-FileVault login will be hit to fully login to macOS with another user account.<br/>

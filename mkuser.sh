@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.3.29-1'
+	readonly MKUSER_VERSION='2022.4.21-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -438,7 +438,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
 							if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--stdin-password" (or multiple "--password" options specified).
 								if [[ "$1" != *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
-									user_password="$1"
+									user_password="$1" # Will validate the password meets the global password content policy requirements later in the code.
 									# Do not include "--password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 								else
 									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
@@ -459,7 +459,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--stdin-password|--stdin-pass|--sp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is open so that the script doesn't hang forever if "--stdin-password" is used with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
-							user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (will validate the password is either empty string or 4 characters or more).
+							user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (and will validate the password meets the global password content policy requirements later in the code).
 							# Do not include "--stdin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 
 							if [[ "$user_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
@@ -725,7 +725,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ "$1" == '/dev/fd/'* ]]; then # Make sure a file descriptor path is specified.
 						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd-secure-token-admin-password" options specified).
-							if st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list (will validate the password is either empty string or 4 characters or more).
+							if st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list or written in the filesystem.
 								# Do not include "--fd-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 
 								if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
@@ -753,7 +753,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					>&2 echo "mkuser WARNING: The \"${this_unaltered_option}\" option IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION! The more secure \"--fd-secure-token-admin-password\" should be used instead. See \"--help\" for more information."
 
 					if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd3-secure-token-admin-password" options specified).
-						if st_admin_password="$(cat '/dev/fd/3' 2> /dev/null)"; then # Optionally get password from fd3 so that the password is never visible in the process list (will validate the password is 4 characters or more).
+						if st_admin_password="$(cat '/dev/fd/3' 2> /dev/null)"; then # Optionally get password from fd3 so that the password is never visible in the process list.
 							# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 
 							if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
@@ -867,7 +867,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 							if [[ -z "${pkg_version}" ]]; then
 								if [[ "$1" =~ ^[${A_Z}${a_z}${DIGITS}][${A_Z}${a_z}${DIGITS}.-]*$ ]]; then # Version should generally only be numbers and dots, but also allow hyphens/minuses and letters as long as it start with a number or letter so folks can do things like "1.0-test1" if they want.
 									# The version must also be validated since it could also be used in the filename, and don't want to allow or have to deal with invalid filesystem characters.
-									pkg_version="$1" # Date seperated by periods will be used if not specified.
+									pkg_version="$1" # Date separated by periods will be used if not specified.
 								else
 									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must start with a number or letter and can only contain alphanumeric, hyphen/minus (-), or dot (.) characters."
 									has_invalid_options=true
@@ -1018,7 +1018,13 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				if [[ "${latest_version}" == "${MKUSER_VERSION}" ]]; then
 					echo "Up-to-Date${fallback_version_note}"
 				elif [[ "${latest_version}" =~ ^[${DIGITS}][${DIGITS}.-]*$ ]]; then
-					echo "Version ${latest_version} is Now Available!${fallback_version_note}"
+					version_comparison_result="$(OSASCRIPT_ENV_LATEST_VERSION="${latest_version}" OSASCRIPT_ENV_CURRENT_VERSION="${MKUSER_VERSION}" osascript -l JavaScript -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_LATEST_VERSION").compareOptions($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_CURRENT_VERSION"), $.NSNumericSearch)' 2> /dev/null)"
+
+					if (( version_comparison_result == 1 )); then
+						echo "Version ${latest_version} is Now Available!${fallback_version_note}"
+					else
+						echo "Current Version NEWER Than Latest Release (${latest_version})"
+					fi
 
 					if ! $show_releases_online; then echo 'Run "mkuser -v online" to open the mkuser Releases page on GitHub to download the latest version (or visit "https://download.mkuser.sh").'; fi
 				else
@@ -1098,7 +1104,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     option as this would be interpreted as combined single character options.
   For example, ${ansi_bold}-${ansi_underline}n${clear_ansi}${ansi_bold}user${clear_ansi} would get interpreted as ${ansi_bold}-n -u=ser${clear_ansi} (which would error for
     multiple reasons) instead of ${ansi_bold}-n=user${clear_ansi} since ${ansi_bold}-u${clear_ansi} is also a valid option.
-  In these cases, the options and parameters should be seperated instead.
+  In these cases, the options and parameters should be separated instead.
   But, something like ${ansi_bold}-u401${clear_ansi} will always be safe since ${ansi_bold}-4${clear_ansi} is not a valid option.
 
   If ANY options or parameters are invalid, user or package WILL NOT be created.
@@ -1228,15 +1234,25 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--password, --pass, -p${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
-    The password must be at least 4 characters and 511 bytes or less.
-    Except, when enabling auto-login, the maximum limit is 251 bytes.
-    Also, blank/empty passwords are allowed when FileVault IS NOT enabled.
+    The password must meet the systems password content policy requirements.
+    The default password content requirements are that it must be at least
+      4 characters, or a blank/empty password when FileVault IS NOT enabled.
+
+    If no password content policy is set (such as by default on macOS 10.13
+      High Sierra), the default requirements ${ansi_underline}will still be enforced${clear_ansi} by ${ansi_bold}mkuser${clear_ansi}.
+    Also, only the default password requirements will be enforced when
+      outputting a user creation package, see notes below for more information.
+
+    ${ansi_underline}Regardless of the password content policy${clear_ansi}, ${ansi_bold}mkuser${clear_ansi} enforces a maximum
+      password length of 511 bytes, or 251 bytes when enabling auto-login.
+    See notes below for more details about these maximum length limitations.
+
     There are no limitations on the characters allowed in the password,
       except that it cannot contain line breaks.
-    If omitted, blank/empty password will be specified.
+    If omitted, a blank/empty password will be specified.
 
     ${ansi_bold}BLANK/EMPTY PASSWORD NOTES:${clear_ansi}
-    Blank/empty passwords are not allowed by macOS when FileVault is enabled.
+    Blank/empty passwords are not allowed by default when FileVault is enabled.
     When FileVault is not enabled, a user with a blank/empty password
       WILL be able to log in and authenticate GUI prompts, but WILL NOT be able
       to authenticate \"Terminal\" commands like ${ansi_bold}sudo${clear_ansi}, ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}, for example.
@@ -1270,8 +1286,14 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Longer passwords took overly long for the Arduino to type or macOS to paste.
 
     ${ansi_bold}PASSWORDS IN PACKAGE NOTES:${clear_ansi}
-    When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option), the
-      specified password (along with the existing Secure Token admin password,
+    When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option), only
+      the default password content requirements are checked since the
+      password content policy may be different on the target system.
+    The target systems password content policy will be checked when the package
+      is installed and the user will not be created if the password does not
+      meet the target systems password content policy requirements.
+
+    The specified password (along with the existing Secure Token admin password,
       if specified) will be securely obfuscated within the package in such a way
       that the passwords can only be deobfuscated by the specific and unique
       script generated during package creation and only when run during
@@ -1319,7 +1341,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Include this option with no parameter to set no password at all instead of a
       blank/empty password (like when the ${ansi_bold}--password${clear_ansi} option is omitted).
     This option is equivalent to setting the password to \"*\" with ${ansi_bold}--password '*'${clear_ansi}
-      and is here as a seperate option for convenience and information.
+      and is here as a separate option for convenience and information.
     Setting the password to \"*\" is a special character that indicates
       to macOS that this user does not have any meaningful password set.
     When a user has the \"*\" password set, it cannot login by any means and
@@ -1491,7 +1513,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     See ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi} help for more information
       about preventing macOS from granting an account the first Secure Token.
 
-    This is here as a seperate option for convenience and information.
+    This is here as a separate option for convenience and information.
     When using this option, you CANNOT also specify ${ansi_bold}--administrator${clear_ansi},
       since \"Sharing Only\" accounts should not be administrators.
     Also, you cannot specify ${ansi_bold}--role-account${clear_ansi} or ${ansi_bold}--service-account${clear_ansi}
@@ -1536,7 +1558,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     See ${ansi_bold}--no-login${clear_ansi} help for more information about login shell \"/usr/bin/false\".
     See ${ansi_bold}--hidden${clear_ansi} help for more information about hiding users (${ansi_bold}--hide userOnly${clear_ansi}).
 
-    This is here as a seperate option for convenience and information.
+    This is here as a separate option for convenience and information.
     So, this same example account could be created with ${ansi_bold}mkuser${clear_ansi} using:
       ${ansi_bold}--account-name _role --uid 201 --role-account${clear_ansi}
 
@@ -1867,7 +1889,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Include this option with no parameter to prevent this user from logging in.
     This option is equivalent to setting the login shell to \"/usr/bin/false\"
       which can also be done directly with ${ansi_bold}--login-shell /usr/bin/false${clear_ansi}.
-    This is here as a seperate option for convenience and information.
+    This is here as a separate option for convenience and information.
     When the login shell is set to \"/usr/bin/false\", the user is will not show
       in the \"Users & Groups\" pane of the \"System Preferences\" and will
       also not show up in the non-FileVault login window list of users.
@@ -2224,45 +2246,149 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	fi
 	(( error_code ++ ))
 
-	# TODO: Eventually extract and check against ACTUAL password policy regex in policyContent (if a pwpolicy is set) and use the policyContentDescription when it doesn't match.
-	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContent' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null
-	# PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContentDescription:en' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null
+	mkuser_check_password_content() { # $1 = Password to Check, $2 = "onlyCheckDefault" OR "bypassFallback"
+		# If the password passes the content policy check, the string "PASSED" will be returned (via stdout) with an exit code of 0.
+		# If the password does NOT pass the content policy check, an error message will be returned (via stderr) with an exit code of 1.
+
+		# This function uses OpenDirectory's passwordContentCheck:forRecordName:error: method (https://developer.apple.com/documentation/opendirectory/odnode/1427933-passwordcontentcheck?language=objc)
+		# with the "recordName" value always set to an empty string (not nil, which always fails the check) which seems to checks the global password content policy (even though that's not documented).
+		# The password is handled as securely as possible and is never visible in the process list.
+		# See comments in "mkuser_verify_password" function about the security considerations of this process (which also apply to this function).
+
+		local check_password_content_result
+
+		if [[ "$2" == 'onlyCheckDefault' || ("$2" != 'bypassFallback' && -z "$(PlistBuddy -c 'Print :policyCategoryPasswordContent' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null)") ]]; then
+			# If no password content policy at all is set (such as by default on macOS 10.13 High Sierra), still enforce the modern default password requirements from macOS 10.14 Mojave and newer (even though System Preferences and other user creation and password setting techniques would not enforce it).
+			# UNLESS "$2" argument is "bypassFallback", then bypass this fallback and only check the actual current password content policy even if none exists (which would allow any password).
+			# ALSO if "$2" argument is "onlyCheckDefault", then only check against these default requirements and DO NOT check the actual current password content policy even if one is set (which is useful when mkuser is outputting a user creation package where the password will be fully checked on the target system).
+
+			if [[ -z "${1}" ]]; then
+				if [[ "$(fdesetup isactive)" == 'true' ]]; then
+					check_password_content_result='Check Password Content ERROR: Password cannot be blank/empty when FileVault is enabled.'
+				else
+					check_password_content_result='PASSED'
+				fi
+			elif (( ${#1} < 4 )); then
+				check_password_content_result='Check Password Content ERROR: Password too short, it must be at least 4 characters or blank/empty password (unless FileVault is enabled, then blank/empty passwords are not allowed).'
+			else
+				check_password_content_result='PASSED'
+			fi
+		else
+			# Suppress ShellCheck warning that expressions don't expand in single quotes since this is intended.
+			# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
+			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
+			# shellcheck disable=SC2016
+			check_password_content_result="$(echo -nE "$1" | osascript -l 'JavaScript' -e '
+ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
+// https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
+
+let passwordToCheck = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.availableData, $.NSUTF8StringEncoding)
+
+let odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+let odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
+
+let checkPasswordContentResult = `Check Password Content (Load Node) ERROR: Unknown error loading OpenDirectory "/Local/Default" node.`
+
+if (!odLocalNode.isNil() && odLocalNode.nodeName.js == "/Local/Default") {
+	let odPasswordContentCheckError = $()
+	let odPasswordContentCheckPassed = odLocalNode.passwordContentCheckForRecordNameError(passwordToCheck, "", odPasswordContentCheckError) // https://developer.apple.com/documentation/opendirectory/odnode/1427933-passwordcontentcheck?language=objc
+	// Seems that passing an empty string (but not nil) as the record name works to check the global password content policy.
+
+	if (odPasswordContentCheckPassed === true) { // Make sure odPasswordContentCheckPassed is a boolean of true and no other truthy value.
+		checkPasswordContentResult = "PASSED"
+	} else if (!odPasswordContentCheckError.isNil() && odPasswordContentCheckError.localizedDescription) {
+		checkPasswordContentResult = `Check Password Content ERROR: ${odPasswordContentCheckError.localizedDescription.js.replace(" change failed because password", "")} (Error Code: ${odPasswordContentCheckError.code})` // Remove the part of the standard failure message that makes it sound like a change was attempted when it was not.
+
+		let passwordContentPoliciesArray = ObjC.deepUnwrap(odLocalNode.accountPoliciesAndReturnError($()).objectForKey("policyCategoryPasswordContent")) // https://developer.apple.com/documentation/opendirectory/odnode/1428081-accountpoliciesandreturnerror?language=objc
+		checkPasswordContentResult += "\nPassword Content Polic" // Will be set to singular or plural below.
+
+		if (passwordContentPoliciesArray && passwordContentPoliciesArray.length > 0) {
+			checkPasswordContentResult += ((passwordContentPoliciesArray.length == 1) ? "y:" : "ies:")
+			for (thisPasswordContentPolicyIndex = 0; thisPasswordContentPolicyIndex < passwordContentPoliciesArray.length; thisPasswordContentPolicyIndex ++) {
+				let thisPasswordContentPolicyDict = passwordContentPoliciesArray[thisPasswordContentPolicyIndex]
+
+				let thisPolicyContentDescription
+				if (thisPasswordContentPolicyDict.policyContentDescription) {
+					for (let thisPolicyContentDescriptionLocalizationKey in thisPasswordContentPolicyDict.policyContentDescription) {
+						if (thisPolicyContentDescriptionLocalizationKey == "en" || thisPolicyContentDescriptionLocalizationKey == "English") {
+							// The default password content policy on macOS 10.14 Mojave has a localized description key of "English" instead of "en" like newer versions of macOS have.
+							thisPolicyContentDescription = thisPasswordContentPolicyDict.policyContentDescription[thisPolicyContentDescriptionLocalizationKey]
+							break
+						} else if (!thisPolicyContentDescription && thisPolicyContentDescriptionLocalizationKey.startsWith("en_")) {
+							// If a US English localization key does not exist, instead use a "en_GB" or "en_AU" key (for example), but DO NOT break out of the loop in case a US English key exists later in the dict.
+							thisPolicyContentDescription = thisPasswordContentPolicyDict.policyContentDescription[thisPolicyContentDescriptionLocalizationKey]
+						}
+					}
+				}
+
+				if (thisPolicyContentDescription) {
+					checkPasswordContentResult += `\n  ${thisPolicyContentDescription}`
+				} else {
+					checkPasswordContentResult += `\n  ${thisPasswordContentPolicyDict.policyContent ? "" : "Unknown "}Policy Content for ${(thisPasswordContentPolicyDict.policyIdentifier ? `"${thisPasswordContentPolicyDict.policyIdentifier}"` : "Unknown ID")}: ${thisPasswordContentPolicyDict.policyContent ? thisPasswordContentPolicyDict.policyContent : JSON.stringify(thisPasswordContentPolicyDict)}`
+				}
+			}
+		} else {
+			checkPasswordContentResult += "y:\n  Unknown password content policy."
+		}
+	} else {
+		checkPasswordContentResult = "Check Password Content ERROR: Unknown error checking password content."
+	}
+}
+
+// DO NOT "console.log()" the result since that will go to stderr which is being redirected to "/dev/null" so that only our result string is ever retrieved via stdout.
+// This is because I have seen an irrelevant error about failing to establish a connection to the WindowServer (on macOS 10.13 High Sierra at least) that could be
+// included in stderr even when password verification was successful which would mess up checking for the exact success string if we were to capture stderr in the output.
+
+checkPasswordContentResult // Just having "checkPasswordContentResult" as the last statement will make JXA send the value to stdout.
+' 2> /dev/null)"
+		fi
+
+		if [[ "${check_password_content_result}" == 'PASSED' ]]; then
+			echo "${check_password_content_result}"
+			return 0
+		elif [[ -z "${check_password_content_result}" ]]; then
+			check_password_content_result='Check Password Content ERROR: Unknown error occurred.'
+		fi
+
+		>&2 echo "${check_password_content_result}"
+		return 1
+	}
 
 	if [[ -z "${user_password}" ]]; then
 		if ! $set_service_account; then # Service Accounts will have the password set to NO PASSWORD (*) which are allowed when FileVault is enabled.
 			if $make_package; then
-				# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user cannot be created on FileVault enabled Macs.
-				>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which are not allowed on FileVault-enabled Macs, so this user WILL NOT be created if you try to install this package on a FileVault-enabled Mac.'
-			elif [[ "$(fdesetup isactive)" == 'true' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot be blank/empty when FileVault is enabled."
+				# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user may not be created on FileVault enabled Macs.
+				>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which is not allowed by default on FileVault-enabled Macs, so this user MAY NOT be created if you try to install this package on a FileVault-enabled Mac.'
+			elif ! check_empty_password_content_result="$(mkuser_check_password_content '' 2>&1)" || [[ "${check_empty_password_content_result}" != 'PASSED' ]]; then
+				>&2 echo "mkuser ${check_empty_password_content_result}"
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password content policy does not allow a blank/empty password (which is default behavior when FileVault is enabled)."
 				return "${error_code}"
 			fi
 		fi
-
-		# Blank/empty passwords are not allowed when FileVault is enabled.
-		# System Preferences explicitly doesn't allow blank/empty passwords when FileVault is enabled and "sysadminctl -addUser" silently fails and sets NO password.
-		# When FileVault is enabled, the "dscl . -passwd "/Users/${user_account_name}" ''" command will error with: DS Error -14165 eDSAuthPasswordQualityCheckFailed
-		# and the user would get created with NO password (and not the intentional "*" no password, just no password at all) which also happens with "sysadminctl -addUser".
-	elif [[ "${user_password}" != '*' ]]; then
-		if (( ${#user_password} < 4 )); then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password too short, it must be at least 4 characters or blank/empty password (unless FileVault is enabled, then blank/empty passwords are not allowed)."
-			return "${error_code}"
-
-			# If password is 1-3 characters, the user will be created but the "Password" field will end up as plain text and no "ShadowHashData" etc will be set and the password will not authenticate the user.
-		fi
-
+	elif [[ "${user_password}" != '*' ]] && ( ! $IS_PACKAGE || ! $check_only || [[ "${user_password}" != 'FAKE-PASSW0RD for-mkuser-check-only' ]] ); then # No need to check asterisk or package check only placeholder password against actual password content policy (since we don't want a package installation to fail if the placeholder password doesn't meet some custom requirements, and the user would still not get created if the actual password doesn't meed to the requirements in the next phase of the package installation).
+		# Enforce the following password max length limit regardless of if the password content policy allows them or not (because of reasons listed in NOTES of the "--password" section of the "--help" information).
 		user_password_byte_length="$(echo -n "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
 		user_password_byte_length="${user_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 		if $set_auto_login && (( user_password_byte_length > 251 )); then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 
-			# Read "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on macOS 10.13 High Sierra and macOS 11 Big Sur.
+			# Read "AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES" section of the "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on macOS 10.13 High Sierra and macOS 11 Big Sur.
 		elif (( user_password_byte_length > 511 )); then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password too long, it must be 511 bytes or less. Specified password is ${user_password_byte_length} bytes long. See \"--help\" for more information about this limitation."
 			return "${error_code}"
 
-			# For information about why passwords longer than 511 bytes are not allowed, search for and read the comments above "THIS IS WHY PASSWORDS OVER 511 BYTES ARE NOT ALLOWED" (or read notes in "--help" info).
+			# Read "511 BYTE PASSWORD LENGTH LIMIT NOTES" section of the "--help" information about why passwords longer than 511 bytes are not allowed (it's because they aren't compatible with all commands).
+		fi
+
+		# When making a package, only check the password against the default password content policy (which is 4 characters or more) since the current system password content policy may not by the same as the target system policy.
+		if ! check_user_password_content_result="$(mkuser_check_password_content "${user_password}" "$($make_package && echo 'onlyCheckDefault')" 2>&1)" || [[ "${check_user_password_content_result}" != 'PASSED' ]]; then
+			>&2 echo "mkuser ${check_user_password_content_result}"
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password does not meet password content policy requirements."
+			return "${error_code}"
+
+			# If the password does not meet the password content policy requirements, the specified password would fail to be set
+			# no matter what technique is used and no AuthenticationAuthority or ShadowHashData etc would be created for the user.
 		fi
 	fi
 	(( error_code ++ ))
@@ -2831,13 +2957,13 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 			elif ( ! $IS_PACKAGE || ! $check_only ) && ! $make_package; then
 				# Do not check Secure Token admin password when only doing the initial check from a package or when creating a package (since the admin may not exist on this system).
 				if ! verify_st_admin_password_result="$(mkuser_verify_password "${st_admin_account_name}" "${st_admin_password}" 2>&1)" || [[ "${verify_st_admin_password_result}" != 'VERIFIED' ]]; then
-					>&2 echo "${verify_st_admin_password_result}"
+					>&2 echo "mkuser ${verify_st_admin_password_result}"
 					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password verification failed for Secure Token admin \"${st_admin_account_name}\"."
 					return "${error_code}"
 				fi
 
 				# Make sure the specified Secure Token admin has a Secure Token AFTER the password has been verified (the reasons for this are described the comments above in the first round of st_admin_account_name checks).
-				if [[ "$(sysadminctl -secureTokenStatus "${st_admin_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- $(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read "/Users/${st_admin_account_name}" GeneratedUID 2> /dev/null)" 2> /dev/null)"$'\n'* ]]; then # DO NOT bother also checking "fdesetup list" since that requires running as root and these checks are thorough enough and could happen before running as root.
+				if [[ "$(sysadminctl -secureTokenStatus "${st_admin_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- $(dscl -plist . -read "/Users/${st_admin_account_name}" GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"$'\n'* ]]; then # DO NOT bother also checking "fdesetup list" since that requires running as root and these checks are thorough enough and could happen before running as root.
 					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" does not have a Secure Token."
 					return "${error_code}"
 				fi
@@ -2962,7 +3088,7 @@ print_mkuser_function {
 
 		quoted_valid_options_for_package=()
 		quoted_valid_options_for_package_check_without_picture=()
-		escaped_single_quote="'\''" # This must be a seperate variable or the bash string replacement within the following loop will not parse it correctly for bash.
+		escaped_single_quote="'\''" # This must be a separate variable or the bash string replacement within the following loop will not parse it correctly for bash.
 		for this_valid_option_for_package in "${valid_options_for_package[@]}"; do
 			if [[ -n "${this_valid_option_for_package}" ]]; then
 				# Escape any single quotes within this_valid_option_for_package like this: https://github.com/koalaman/shellcheck/wiki/SC1003
@@ -3153,7 +3279,7 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 		if [[ -z "\${mkuser_check_only_error_output}" ]]; then
 			mkuser_check_only_error_output="ERROR \${mkuser_check_only_return_code} OCCURRED"
 		else
-			mkuser_check_only_error_output="\$(echo "\${mkuser_check_only_error_output}" | cut -c 8-)"
+			mkuser_check_only_error_output="\$(echo "\${mkuser_check_only_error_output}" | grep '^mkuser ' | cut -c 8-)"
 		fi
 
 		if [[ "\$1" != 'check-only-from-preinstall' ]]; then
@@ -3201,21 +3327,35 @@ if [[ ! -f "\${passwords_deobfuscation_script_file_path}" ]]; then
 	exit 1
 fi
 
-wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | osascript 2> /dev/null)"
+wrapped_encrypted_passwords_and_key=''
+
+for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= 2; passwords_deobfuscation_attempt ++ )); do
+	# Do 2 attempts at deobfuscating passwords in case there is some fluke with the ancestor process checks or something.
+	# Maybe that's what happened here when the final "pgrep -qafx" check failed? https://macadmins.slack.com/archives/CF6DX18KY/p1649671076493339
+
+	wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | osascript 2> /dev/null)"
+
+	if [[ "\${wrapped_encrypted_passwords_and_key}" != *$'\n'* ]]; then
+		package_error="PACKAGE ERROR: Attempt \${passwords_deobfuscation_attempt} of 2 failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+		>&2 echo "mkuser POSTINSTALL \${package_error}"
+
+		if (( passwords_deobfuscation_attempt == 2 )); then
+			if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
+				rm -rf '${extracted_resources_dir}'
+			fi
+
+			mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
+			exit 1
+		else
+			sleep 1
+		fi
+	else
+		break
+	fi
+done
 
 if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; then
 	rm -f "\${passwords_deobfuscation_script_file_path}"
-fi
-
-if [[ "\${wrapped_encrypted_passwords_and_key}" != *$'\n'* ]]; then
-	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
-		rm -rf '${extracted_resources_dir}'
-	fi
-
-	package_error="PACKAGE ERROR: Failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-	>&2 echo "mkuser POSTINSTALL \${package_error}"
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
-	exit 1
 fi
 
 if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
@@ -3482,7 +3622,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 			# All strings will have their characters shifted by a random number from 100000 to 999999.
 			obfuscate_characters_shift_count="$(jot -r 1 100000 999999)"
 
-			# Break the obfuscate_characters_shift_count integers into seperate variables to be concatenated within the script and mix them in among
+			# Break the obfuscate_characters_shift_count integers into separate variables to be concatenated within the script and mix them in among
 			# a bunch of junk variables which are set to random single integers to make the real ones difficult to identify in a decompiled source.
 			obfuscate_characters_shift_count_jumble=()
 			for (( obfuscate_characters_shift_count_jumble_junk_var_index = 0; obfuscate_characters_shift_count_jumble_junk_var_index < 100; obfuscate_characters_shift_count_jumble_junk_var_index ++ )); do
@@ -3576,7 +3716,7 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[5]} to ${deobfuscate_stri
 set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 6 ))}")\")" | sort -R)
 
 			# Get checksum of "postinstall" script to be verified within the script.
-			postinstall_checksum="$(shasum -a 512 "${package_scripts_dir}/postinstall" | cut -d ' ' -f 1)"
+			postinstall_checksum="$(openssl dgst -sha512 "${package_scripts_dir}/postinstall" | awk '{ print $NF; exit }')"
 
 			# Create random variable names to be used throughout the script.
 			mkuser_set_new_random_variable_name
@@ -3612,84 +3752,67 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 use AppleScript version "2.7"
 use scripting additions
 try
+	if ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PATH')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin:/bin:/usr/sbin:/sbin')")) then return 1
 	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
-	if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then
-		set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
-		if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) and ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) and (${script_pwd_var} contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) and (${script_pwd_var} contains ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then
-			set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
-			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
-			try
-				((${script_path_var} as POSIX file) as alias)
-				${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
-				if (((POSIX path of (path to me)) is equal to ${script_path_var}) and ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) and ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then
-					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
-					set ${this_ancestor_pid_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$PPID -o ppid=")"))
-					set ${parent_script_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command= | cut -d ' ' -f 2")")))
-					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
-					set ${intended_parent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
-					if ((${intended_parent_script_path_var} is equal to ${parent_script_path_var}) or (${intended_parent_script_path_var} is equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then -- parent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
-						${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
-						if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is equal to ((first word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'shasum -a 512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then
-							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
-							set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
-							${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
-							considering numeric strings
-								if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
-									set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
-								else
-									set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
-								end if
-							end considering
-							${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
-							try
-								set ${actual_ancestor_process_var} to ""
-								repeat until (${actual_ancestor_process_var} is equal to ${intended_ancestor_process_var}) -- Traverse up the whole process tree searching for the intended ancestor process since if this package is being installed from within another package the intended ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
-									set ${this_ancestor_pid_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")))
-									set ${actual_ancestor_process_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")))
-								end repeat
-								if (${intended_ancestor_process_var} is equal to ${actual_ancestor_process_var}) then
-									${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
-									try
-										do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure the only running instance of...
-										return 9
-									on error
-										try
-											${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
-											do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- ancestor process is an ancestor of this process.
-											${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
-											set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
-											${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
-											set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
-											return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
-										on error
-											return 10
-										end try
-									end try
-								else
-									return 8
-								end if
-							on error
-								return 7
-							end try
-						else
-							return 6
-						end if
-					else
-						return 5
-					end if
-				else
-					return 4
-				end if
-			on error
-				return 3
-			end try
+	if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then return 2
+	set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
+	if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) or ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then return 3
+	set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
+	try
+		((${script_path_var} as POSIX file) as alias)
+	on error
+		return 4
+	end try
+	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
+	if (((POSIX path of (path to me)) is not equal to ${script_path_var}) or ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) or ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then return 5
+	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
+	set ${this_ancestor_pid_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$PPID -o ppid=")"))
+	set ${parent_script_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command= | cut -d ' ' -f 2")")))
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
+	set ${intended_parent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
+	if ((${intended_parent_script_path_var} is not equal to ${parent_script_path_var}) and (${intended_parent_script_path_var} is not equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then return 6 -- parent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
+	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
+	if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is not equal to ((last word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'openssl dgst -sha512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then return 7
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
+	set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
+	considering numeric strings
+		if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
+			set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
 		else
-			return 2
+			set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
 		end if
-	else
-		return 1
-	end if
+	end considering
+	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
+	set ${actual_ancestor_process_var} to ""
+	try
+		repeat until (${actual_ancestor_process_var} is equal to ${intended_ancestor_process_var}) -- Traverse up the whole process tree searching for the intended ancestor process since if this package is being installed from within another package the intended ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
+			set ${this_ancestor_pid_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")))
+			set ${actual_ancestor_process_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")))
+		end repeat
+	on error
+		return 8
+	end try
+	if (${intended_ancestor_process_var} is not equal to ${actual_ancestor_process_var}) then return 9
+	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
+	try
+		do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure there are not any instances of intended_ancestor_process_var that ARE NOT an ancestor of this process.
+		return 10
+	on error
+		try
+			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
+			do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- Confirm intended_ancestor_process_var IS an ancestor of this process (this check is actually redundant because it's already been manually confirmed in the actual_ancestor_process_var loop, but doesn't hurt to double check).
+			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
+			set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
+			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
+			set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
+			return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
+		on error
+			return 11
+		end try
+	end try
 on error
 	return -1
 end try
@@ -3721,7 +3844,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
 
-if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(shasum -a 512 "\${PWD}/postinstall" | cut -d ' ' -f 1) | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
+if ! echo '$(gzip -9 -c "${package_tmp_dir}/passwords-deobfuscation.scpt" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${postinstall_checksum}"))' | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(openssl dgst -sha512 "\${PWD}/postinstall" | awk '{ print \$NF; exit }') | zcat > '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' || [[ ! -f '${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}' ]]; then
 	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 		rm -rf '${extracted_resources_dir}'
 	fi
@@ -4162,7 +4285,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 	# I previously used "comm" with lists of only account names (without UIDs) to get a list of only uncached AD account names which was fast and worked very well, but then I needed to use "awk" for each account name
 	# to get the associated UID from the full contents of dscl_search_users which ended up actually taking minutes if there were a thousands of uncached AD users. Thanks to Thomas Esser for discovering this performance issue.
 	# Using this "awk" comparison (based on http://awk.freeshell.org/ComparingTwoFiles) is very fast and allows me to get the whole account name and UID row for each uncached AD user instead of only comparing lists of account names.
-	# I can then loop this output allowing bash to split at all whitespace to logically set the account name and UID to seperate variables within the loop. This technique made a process that could take many minutes just take a few seconds.
+	# I can then loop this output allowing bash to split at all whitespace to logically set the account name and UID to separate variables within the loop. This technique made a process that could take many minutes just take a few seconds.
 
 	if [[ -n "${uncached_ad_users}" ]]; then
 		uncached_ad_users_count="$(echo "${uncached_ad_users}" | wc -l)"
@@ -4252,7 +4375,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 	if [[ $'\n'"${all_assigned_uids}"$'\n' == *$'\n'"${user_uid}"$'\n'* ]]; then
 		# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
 		assigned_uid_dscacheutil_user="$(echo "${dscacheutil_users}" | AWK_ENV_USER_ID="${user_uid}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "uid" && $2 == ENVIRON["AWK_ENV_USER_ID"]) { print this_name }' | sort -u)"
-		assigned_uid_dscacheutil_user="${assigned_uid_dscacheutil_user//$'\n'/", "}" # If somehow it's taken by multiple users, show them all seperated by commas.
+		assigned_uid_dscacheutil_user="${assigned_uid_dscacheutil_user//$'\n'/", "}" # If somehow it's taken by multiple users, show them all separated by commas.
 		# To show the user who already has this UID:
 		# DO NOT use "dscl /Search -search /Users UniqueID" since those UIDs are not guaranteed to be in the signed 32-bit integer range.
 		# CAN'T use "dscacheutil -q user -a uid" since it doesn't accept negative UIDs as parameters, so must "grep" all of "dscacheutil -q user" output instead.
@@ -4419,7 +4542,7 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 
 		# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
 		check_settings_user_gid_name="$(echo "${dscacheutil_groups}" | AWK_ENV_USER_GID="${user_gid:-20}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "gid" && $2 == ENVIRON["AWK_ENV_USER_GID"]) { print this_name }' | sort -u)"
-		check_settings_user_gid_name="${check_settings_user_gid_name//$'\n'/, }" # If somehow it's taken by multiple users, show them all seperated by commas.
+		check_settings_user_gid_name="${check_settings_user_gid_name//$'\n'/, }" # If somehow it's taken by multiple users, show them all separated by commas.
 		# DO NOT use "dscl /Search -search /Groups PrimaryGroupID" since those GIDs are not guaranteed to be in the signed 32-bit integer range.
 		# CAN'T use "dscacheutil -q group -a gid" since it doesn't accept negative GIDs as parameters, so must "grep" all of "dscacheutil -q group" output instead.
 		# And, dscacheutil_groups is already loaded above AND any possible missing AD and dot groups are also also added to the output so that this check will be the most accurate and complete possible.
@@ -4521,20 +4644,32 @@ Check \"--help\" for detailed information about each available option."
 	# - Finally, "dsimport" can set a "JPEGPhoto" from a picture path, which cannot be done with "dscl . -create". Setting a user with a picture
 	#   can be done with "sysadminctl -addUser", but "sysadminctl -addUser" could not be used in all cases because of the reasons mentioned above.
 
-	# The following order of the attibutes does not matter, but I chose to use the "StandardUserRecord" order for the first 7 attributes as described in "man dsimport" and here:
+	# The following order of the attibutes does not matter, but I chose to use the "StandardUserRecord" order for the first 6 attributes (excluding "Password") as described in "man dsimport" and here:
 	# https://support.apple.com/guide/server/create-a-file-to-import-users-apd41051f16/mac#apd31dc619d2b014
 
-	dsimport_record_attributes=( 'RecordName' 'Password' 'UniqueID' 'PrimaryGroupID' 'RealName' 'NFSHomeDirectory' 'UserShell' 'GeneratedUID' 'AuthenticationHint' )
-	dsimport_record_values=( "${user_account_name}" "${user_password}" "${user_uid}" "${user_gid}" "${user_full_name}" "${user_home_path}" "${user_shell}" "${user_guid}" "${user_password_hint}" )
+	dsimport_record_attributes=( 'RecordName' 'UniqueID' 'PrimaryGroupID' 'RealName' 'NFSHomeDirectory' 'UserShell' 'GeneratedUID' 'AuthenticationHint' )
+	dsimport_record_values=( "${user_account_name}" "${user_uid}" "${user_gid}" "${user_full_name}" "${user_home_path}" "${user_shell}" "${user_guid}" "${user_password_hint}" )
 
-	# NOTE: If "user_password" is a empty string, it will be ignored by "dsimport" and no password will be set (preventing login) on macOS 11 Big Sur and newer.
-	# But, on macOS 10.15 Catalina and older, some unknown password is set that is not an empty string and login is still prevented.
-	# In either this case, the password will be properly set to an empty string after the user has been created using "dscl . -passwd".
-
-	# The only other values that could be empty in the array above are "user_gid", "user_guid", or "user_password_hint" and it's fine if they are ignored by "dsimport"
-	# since a "GeneratedUID" will be assigned upon creation and "PrimaryGroupID" will be set to the default of "20" (staff) if not specified.
-	# Even though "AuthenticationHint" is not required when no password hint is set, System Preferences and "sysadminctl -addUser" still create the attribute with an empty string when no password hint is set.
+	# The "user_gid", "user_guid", or "user_password_hint" values could be empty strings in the array above and it's fine since "dsimport" ignores empty values rather than setting empty strings for those attributes.
+	# Therefore, if "user_guid" is empty a "GeneratedUID" will be assigned upon creation and if "user_gid" is empty a "PrimaryGroupID" will be set to the default of "20" (staff).
+	# When "user_password_hint" is empty a "AuthenticationHint" will not be set at all (and it's not required when no password hint is set).
+	# But, System Preferences and "sysadminctl -addUser" still create the "AuthenticationHint" attribute with an empty string when no password hint is set.
 	# To be able to replicate this behavior, the "AuthenticationHint" will be set to an empty string after user creation (if no password hint is set) since it cannot be set to an empty string by "dsimport".
+
+	# NOTE: The "Password" attribute is omitted from the "dsimport" record because "dsimport" can ONLY import a record as a file that exists in the filesystem (more about this in the comments above the actual "dsimport" command).
+	# Even if the file that "dsimport" reads only exists momentarily and is only readable by root, including the password in that file would still mean the users password exists in plain text in the filesystem even if only for a moment.
+	# Therefore, the password will be omitted from the "dsimport" record and the password will get set after creation by secure means. For more information on how the password is set securely, see the comments in the "mkuser_set_password" function.
+	# When the "Password" attribute is not included in the "dsimport" record on macOS 11 Big Sur and newer no password will be set at all for this user account.
+	# But, on macOS 10.15 Catalina and older some unknown password gets set by "dsimport" when a password is omitted (an AuthenticationAuthority and ShadowHashData both get set).
+	# In either case, the desired password will be set after the user is created (even if it's a blank/empty password) or the user would not be able to log in at all.
+
+	if [[ "${user_password}" == '*' ]]; then
+		# BUT, if we are creating a user with NO password (indicated by setting an asterisk "*" password value), then DO set that in the "dsimport" record since it's not a sensitive value that needs to be handled securely.
+		# For more information about setting "*" as a password value and how it may be handled differently depending on the current password content policy, see comments below when verifying that NO password was properly set.
+
+		dsimport_record_attributes+=( 'Password' )
+		dsimport_record_values+=( '*' )
+	fi
 
 	if ! $set_no_picture; then
 		chose_random_user_picture=false
@@ -4668,12 +4803,16 @@ Check \"--help\" for detailed information about each available option."
 	dsimport_output_plist_path="${TMPDIR:-/private/tmp/}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # TMPDIR is not set when running in "sudo bash". Ensure a unique file name that includes as much of the user_account_name as possible without going over the macOS 255 byte maximum.
 	rm -rf "${dsimport_output_plist_path}" # "dsimport" would probably overwrite the file if it already exist, but delete it to be sure.
 
-	# Was initially manually writing a file and then passing it to "dsimport". Then tried using process substitution instead, but "dsimport" errored with exit code 65 and stderr "Unable to open import file '/dev/fd/##'" (because process substitution creates a pipe instead of a regular file).
+	# "dsimport" can only load a user record that is an actual file that exists in the filesystem (ie. the record data CANNOT be piped since that only exists in memory).
+	# Initially was manually writing a file and then passing it to "dsimport". Then tried using process substitution instead, but "dsimport" errored with exit code 65 and stderr "Unable to open import file '/dev/fd/##'" (because process substitution creates a pipe instead of a regular file).
 	# Next, I tried specifying "/dev/stdin" and then passing the "dsimport_record" string via here-string and that WORKED to pass a string instead of a file (like it does with "PlistBuddy" as well, because here-strings create a regular temporary file to read).
 	# Also, like "PlistBuddy", trying to pipe stdin to "dsimport" (instead of using a here-string) also fails (with the same exit code 65 as trying to use process substitution, because a pipe doesn't create a regular file to read).
-	# Using a here-string (or here-doc) DOES momentarily create a temporary file in the filesystem (which I think it why it is able to work with "dsimport" at all),
-	# but I believe letting the shell handle the creation and deletion of that file instead of handling it manually in this code will result in the file only existing for least possible time.
-	# Also, since this code is guaranteed to be running as root at this point, any temporary file created by the shell would only be readable by another root processes.
+	# While using a here-string (or here-doc) DOES momentarily create a temporary file in the filesystem in bash and zsh (which is why it is able to work with "dsimport" at all),
+	# letting the shell handle the creation and deletion of that file instead of handling it manually in this code is a bit more convenient and will result in the file only existing for least possible time.
+
+	# Even though this code is guaranteed to be running as root at this point and any temporary file created by the shell would only be readable by another root processes,
+	# I still do not consider it secure enough to include the users password in the "dsimport" record (as described above when setting the "dsimport" record values)
+	# which is why the password will NOT be included in this user record to be created by "dsimport" and the password will be set securely after the user has been created.
 
 	dsimport /dev/stdin '/Local/Default' 'I' --outputfile "${dsimport_output_plist_path}" <<< "${dsimport_record}" # "dsimport" shouldn't output to stdout or stderr, but let it be displayed for useful user feedback if it ever does for some reason.
 	# The "I" conflict mode is for Ignore, so that the import will fail if a "RecordName", "UniqueID", "RealName", or "GeneratedUID" already exists (but we know it doesn't from previous checks).
@@ -4850,18 +4989,16 @@ Check \"--help\" for detailed information about each available option."
 		fi
 	fi
 
-	if ! $suppress_status_messages; then
-		echo "mkuser: Verifying ${user_full_and_account_name_display} user password..."
-	fi
-
 	if [[ "${user_password}" == '*' ]]; then
+		if ! $suppress_status_messages; then
+			echo "mkuser: Verifying NO password for ${user_full_and_account_name_display} user..."
+		fi
+
 		intended_authentication_authority="$($set_prevent_secure_token_on_big_sur_and_newer && echo 'AuthenticationAuthority: ;DisabledTags;SecureToken' || echo 'No such key: AuthenticationAuthority')"
 
 		if [[ "$(dscl . -read "/Users/${user_account_name}" HeimdalSRPKey KerberosKeys ShadowHashData _writers_passwd Password 2>&1 | sort)" != $'No such key: HeimdalSRPKey\nNo such key: KerberosKeys\nNo such key: ShadowHashData\nNo such key: _writers_passwd\nPassword: *' || "$(dscl . -read "/Users/${user_account_name}" AuthenticationAuthority 2>&1)" != "${intended_authentication_authority}" ]]; then
-			# If there is no system password policy (such as by default on macOS 10.13 High Sierra), the password will have gotten set to "*" instead of not having any password set and "*" being literally set to the Password attribute to signify no password (as intended).
-			# So, if a password got set, verify that it incorrectly got set to "*" AS LONG AS it won't unintentionally grant this account the first Secure Token, otherwise just assume it did AS LONG AS there is no password policy.
-			# This could also happen if a custom password policy allowed a single character password, which is why we are verifying the password when it is safe to do so (ie. would not grant the first Secure Token to this account, which cannot be undone).
-			# If somehow a password got set, some password policy is set, and it isn't safe to check the actual password since that could grant the account the first Secure Token, or somehow some password other than asterisk got set, just stop and present an error.
+			# If there is no system password content policy (such as by default on macOS 10.13 High Sierra) or some custom password content allowing single character passwords, the actual password will have gotten set to "*" instead of not having any password set and "*" being literally set to the "Password" attribute to signify no password (as intended).
+			# So, if a password got set, verify that it incorrectly got set to "*" AS LONG AS it won't unintentionally grant this account the first Secure Token, otherwise just check that a "*" password is allowed by the password content policy.
 
 			password_unintentionally_got_set_to_asterisk=false
 
@@ -4875,11 +5012,10 @@ Check \"--help\" for detailed information about each available option."
 				if verify_user_password_result="$(mkuser_verify_password "${user_account_name}" "${user_password}" 2>&1)" && [[ "${verify_user_password_result}" == 'VERIFIED' ]]; then
 					password_unintentionally_got_set_to_asterisk=true
 				fi
-			elif [[ -z "$(PlistBuddy -c 'Print :policyCategoryPasswordContent:0:policyContent' /dev/stdin <<< "$(pwpolicy -getaccountpolicies 2> /dev/null | tail +2)" 2> /dev/null)" ]]; then
-				# If verifying the password could possibly grant this account the first Secure Token, just check if there is NO system password policy and assume that the unintentional password is an asterisk.
+			elif check_asterisk_password_content_result="$(mkuser_check_password_content '*' 'bypassFallback' 2>&1)" && [[ "${check_asterisk_password_content_result}" == 'PASSED' ]]; then
+				# If verifying the password could possibly grant this account the first Secure Token, instead check if the system password content policy allows an asterisk as a valid password (bypassing the "mkuser_check_password_content" functions fallback to use the default requirements when no password content policy is set to check what the system actually allows and not get a false negative).
 				# Not being able to safely check the password would only happen on macOS 10.14 Mojave or older when this users UID is 500 or greater and no Secure Token has been granted yet.
-				# But since this is most likely to occur on macOS 10.13 High Sierra where no password policy is set by default, this is an important case to check for.
-				# This intentionally DOES NOT catch the case where it's not safe to check the password and a custom password policy allowed a single character password (which is likely increadibly rare) and an error will just be presented in that case instead.
+				# But since this is most likely to occur on macOS 10.13 High Sierra where no password content policy is set by default, this is an important case to check for.
 
 				password_unintentionally_got_set_to_asterisk=true
 			fi
@@ -4905,9 +5041,9 @@ Check \"--help\" for detailed information about each available option."
 					dscl . -deletepl "/Users/${user_account_name}" accountPolicyData failedLoginTimestamp &> /dev/null
 					dscl . -deletepl "/Users/${user_account_name}" accountPolicyData passwordLastSetTime &> /dev/null
 
-					>&2 echo "mkuser WARNING: Deleted all unintentional password attributes since the password got set to \"*\" instead of NO password (because \"pwpolicy\" allowed it)."
+					>&2 echo "mkuser WARNING: Deleted all unintentional password attributes since the password got set to \"*\" instead of NO password (because password content policy allowed it)."
 				else
-					>&2 echo "mkuser WARNING: Password got set to \"*\" instead of NO password (because \"pwpolicy\" allowed it), AND THIS ACCOUNT GOT GRANTED A SECURE TOKEN SO CAN'T REMOVE IT (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+					>&2 echo "mkuser WARNING: Password got set to \"*\" instead of NO password (because password content policy allowed it), AND THIS ACCOUNT GOT GRANTED A SECURE TOKEN SO CAN'T REMOVE IT (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 				fi
 			fi
 		fi
@@ -4917,20 +5053,105 @@ Check \"--help\" for detailed information about each available option."
 			return "${error_code}"
 		fi
 	else
-		if [[ -z "${user_password}" ]]; then
-			# If no password is specified, it must be manually set to an empty string since if an empty string password is included in the "dsimport" file,
-			# no password will be set at all on macOS 11 Big Sur and newer and some unknown password will be set on macOS 10.15 Catalina and older rather then setting the password to an empty string.
-			# In either case, if the password is not explicitly set to an empty string, the user will not be able to log in with a blank/empty password or at all.
-
-			dscl . -passwd "/Users/${user_account_name}" ''
+		if ! $suppress_status_messages; then
+			echo "mkuser: Setting password for ${user_full_and_account_name_display} user..."
 		fi
 
-		# Must verify password BEFORE setting users to be administrators (if they are configured to be) so that these authentications DO NOT grant the first Secure Token on macOS 10.15 Catalina.
-		# But, these authentications WILL grant the first Secure Token on macOS 10.14 Mojave and macOS 10.13 High Sierra, but that is desirable over possible situations where no Secure Token will get granted at all.
+		# Since no password is specified in the "dsimport" record (since it cannot be done securely), the password must now be manually set.
+		# At this point on macOS 11 Big Sur and newer no password will be set at all for this user account.
+		# But, on macOS 10.15 Catalina and older some unknown password gets set by "dsimport" when a password is omitted (an AuthenticationAuthority and ShadowHashData both get set).
+		# In either case, the desired password must now be explicitly set (even if it's a blank/empty password) or the user will not be able to log in at all.
+		# Since the user will never have a Secure Token at this point on any version of macOS and this code is running as root,
+		# the following "mkuser_set_password" can always set a new password without specifying a current password or Secure Token admin credentials.
+
+		mkuser_set_password() { # $1 = Account Name, $2 = New Password
+			if [[ -z "$1" ]]; then # $2 (new password) can be an empty string.
+				>&2 echo 'Set Password ERROR: An account name must be specified.'
+				return 1
+			fi
+
+			# If the new password is set, the string "SET" will be returned (via stdout) with an exit code of 0.
+			# If the new password is NOT set, an error message will be returned (via stderr) with an exit code of 1.
+
+			# This function uses OpenDirectory's changePassword:toPassword:error: method (https://developer.apple.com/documentation/opendirectory/odrecord/1427145-changepassword?language=objc)
+			# with the "oldPassword" value always set to nil. This means it will only work when the code is run as root and the specified Account Name DOES NOT have a Secure Token (which the newly created user will NEVER have at this point, regardless of macOS version).
+			# That makes this functionally equivalent to running $(dscl . -passwd "/Users/$1" "$2"), but can operate more securely by never revealing the new password in the process list (and without having to use "expect" which has a variety of pitfalls).
+			# If a password is already set, $(echo "${old_password}"$'\n'"${new_password}" | launchctl asuser "${user_uid}" sudo -u "${user_account_name}" sysadminctl -newPassword - -oldPassword - 2>&1) can be used securely, but it CANNOT be used if no password has been set yet.
+			# See comments in "mkuser_verify_password" function about the security considerations of this process (which also apply to this function).
+
+			local set_password_result
+			# Suppress ShellCheck warning that expressions don't expand in single quotes since this is intended.
+			# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
+			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
+			# shellcheck disable=SC2016
+			set_password_result="$(echo -nE "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
+ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password change methods):
+// https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
+
+let accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
+let newPassword = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.availableData, $.NSUTF8StringEncoding)
+
+// Code in the open source OpenDirectory "TestApp.m" from Apple contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
+
+let odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+let odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
+
+let setPasswordResult = `Set Password (Load Node) ERROR: Unknown error loading OpenDirectory "/Local/Default" node.`
+
+if (!odLocalNode.isNil() && odLocalNode.nodeName.js == "/Local/Default") {
+	let odUserRecordError = $()
+	let odUserRecord = odLocalNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, $(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
+
+	if (!odUserRecord.isNil() && odUserRecord.recordName.js == accountName.js) {
+		let odSetPasswordError = $()
+		let odPasswordSet = odUserRecord.changePasswordToPasswordError($(), newPassword, odSetPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427145-changepassword?language=objc
+
+		if (odPasswordSet === true) { // Make sure odPasswordSet is a boolean of true and no other truthy value.
+			setPasswordResult = "SET"
+		} else if (!odSetPasswordError.isNil() && odSetPasswordError.localizedDescription) {
+			setPasswordResult = `Set Password ERROR: ${odSetPasswordError.localizedDescription.js} (Error Code: ${odSetPasswordError.code})`
+		} else {
+			setPasswordResult = "Set Password ERROR: Unknown error setting password."
+		}
+	} else if (!odUserRecordError.isNil() && odUserRecordError.localizedDescription) {
+		setPasswordResult = `Set Password (Load Record) ERROR: ${odUserRecordError.localizedDescription.js} (Error Code: ${odUserRecordError.code})`
+	} else {
+		setPasswordResult = `Set Password (Load Record) ERROR: OpenDirectory RecordName (user account name "${accountName.js}") does not exist.`
+	}
+} else if (!odLocalNodeError.isNil() && odLocalNodeError.localizedDescription) {
+	setPasswordResult = `Set Password (Load Node) ERROR: ${odLocalNodeError.localizedDescription.js} (Error Code: ${odLocalNodeError.code})`
+}
+
+// DO NOT "console.log()" the result since that will go to stderr which is being redirected to "/dev/null" so that only our result string is ever retrieved via stdout.
+// This is because I have seen an irrelevant error about failing to establish a connection to the WindowServer (on macOS 10.13 High Sierra at least) that could be
+// included in stderr even when password set was successful which would mess up checking for the exact success string if we were to capture stderr in the output.
+
+setPasswordResult // Just having "setPasswordResult" as the last statement will make JXA send the value to stdout.
+' 2> /dev/null)"
+
+			if [[ "${set_password_result}" == 'SET' ]]; then
+				echo "${set_password_result}"
+				return 0
+			elif [[ -z "${set_password_result}" ]]; then
+				set_password_result='Set Password ERROR: Unknown error occurred.'
+			fi
+
+			>&2 echo "${set_password_result}"
+			return 1
+		}
+
+		if ! set_user_password_result="$(mkuser_set_password "${user_account_name}" "${user_password}" 2>&1)" || [[ "${set_user_password_result}" != 'SET' ]]; then
+			>&2 echo "mkuser ${set_user_password_result}"
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to set password."
+			return "${error_code}"
+		fi
+
+		# Must verify password BEFORE setting this user to be an administrator (if they are configured to be) so that this authentication DOES NOT grant the first Secure Token on macOS 10.15 Catalina.
+		# But, this authentication WILL grant the first Secure Token on macOS 10.14 Mojave and macOS 10.13 High Sierra, but that is desirable over possible situations where no Secure Token would get granted at all.
 		# See all the "SECURE TOKEN NOTES" sections within the "--prevent-secure-token-on-big-sur-and-newer" help info for more about how macOS grants the first Secure Token on different versions of macOS.
 
 		if ! verify_user_password_result="$(mkuser_verify_password "${user_account_name}" "${user_password}" 2>&1)" || [[ "${verify_user_password_result}" != 'VERIFIED' ]]; then
-			>&2 echo "${verify_user_password_result}"
+			>&2 echo "mkuser ${verify_user_password_result}"
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify password."
 			return "${error_code}"
 		fi
@@ -5055,7 +5276,7 @@ Check \"--help\" for detailed information about each available option."
 
 				# Also check for an associated SharePoint Group and delete it as well.
 				# This must be done before deleting the SharePoint since the GeneratedUID of the SharePoint Group is references within the SharePoint.
-				user_share_point_group_guid="$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_group_id:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null)" 2> /dev/null)"
+				user_share_point_group_guid="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
 				if [[ -n "${user_share_point_group_guid}" ]]; then
 					user_share_point_group_name="$(dscl . -search /Groups GeneratedUID "${user_share_point_group_guid}" | awk '{ print $1; exit }')"
 
@@ -5164,27 +5385,24 @@ Check \"--help\" for detailed information about each available option."
 			# The "sharing -a" SharePoint will NOT contain the following 5 (or 4) attributes which ARE created for SharePoints created via "sysadminctl -addUser" and System Preferences, so add them.
 			if (( darwin_major_version >= 19 )); then
 				# This attribute was added in macOS 10.15 Catalina and did not exist in older versions of macOS.
-				if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" com_apple_sharing_uuid "${user_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:com_apple_sharing_uuid:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null)" 2> /dev/null)" != "${user_guid}" ]]; then
+				if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" com_apple_sharing_uuid "${user_guid}" || [[ "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${user_guid}" ]]; then
 					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add user's GeneratedUID to SharePoint."
 					return "${error_code}"
 				fi
 			fi
 
-			root_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read '/Users/root' GeneratedUID 2> /dev/null)" 2> /dev/null)"
+			root_guid="$(dscl -plist . -read '/Users/root' GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
 			if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" ftp_name "${user_share_point_name}" || \
 				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_account_uuid "${root_guid}" || \
 				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_createmask '644' || \
 				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_directorymask '755' || \
-				! dscl_read_modern_sharepoint_attributes_plist="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" ftp_name sharepoint_account_uuid smb_createmask smb_directorymask 2> /dev/null)" ||
-				[[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:ftp_name:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${user_share_point_name}" || \
-					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_account_uuid:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${root_guid}" || \
-					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:smb_createmask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != '644' || \
-					"$(PlistBuddy -c 'Print :dsAttrTypeNative\:smb_directorymask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != '755' ]]; then
+				! dscl_read_modern_sharepoint_attributes_plist="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" ftp_name sharepoint_account_uuid smb_createmask smb_directorymask 2> /dev/null)" || \
+				[[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:ftp_name:0' -c 'Print :dsAttrTypeNative\:sharepoint_account_uuid:0' -c 'Print :dsAttrTypeNative\:smb_createmask:0' -c 'Print :dsAttrTypeNative\:smb_directorymask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${user_share_point_name}"$'\n'"${root_guid}"$'\n644\n755' ]]; then
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add modern attributes to SharePoint."
 				return "${error_code}"
 			fi
 
-			if [[ "$(PlistBuddy -c 'Print :dsAttrTypeStandard\:PrimaryGroupID:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" PrimaryGroupID 2> /dev/null)" 2> /dev/null)" != "${user_share_point_group_id}" ]]; then
+			if [[ "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" PrimaryGroupID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${user_share_point_group_id}" ]]; then
 				# While "mkuser" does not officially support older than macOS 10.13 High Sierra, I did do one test on OS X 10.11 El Capitan and was surprised to see that "sharing -a" actually created the SharePoint Group, unlike newer versions of macOS.
 				# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra or newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
 				# This check should make this one thing simpler if official support for older versions of macOS is ever needed, or if things change in a future version of macOS.
@@ -5199,15 +5417,15 @@ Check \"--help\" for detailed information about each available option."
 			fi
 
 			# Hide the SharePoint Group like "sysadminctl -addUser" and System Preferences does.
-			if ! dscl . -create "/Groups/${user_share_point_group_name}" IsHidden '1' || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:IsHidden:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" IsHidden 2> /dev/null)" 2> /dev/null)" != '1' ]]; then
+			if ! dscl . -create "/Groups/${user_share_point_group_name}" IsHidden '1' || [[ "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" IsHidden 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != '1' ]]; then
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to hide SharePoint Group."
 				return "${error_code}"
 			fi
 
 			# The "sharing -a" SharePoint will also NOT contain the "sharepoint_group_id" attribute which refers back to the GeneratedUID
 			# of the SharePoint Group (com.apple.sharepoint.group.#), therefore is must be added after creating the SharePoint Group.
-			sharepoint_group_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" GeneratedUID 2> /dev/null)" 2> /dev/null)"
-			if [[ -z "${sharepoint_group_guid}" ]] || ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_group_id "${sharepoint_group_guid}" || [[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:sharepoint_group_id:0' /dev/stdin <<< "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null)" 2> /dev/null)" != "${sharepoint_group_guid}" ]]; then
+			sharepoint_group_guid="$(dscl -plist . -read "/Groups/${user_share_point_group_name}" GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
+			if [[ -z "${sharepoint_group_guid}" ]] || ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_group_id "${sharepoint_group_guid}" || [[ "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${sharepoint_group_guid}" ]]; then
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint Group GeneratedUID to SharePoint."
 				return "${error_code}"
 			fi
@@ -5264,7 +5482,7 @@ Check \"--help\" for detailed information about each available option."
 		for this_admin_group in "${admin_groups[@]}"; do
 			if [[ " $(echo "${dscache_groups}" | AWK_ENV_ADMIN_GROUP="${this_admin_group}" awk -F ': ' '($1 == "name") { this_name = $2 } (this_name == ENVIRON["AWK_ENV_ADMIN_GROUP"] && $1 == "users") { print $2 }' | tr -s '[:space:]' ' ') " != *" ${user_account_name} "* ]]; then
 				# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
-				# Since multiple entries for a single group can exist, there may be line breaks. But DO NOT use "xargs" to convert these lines to be seperated by spaces in case it's an incredibly huge list and "xargs" will include line break after a number of arguments or bytes.
+				# Since multiple entries for a single group can exist, there may be line breaks. But DO NOT use "xargs" to convert these lines to be separated by spaces in case it's an incredibly huge list and "xargs" will include line break after a number of arguments or bytes.
 
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify \"${this_admin_group}\" group membership in Directory Service cache."
 				return "${error_code}"
@@ -5305,7 +5523,7 @@ Check \"--help\" for detailed information about each available option."
 		cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special kcpassword repeating cipher hex characters.
 		cipher_key_length="${#cipher_key[@]}"
 
-		password_hex_string="$(echo -n "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (seperated by line breaks via "-c 1"). Must pipe to "xxd" with "echo -n" to not include a trailing line break character.
+		password_hex_string="$(echo -n "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (separated by line breaks via "-c 1"). Must pipe to "xxd" with "echo -n" to not include a trailing line break character.
 
 		encoded_password_hex_string=''
 		this_password_hex_char_index=0
@@ -5382,7 +5600,7 @@ Check \"--help\" for detailed information about each available option."
 
 		# VERIFY THAT THE KCPASSWORD CONTENTS DECODE CORRECTLY
 
-		encoded_password_hex_string="$(xxd -c 1 -p /private/etc/kcpassword)" # Convert each Unicode character of the kcpassword contents to their hex represention (seperated by line breaks via "-c 1").
+		encoded_password_hex_string="$(xxd -c 1 -p /private/etc/kcpassword)" # Convert each Unicode character of the kcpassword contents to their hex represention (separated by line breaks via "-c 1").
 
 		decoded_password_hex_string=''
 		this_encoded_password_hex_char_index=0
