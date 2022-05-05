@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.4.21-1'
+	readonly MKUSER_VERSION='2022.5.4-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -282,12 +282,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					if $is_last_option_in_group; then
 						if [[ -n "$1" ]]; then # Allow full names to start with "-" as System Preferences does, which is a bit risky if someone does something wrong like "--full-name --uid" which will set the full name to "--uid" and the parameter for "--uid" will become an invalid option and error.
 							if [[ -z "${user_full_name}" ]]; then
-								# DO NOT use "echo -e" to interpret any included backslash-escaped characters since that would only make it easier to include invalid line breaks.
-								if [[ "$1" != *$'\n'* && -n "${1//[[:space:]]/}" ]]; then # Make sure there are no line breaks and that it's not only whitespace.
+								# DO NOT interpret any literal backslash-escaped characters since that would only make it easier to include invalid line breaks or other control characters.
+								if [[ -n "${1//[[:space:]]/}" && "${1//[[:cntrl:]]/}" == "${1//$'\t'/}" ]]; then # Make sure that it's not only whitespace and there are no control characters other than tabs which are allowed (such as line breaks which are NOT allowed).
 									user_full_name="$1" # Will be set to the user_account_name if not specified.
 									valid_options_for_package+=( "${this_option}" "${user_full_name}" )
 								else
-									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot be only whitespace or contain line breaks."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot be only whitespace and cannot contain control characters other than tabs (such as line breaks)."
 									has_invalid_options=true
 								fi
 							else
@@ -314,7 +314,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 									if [[ "${user_uid}" == '0'* || "${user_uid}" == '-0'* ]]; then
 										user_uid="${user_uid//[^${DIGITS}]/}" # Need to temporarily remove any minus sign to remove leading zeros.
-										user_uid="$([[ "$1" == '-'* ]] && echo '-')${user_uid#"${user_uid%%[^0]*}"}" # Remove any leading zeros and add back any minus sign.
+										user_uid="$([[ "$1" == '-'* ]] && printf '-')${user_uid#"${user_uid%%[^0]*}"}" # Remove any leading zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
 										if [[ -z "${user_uid}" || "${user_uid}" == '-' ]]; then user_uid='0'; fi # Catch if the number was all zeros with or without a minus sign.
 									fi
 
@@ -383,7 +383,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 									if [[ "${user_gid}" == '0'* || "${user_gid}" == '-0'* ]]; then
 										user_gid="${user_gid//[^${DIGITS}]/}" # Need to temporarily remove any minus sign to remove leading zeros.
-										user_gid="$([[ "$1" == '-'* ]] && echo '-')${user_gid#"${user_gid%%[^0]*}"}" # Remove any leading zeros and add back any minus sign.
+										user_gid="$([[ "$1" == '-'* ]] && printf '-')${user_gid#"${user_gid%%[^0]*}"}" # Remove any leading zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
 										if [[ -z "${user_gid}" || "${user_gid}" == '-' ]]; then user_gid='0'; fi # Catch if the number was all zeros with or without a minus sign.
 									fi
 
@@ -437,11 +437,11 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					if $is_last_option_in_group; then
 						if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
 							if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--stdin-password" (or multiple "--password" options specified).
-								if [[ "$1" != *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
+								if [[ "$1" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs). System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
 									user_password="$1" # Will validate the password meets the global password content policy requirements later in the code.
 									# Do not include "--password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 								else
-									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain any control characters such as line breaks or tabs."
 									has_invalid_options=true
 								fi
 							else
@@ -459,11 +459,13 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--stdin-password|--stdin-pass|--sp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is open so that the script doesn't hang forever if "--stdin-password" is used with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
-							user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (and will validate the password meets the global password content policy requirements later in the code).
-							# Do not include "--stdin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+							possible_user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (and will validate the password meets the global password content policy requirements later in the code).
 
-							if [[ "$user_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
-								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain line breaks."
+							if [[ "${possible_user_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs). System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
+								user_password="${possible_user_password}" # Will validate the password meets the global password content policy requirements later in the code.
+								# Do not include "--stdin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+							else
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain any control characters such as line breaks or tabs."
 								has_invalid_options=true
 							fi
 						else
@@ -497,8 +499,17 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--password-hint|--hint|--ph) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ -n "$1" ]]; then # Allow hints to start with "-", which is a bit risky if someone does something wrong like "--hint --home" which will set the hint to "--home" and the parameter for "--home" will become an invalid option and error.
 						if [[ -z "${user_password_hint}" ]]; then
-							user_password_hint="$(echo -e "$1")" # Use "echo -e" to interpret any included backslash-escaped characters in the hint (such as "\n" or "\t") since they are allowed. No password hint will be set if not specified.
-							valid_options_for_package+=( "${this_option}" "${user_password_hint}" )
+							printf -v possible_user_password_hint '%b' "$1" # Use "printf '%b'" to interpret any literal backslash-escaped characters in the hint, since "\n" and "\t" are allowed (and others will be rejected below). DO NOT use "echo -e" since any hint starting with a hyphen of only valid echo options (which is incredibly rare) would not be outputted.
+
+							if [[ -n "${possible_user_password_hint//[[:space:]]/}" && "${possible_user_password_hint//[[:cntrl:]]/}" == "${possible_user_password_hint//[$'\n\t']/}" ]]; then # Make sure that it's not only whitespace and there are no control characters other than tabs or line breaks.
+								user_password_hint="${possible_user_password_hint}" # No password hint will be set if not specified.
+								valid_options_for_package+=( "${this_option}" "${user_password_hint}" )
+							else
+								# Suppress ShellCheck warning that "echo" won't expand escape sequences since we are intentionally printing the literal "\n" and "\t".
+								# shellcheck disable=SC2028
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it cannot be only whitespace and cannot contain control characters other than line breaks (\n) or tabs (\t)."
+								has_invalid_options=true
+							fi
 						else
 							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 							has_invalid_options=true
@@ -707,11 +718,11 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--secure-token-admin-password|--st-admin-pass|--st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--secure-token-admin-password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
 						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite password if already set with "--fd-secure-token-admin-password" (or multiple "--secure-token-admin-password" options specified).
-							if [[ "$1" != *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
+							if [[ "$1" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
 								st_admin_password="$1"
 								# Do not include "--secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
 							else
-								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain any control characters such as line breaks or tabs."
 								has_invalid_options=true
 							fi
 						else
@@ -725,11 +736,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ "$1" == '/dev/fd/'* ]]; then # Make sure a file descriptor path is specified.
 						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd-secure-token-admin-password" options specified).
-							if st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list or written in the filesystem.
-								# Do not include "--fd-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
-
-								if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
-									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
+							if possible_st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list or written in the filesystem.
+								if [[ "${possible_st_admin_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
+									st_admin_password="${possible_st_admin_password}"
+									# Do not include "--fd-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+								else
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain any control characters such as line breaks or tabs."
 									has_invalid_options=true
 								fi
 							else
@@ -753,11 +765,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					>&2 echo "mkuser WARNING: The \"${this_unaltered_option}\" option IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION! The more secure \"--fd-secure-token-admin-password\" should be used instead. See \"--help\" for more information."
 
 					if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd3-secure-token-admin-password" options specified).
-						if st_admin_password="$(cat '/dev/fd/3' 2> /dev/null)"; then # Optionally get password from fd3 so that the password is never visible in the process list.
-							# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
-
-							if [[ "$st_admin_password" == *$'\n'* ]]; then # Make sure there are no line breaks. System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
-								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain line breaks."
+						if possible_st_admin_password="$(cat '/dev/fd/3' 2> /dev/null)"; then # Optionally get password from fd3 so that the password is never visible in the process list.
+							if [[ "${possible_st_admin_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
+								st_admin_password="${possible_st_admin_password}"
+								# Do not include "--fd3-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+							else
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain any control characters such as line breaks or tabs."
 								has_invalid_options=true
 							fi
 						else # Show error if file descriptor 3 (fd3) was not specified (via 3<<< here-string).
@@ -991,10 +1004,8 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		# Must only run as current user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
 
 		current_user_id="$(echo 'show State:/Users/ConsoleUser' | scutil | awk '($1 == "UID") { print $NF; exit }')"
-		if (( current_user_id != 0 )); then
-			current_user_name="$(dscl /Search -search /Users UniqueID "${current_user_id}" 2> /dev/null | awk '{ print $1; exit }')"
-
-			open_command_asuser_or_not+=( 'launchctl' 'asuser' "${current_user_id}" 'sudo' '-u' "${current_user_name}" )
+		if [[ -n "${current_user_id}" ]] && (( current_user_id != 0 )); then
+			open_command_asuser_or_not+=( 'launchctl' 'asuser' "${current_user_id}" 'sudo' '-u' "#${current_user_id}" )
 		fi
 	fi
 	open_command_asuser_or_not+=( 'open' ) # While "open" always opens the app as the currently logged in user, I have found it to not always launch apps reliably if run as root (also: https://scriptingosx.com/2020/08/running-a-command-as-another-user/)
@@ -1064,14 +1075,14 @@ Copyright (c) $(date '+%Y') Free Geek
 ${ansi_underline}https://mkuser.sh${clear_ansi}
 
 
-\xf0\x9f\x93\x9d ${ansi_bold}DESCRIPTION:${clear_ansi}
+\xF0\x9F\x93\x9D ${ansi_bold}DESCRIPTION:${clear_ansi}
 
   ${ansi_bold}mkuser${clear_ansi} ${ansi_underline}m${clear_ansi}a${ansi_underline}k${clear_ansi}es ${ansi_underline}user${clear_ansi} accounts for macOS with more options, more validation
     of inputs, and more verification of the created user account than any other
     user creation tool, including ${ansi_bold}sysadminctl -addUser${clear_ansi} and System Preferences!
 
 
-\xe2\x84\xb9\xef\xb8\x8f  ${ansi_bold}USAGE NOTES:${clear_ansi}
+\xE2\x84\xB9\xEF\xB8\x8F  ${ansi_bold}USAGE NOTES:${clear_ansi}
 
   For long form options (multicharacter options starting with two hyphens),
     case doesn't matter.
@@ -1117,7 +1128,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     or ${ansi_bold}--suppress-status-messages${clear_ansi} (${ansi_bold}-q${clear_ansi}) or ${ansi_bold}--stdin-password${clear_ansi}.
 
 
-\xf0\x9f\x91\xa4 ${ansi_bold}PRIMARY OPTIONS:${clear_ansi}
+\xF0\x9F\x91\xA4 ${ansi_bold}PRIMARY OPTIONS:${clear_ansi}
 
   ${ansi_bold}--account-name, --record-name, --short-name, --username, --user, --name, -n${clear_ansi}
     < ${ansi_underline}string${clear_ansi} >
@@ -1152,8 +1163,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--full-name, --real-name, -f${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
-    There are no limitations on the characters allowed in the full name,
-      except that it cannot be only whitespace or have line breaks.
+    The only limitations on the characters allowed in the full name
+      are that it cannot be only whitespace and cannot contain
+      control characters other than tabs (such as line breaks).
     See notes below about the non-specific length limit of the full name.
     The full name must not already be assigned to another user.
     If omitted, the account name will be used as the full name.
@@ -1230,7 +1242,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       and \"/bin/bash\" will be used on macOS 10.14 Mojave and older.
 
 
-\xf0\x9f\x94\x90 ${ansi_bold}PASSWORD OPTIONS:${clear_ansi}
+\xF0\x9F\x94\x90 ${ansi_bold}PASSWORD OPTIONS:${clear_ansi}
 
   ${ansi_bold}--password, --pass, -p${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
@@ -1247,8 +1259,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       password length of 511 bytes, or 251 bytes when enabling auto-login.
     See notes below for more details about these maximum length limitations.
 
-    There are no limitations on the characters allowed in the password,
-      except that it cannot contain line breaks.
+    The only limitation on the characters allowed in the password is that
+      it cannot contain any control characters such as line breaks or tabs.
     If omitted, a blank/empty password will be specified.
 
     ${ansi_bold}BLANK/EMPTY PASSWORD NOTES:${clear_ansi}
@@ -1284,6 +1296,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       10,000 bytes (typed via an Arduino) and unlocking \"System Preferences\"
       panes with passwords up to 150,000 bytes (copy-and-pasted).
     Longer passwords took overly long for the Arduino to type or macOS to paste.
+    But, that longer password testing was done with non-Secure Token accounts.
+    When an account has a Secure Token, there are other limitations described in
+      the ${ansi_underline}SECURE TOKEN ADMIN 1022 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in the help
+      information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option below.
 
     ${ansi_bold}PASSWORDS IN PACKAGE NOTES:${clear_ansi}
     When outputting a user creation package (with the ${ansi_bold}--package${clear_ansi} option), only
@@ -1363,9 +1379,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--password-hint, --hint, --ph${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
-    Must be 280 characters or less, but there are no limitations
-      on the characters allowed in the password hint.
-    Line breaks and tabs can also be included.
+    Must be 280 characters or less and the only limitations on the characters
+      allowed in the password hint are that it cannot be only whitespace and
+      can't contain control characters other than line breaks (\\\n) or tabs (\\\t).
     If omitted, no password hint will be set.
 
     ${ansi_bold}280 CHARACTER PASSWORD HINT LENGTH LIMIT NOTES:${clear_ansi}
@@ -1391,7 +1407,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       \"System Preferences\" when unlocked and authenticated by an administrator.
 
 
-\xf0\x9f\x93\x81 ${ansi_bold}HOME FOLDER OPTIONS:${clear_ansi}
+\xF0\x9F\x93\x81 ${ansi_bold}HOME FOLDER OPTIONS:${clear_ansi}
 
   ${ansi_bold}--home-folder, --home-path, --home, -H${clear_ansi}  < ${ansi_underline}non-existing path${clear_ansi} >
 
@@ -1427,7 +1443,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       ${ansi_bold}--skip-setup-assistant firstLoginOnly${clear_ansi} since they require the home folder.
 
 
-\xf0\x9f\x96\xbc  ${ansi_bold}PICTURE OPTIONS:${clear_ansi}
+\xF0\x9F\x96\xBC  ${ansi_bold}PICTURE OPTIONS:${clear_ansi}
 
   ${ansi_bold}--picture, --photo, --pic, -P${clear_ansi}  < ${ansi_underline}existing path${clear_ansi} || ${ansi_underline}default picture filename${clear_ansi} >
 
@@ -1455,7 +1471,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       \"System Preferences\" when unlocked and authenticated by an administrator.
 
 
-\xf0\x9f\x8e\x9b  ${ansi_bold}ACCOUNT TYPE OPTIONS:${clear_ansi}
+\xF0\x9F\x8E\x9B  ${ansi_bold}ACCOUNT TYPE OPTIONS:${clear_ansi}
 
   ${ansi_bold}--administrator, --admin, -a${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
@@ -1757,7 +1773,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       users if you pass an existing Secure Token admins credentials using the
       ${ansi_bold}--secure-token-admin-account-name${clear_ansi} option along with one of the
       three different Secure Token admin password options below.
-    See the ${ansi_underline}SECURE TOKEN 1022 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in the help
+    See the ${ansi_underline}SECURE TOKEN ADMIN 1022 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in the help
       information for the ${ansi_bold}--secure-token-admin-password${clear_ansi} option below and the
       ${ansi_underline}PASSWORDS IN PACKAGE NOTES${clear_ansi} in help information for the ${ansi_bold}--password${clear_ansi} option
       above for more information about how passwords are handled securely
@@ -1784,10 +1800,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--secure-token-admin-password, --st-admin-pass, --st-pass${clear_ansi}  < ${ansi_underline}string${clear_ansi} >
 
-    The password must be at least 4 characters and 1022 bytes or less,
-      or a blank/empty password.
     The password will be validated to be correct for the
       specified ${ansi_bold}--secure-token-admin-account-name${clear_ansi}.
+    The password must be 1022 bytes or less (see notes below for more info).
     If omitted, blank/empty password will be specified.
     This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
 
@@ -1872,7 +1887,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       accepting \"stdin\" disrupts the ability to use other command line inputs.
 
 
-\xf0\x9f\x9a\xaa ${ansi_bold}LOGIN OPTIONS:${clear_ansi}
+\xF0\x9F\x9A\xAA ${ansi_bold}LOGIN OPTIONS:${clear_ansi}
 
   ${ansi_bold}--automatic-login, --auto-login, -A${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
@@ -1927,7 +1942,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Any other parameters are invalid and will cause the user to not be created.
 
 
-\xf0\x9f\x93\xa6 ${ansi_bold}PACKAGING OPTIONS:${clear_ansi}
+\xF0\x9F\x93\xA6 ${ansi_bold}PACKAGING OPTIONS:${clear_ansi}
 
   ${ansi_bold}--package-path, --pkg-path, --package, --pkg${clear_ansi}
     < ${ansi_underline}folder path${clear_ansi} || ${ansi_underline}pkg file path${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} (working directory) >
@@ -1980,7 +1995,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     If omitted, the package will not be signed.
 
 
-\xe2\x9a\x99\xef\xb8\x8f  ${ansi_bold}MKUSER OPTIONS:${clear_ansi}
+\xE2\x9A\x99\xEF\xB8\x8F  ${ansi_bold}MKUSER OPTIONS:${clear_ansi}
 
   ${ansi_bold}--do-not-confirm, --no-confirm, --force, -F${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
@@ -2040,8 +2055,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 		if $show_brief_help; then
 			# DO NOT "echo -e" when grepping so that ansi codes are easier to match and replace and the missing options check continues to work below against un-interpreted ansi codes.
 			help_information="$(echo "${help_information}" | grep '^[^ ]\|^[ ]\{2\}\\033\[1m--\|^[ ]\{4\}<')" # Filter to only lines that are section titles, options, and parameter descriptions that my be on their own lines.
-			help_information="${help_information//\\xf0\\x9f\\x93\\x9d \\033[1mDESCRIPTION:\\033[0m/}" # Remove DESCRIPTION section title since the description text has been removed (this leaves an empty line in it's place so that there is a line between the URL and first section title).
-			help_information="${help_information//\\xe2\\x84\\xb9\\xef\\xb8\\x8f  \\033[1mUSAGE NOTES:\\033[0m$'\n'/}" # Remove USAGE NOTES section title (and the line break at the end) since the description text has been removed (this DOESN'T leave behind a line break so that there aren't two lines between the URL and first section title).
+			help_information="${help_information//\\xF0\\x9F\\x93\\x9D \\033[1mDESCRIPTION:\\033[0m/}" # Remove DESCRIPTION section title since the description text has been removed (this leaves an empty line in it's place so that there is a line between the URL and first section title).
+			help_information="${help_information//\\xE2\\x84\\xB9\\xEF\\xB8\\x8F  \\033[1mUSAGE NOTES:\\033[0m$'\n'/}" # Remove USAGE NOTES section title (and the line break at the end) since the description text has been removed (this DOESN'T leave behind a line break so that there aren't two lines between the URL and first section title).
 			help_information="${help_information//:\\033[0m/:\\033[0m\n}" # Add back a single line break after each section title for an easier to read display.
 			help_information="\n${help_information//>/>\n}" # Add back a single line break after parameter description for an easier to read display (and add line break before first version line to retain original padding).
 		fi
@@ -2092,7 +2107,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		# Strip ANSI styles to check each displayed line length string length.
 		# From: https://superuser.com/questions/380772/removing-ansi-color-codes-from-text-stream#comment2323889_380778
-		if echo -e "${help_information}" | sed -e $'s/\x1b\[[0-9;]*m//g' | grep -q '^.\{81\}'; then
+		if echo -e "${help_information}" | sed -e $'s/\x1B\[[0-9;]*m//g' | grep -q '^.\{81\}'; then
 			>&2 echo -e "\nmkuser HELP ERROR: Some help information line is over 80 characters.\n"
 		fi
 
@@ -2144,7 +2159,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			if [[ -z "${user_account_name}" ]]; then
 				# If something went wrong with the Objective-C conversion via JXA and the result is an empty string, fall back to just stripping the illegal characters from the full name and setting it to lowercase in bash (which will just completely remove any characters with diacritics).
 
-				user_account_name="$(echo "${user_full_name//[^${A_Z}${a_z}${DIGITS}_.-]/}" | tr '[:upper:]' '[:lower:]')"
+				user_account_name="$(printf '%s' "${user_full_name//[^${A_Z}${a_z}${DIGITS}_.-]/}" | tr '[:upper:]' '[:lower:]')" # Must use "printf '%s'" (instead of "echo") to be able to output a full name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 			fi
 
 			# ONLY WHEN converting full name into account name, removing any invalid leading characters ("." and "-").
@@ -2196,13 +2211,13 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if [[ -z "${user_full_name}" ]]; then
 		user_full_name="${user_account_name}" # If no full name specified, use the account name (which will always be a valid full name).
-	elif [[ "$(echo "${user_full_name}" | tr '[:upper:]' '[:lower:]')" == 'guest' ]]; then
+	elif [[ "$(printf '%s' "${user_full_name}" | tr '[:upper:]' '[:lower:]')" == 'guest' ]]; then # Must use "printf '%s'" (instead of "echo") to be able to output a full name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
 	(( error_code ++ ))
 
-	if [[ -n "${user_uid}" ]] && ( [[ "$(( user_uid ))" != "${user_uid}" ]] || (( user_uid < -2147483648 || user_uid > 2147483647 )) ); then
+	if [[ -n "${user_uid}" ]] && { [[ "$(( user_uid ))" != "${user_uid}" ]] || (( user_uid < -2147483648 || user_uid > 2147483647 )); }; then
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
 		# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
@@ -2211,7 +2226,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	fi
 	(( error_code ++ ))
 
-	if [[ -n "${user_gid}" ]] && ( [[ "$(( user_gid ))" != "${user_gid}" ]] || (( user_gid < -2147483648 || user_gid > 2147483647 )) ); then
+	if [[ -n "${user_gid}" ]] && { [[ "$(( user_gid ))" != "${user_gid}" ]] || (( user_gid < -2147483648 || user_gid > 2147483647 )); }; then
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
 		# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
@@ -2229,6 +2244,12 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		else
 			echo -en "\nSpecify Password for New \"${user_account_name}\" User: "
 			read -rs prompted_user_password
+
+			if [[ "${prompted_user_password}" == *[[:cntrl:]]* ]]; then # Make sure there are no control characters (even though I'm not sure any could actually be entered in a "read" prompt).
+				echo -e '\n'
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password cannot contain any control characters such as line breaks or tabs."
+				return "${error_code}"
+			fi
 
 			echo -en "\nConfirm Password for New \"${user_account_name}\" User: "
 			read -rs confirmed_prompted_user_password
@@ -2262,7 +2283,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			# UNLESS "$2" argument is "bypassFallback", then bypass this fallback and only check the actual current password content policy even if none exists (which would allow any password).
 			# ALSO if "$2" argument is "onlyCheckDefault", then only check against these default requirements and DO NOT check the actual current password content policy even if one is set (which is useful when mkuser is outputting a user creation package where the password will be fully checked on the target system).
 
-			if [[ -z "${1}" ]]; then
+			if [[ -z "$1" ]]; then
 				if [[ "$(fdesetup isactive)" == 'true' ]]; then
 					check_password_content_result='Check Password Content ERROR: Password cannot be blank/empty when FileVault is enabled.'
 				else
@@ -2278,7 +2299,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
 			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
 			# shellcheck disable=SC2016
-			check_password_content_result="$(echo -nE "$1" | osascript -l 'JavaScript' -e '
+			check_password_content_result="$(printf '%s' "$1" | osascript -l 'JavaScript' -e '
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
@@ -2354,41 +2375,46 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		return 1
 	}
 
-	if [[ -z "${user_password}" ]]; then
-		if ! $set_service_account; then # Service Accounts will have the password set to NO PASSWORD (*) which are allowed when FileVault is enabled.
-			if $make_package; then
-				# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user may not be created on FileVault enabled Macs.
-				>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which is not allowed by default on FileVault-enabled Macs, so this user MAY NOT be created if you try to install this package on a FileVault-enabled Mac.'
-			elif ! check_empty_password_content_result="$(mkuser_check_password_content '' 2>&1)" || [[ "${check_empty_password_content_result}" != 'PASSED' ]]; then
-				>&2 echo "mkuser ${check_empty_password_content_result}"
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password content policy does not allow a blank/empty password (which is default behavior when FileVault is enabled)."
-				return "${error_code}"
+	if ! $IS_PACKAGE || ! $check_only; then
+		# No need to check password during the initial check only run of a package installation since a blank/empty password will be specified and don't want the package installation to fail if that doesn't meet the password content policy requirements.
+		# The actual password will be deobfuscated and checked during the next phase of the package installation and will still fail without starting to create the user if it doesn't meet the password content policy requirements.
+
+		if [[ -z "${user_password}" ]]; then
+			if ! $set_service_account; then # Service Accounts will have the password set to NO PASSWORD (*) which are allowed when FileVault is enabled.
+				if $make_package; then
+					# Do not bother checking if FileVault is enabled when making a package, but show a warning that this user may not be created on FileVault enabled Macs.
+					>&2 echo 'mkuser WARNING: This user will be created with a blank/empty password which is not allowed by default on FileVault-enabled Macs, so this user MAY NOT be created if you try to install this package on a FileVault-enabled Mac.'
+				elif ! check_empty_password_content_result="$(mkuser_check_password_content '' 2>&1)" || [[ "${check_empty_password_content_result}" != 'PASSED' ]]; then
+					>&2 echo "mkuser ${check_empty_password_content_result}"
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password content policy does not allow a blank/empty password (which is default behavior when FileVault is enabled)."
+					return "${error_code}"
+				fi
 			fi
-		fi
-	elif [[ "${user_password}" != '*' ]] && ( ! $IS_PACKAGE || ! $check_only || [[ "${user_password}" != 'FAKE-PASSW0RD for-mkuser-check-only' ]] ); then # No need to check asterisk or package check only placeholder password against actual password content policy (since we don't want a package installation to fail if the placeholder password doesn't meet some custom requirements, and the user would still not get created if the actual password doesn't meed to the requirements in the next phase of the package installation).
-		# Enforce the following password max length limit regardless of if the password content policy allows them or not (because of reasons listed in NOTES of the "--password" section of the "--help" information).
-		user_password_byte_length="$(echo -n "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
-		user_password_byte_length="${user_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
-		if $set_auto_login && (( user_password_byte_length > 251 )); then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
-			return "${error_code}"
+		elif [[ "${user_password}" != '*' ]]; then # No need to check asterisk against actual password content policy.
+			# Enforce the following password max length limit regardless of if the password content policy allows them or not (because of reasons listed in NOTES of the "--password" section of the "--help" information).
+			user_password_byte_length="$(printf '%s' "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+			user_password_byte_length="${user_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
+			if $set_auto_login && (( user_password_byte_length > 251 )); then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
+				return "${error_code}"
 
-			# Read "AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES" section of the "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on macOS 10.13 High Sierra and macOS 11 Big Sur.
-		elif (( user_password_byte_length > 511 )); then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password too long, it must be 511 bytes or less. Specified password is ${user_password_byte_length} bytes long. See \"--help\" for more information about this limitation."
-			return "${error_code}"
+				# Read "AUTO-LOGIN 251 BYTE PASSWORD LENGTH LIMIT NOTES" section of the "--help" information about why passwords longer than 251 bytes are not allowed for auto-login (it's because they just don't work). The described behavior was tested on macOS 10.13 High Sierra and macOS 11 Big Sur.
+			elif (( user_password_byte_length > 511 )); then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password too long, it must be 511 bytes or less. Specified password is ${user_password_byte_length} bytes long. See \"--help\" for more information about this limitation."
+				return "${error_code}"
 
-			# Read "511 BYTE PASSWORD LENGTH LIMIT NOTES" section of the "--help" information about why passwords longer than 511 bytes are not allowed (it's because they aren't compatible with all commands).
-		fi
+				# Read "511 BYTE PASSWORD LENGTH LIMIT NOTES" section of the "--help" information about why passwords longer than 511 bytes are not allowed (it's because they aren't compatible with all commands).
+			fi
 
-		# When making a package, only check the password against the default password content policy (which is 4 characters or more) since the current system password content policy may not by the same as the target system policy.
-		if ! check_user_password_content_result="$(mkuser_check_password_content "${user_password}" "$($make_package && echo 'onlyCheckDefault')" 2>&1)" || [[ "${check_user_password_content_result}" != 'PASSED' ]]; then
-			>&2 echo "mkuser ${check_user_password_content_result}"
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password does not meet password content policy requirements."
-			return "${error_code}"
+			# When making a package, only check the password against the default password content policy (which is 4 characters or more) since the current system password content policy may not by the same as the target system policy.
+			if ! check_user_password_content_result="$(mkuser_check_password_content "${user_password}" "$($make_package && echo 'onlyCheckDefault')" 2>&1)" || [[ "${check_user_password_content_result}" != 'PASSED' ]]; then
+				>&2 echo "mkuser ${check_user_password_content_result}"
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password does not meet password content policy requirements."
+				return "${error_code}"
 
-			# If the password does not meet the password content policy requirements, the specified password would fail to be set
-			# no matter what technique is used and no AuthenticationAuthority or ShadowHashData etc would be created for the user.
+				# If the password does not meet the password content policy requirements, the specified password would fail to be set
+				# no matter what technique is used and no AuthenticationAuthority or ShadowHashData etc would be created for the user.
+			fi
 		fi
 	fi
 	(( error_code ++ ))
@@ -2462,7 +2488,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 
 	IFS='/'
 	for this_user_home_path_folder_name in ${user_home_path}; do
-		if (( $(echo -n "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+		if (( $(printf '%s' "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a folder name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Some folder name in the specified home folder path is over the macOS maximum of 255 bytes."
 			return "${error_code}"
 
@@ -2678,7 +2704,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# Also, a user_shell of 1023 bytes would not be allowed anyway since it would surpass the combined 1010 byte limit that is checked next.
 	fi
 
-	user_full_name_byte_length="$(echo -n "${user_full_name}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+	user_full_name_byte_length="$(printf '%s' "${user_full_name}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a full name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 	user_full_name_byte_length="${user_full_name_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 
 	critical_combined_byte_length_difference="$(( (${#user_account_name} + user_full_name_byte_length + user_shell_byte_length + user_home_path_byte_length) - 1010 ))" # Get the difference right away to only need to do math once since it will be used in the error if the limit is hit.
@@ -2822,13 +2848,18 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			echo -en "\nSpecify Password for Secure Token Admin \"${st_admin_account_name}\": "
 			read -rs prompted_st_admin_password
 
+			if [[ "${prompted_st_admin_password}" == *[[:cntrl:]]* ]]; then # Make sure there are no control characters (even though I'm not sure any could actually be entered in a "read" prompt).
+				echo -e '\n'
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain any control characters such as line breaks or tabs."
+				return "${error_code}"
+			fi
+
 			echo -en "\nConfirm Password for Secure Token Admin \"${st_admin_account_name}\": "
 			read -rs confirmed_prompted_st_admin_password
 
 			echo -e '\n'
 
 			if [[ "${prompted_st_admin_password}" == "${confirmed_prompted_st_admin_password}" ]]; then
-				# I don't believe it's possible to include line breaks within a prompt like this, so we don't need to check for them to be disallowed.
 				st_admin_password="${prompted_st_admin_password}"
 			else
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" passwords did not match."
@@ -2875,7 +2906,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# I found that piped data is NOT created in the filesystem and exists only as a special "PIPE" type and is NOT a regular file with a node number and path in the filesystem.
 		# Since "echo" is a builtin in bash and zsh and not an external binary command, the "echo" command containing the password as an argument is also never visible in the process list.
 		# Therefore, I am considering echoing and piping to be the most secure way to pass senstive data to other processes.
-		# This is done using "echo -nE "$2" | ...", the "-E" option of "echo" is used to be sure backslashes are never interpreted if run in zsh with default options since this password verification function may be used by others.
+		# This is done using "printf '%s' "$2" | ...", to be sure backslashes are never interpreted and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 		# Then, that stdin is retrieved within JXA using Objective-C methods (similar to how the environment variable is retrieved), which also never reveals the password in the process list.
 		# Since the password is retrieved using Objective-C methods (like the environment variable), it is returned as an NSString object which can never be interpreted as code, and no special characters within it need to be escaped.
 
@@ -2884,7 +2915,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
 		# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
 		# shellcheck disable=SC2016
-		verify_password_result="$(echo -nE "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
+		verify_password_result="$(printf '%s' "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
@@ -2942,23 +2973,25 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 
 	if $boot_volume_is_apfs || $make_package; then  # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
 		if [[ -n "${st_admin_account_name}" ]]; then
-			st_admin_password_byte_length="$(echo -n "${st_admin_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+			st_admin_password_byte_length="$(printf '%s' "${st_admin_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 			st_admin_password_byte_length="${st_admin_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 
 			if [[ "${user_password}" == '*' ]]; then
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--no-password\" (or \"--password '*'\"). You must specify a user password to be able to grant the new user a Secure Token."
 				return "${error_code}"
-			elif [[ -n "${st_admin_password}" ]] && (( ${#st_admin_password} < 4 )); then # A Secure Token admin passwords could be blank, but it will be verified below before continuing.
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password for Secure Token admin \"${st_admin_account_name}\" is too short, it must be at least 4 characters or blank/empty password."
-				return "${error_code}"
 			elif (( st_admin_password_byte_length > 1022 )); then # Search "1022 bytes" in this code for more information about this limitation.
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password for Secure Token admin \"${st_admin_account_name}\" is too long, it must be 1022 bytes or less to be able to SECURELY grant the new user a Secure Token. Specified Secure Token admin password is ${st_admin_password_byte_length} bytes long. Specify a Secure Token admin with a shorter password or remove the unusable Secure Token granting options. See \"--help\" for more information about this limitation."
 				return "${error_code}"
-			elif ( ! $IS_PACKAGE || ! $check_only ) && ! $make_package; then
+			elif { ! $IS_PACKAGE || ! $check_only; } && ! $make_package; then
 				# Do not check Secure Token admin password when only doing the initial check from a package or when creating a package (since the admin may not exist on this system).
 				if ! verify_st_admin_password_result="$(mkuser_verify_password "${st_admin_account_name}" "${st_admin_password}" 2>&1)" || [[ "${verify_st_admin_password_result}" != 'VERIFIED' ]]; then
 					>&2 echo "mkuser ${verify_st_admin_password_result}"
 					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password verification failed for Secure Token admin \"${st_admin_account_name}\"."
+
+					if [[ "${st_admin_password}" == '/dev/fd/'* ]]; then
+						>&2 echo 'mkuser WARNING: You may be meaning to use "--fd-secure-token-admin-password" instead of "--secure-token-admin-password" since a file descriptor path (such as from process substitution) has been specified as the Secure Token admin password.'
+					fi
+
 					return "${error_code}"
 				fi
 
@@ -2967,6 +3000,8 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" does not have a Secure Token."
 					return "${error_code}"
 				fi
+			elif $make_package && [[ "${st_admin_password}" == '/dev/fd/'* ]]; then # Still want to show this warning for using the wrong Secure Token admin option when creating a package even though the password was not verified.
+				>&2 echo 'mkuser WARNING: You may be meaning to use "--fd-secure-token-admin-password" instead of "--secure-token-admin-password" since a file descriptor path (such as from process substitution) has been specified as the Secure Token admin password.'
 			fi
 		elif [[ -n "${st_admin_password}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: You must specify \"--secure-token-admin-account-name\" along with the Secure Token admin password."
@@ -2975,7 +3010,7 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 	fi
 	(( error_code ++ ))
 
-	if ! $set_sharing_only_account && $user_shell_is_false && $user_home_is_dev_null && ! $set_admin && ( $set_prevent_secure_token_on_big_sur_and_newer || (( darwin_major_version < 20 )) ); then
+	if ! $set_sharing_only_account && $user_shell_is_false && $user_home_is_dev_null && ! $set_admin && { $set_prevent_secure_token_on_big_sur_and_newer || (( darwin_major_version < 20 )); }; then
 		set_sharing_only_account=true
 
 		# Make set_sharing_only_account "true" if it wasn't set explicitly but all other explicitly set criteria match a Sharing Only Accounts so that the creating_user_type display is correct.
@@ -3086,15 +3121,13 @@ print_mkuser_function {
 			return "${error_code}"
 		fi
 
-		quoted_valid_options_for_package=()
-		quoted_valid_options_for_package_check_without_picture=()
-		escaped_single_quote="'\''" # This must be a separate variable or the bash string replacement within the following loop will not parse it correctly for bash.
+		escaped_valid_options_for_package=()
+		escaped_valid_options_for_package_check_without_picture_or_password=()
 		for this_valid_option_for_package in "${valid_options_for_package[@]}"; do
 			if [[ -n "${this_valid_option_for_package}" ]]; then
-				# Escape any single quotes within this_valid_option_for_package like this: https://github.com/koalaman/shellcheck/wiki/SC1003
-				this_quoted_valid_options_for_package="'${this_valid_option_for_package//\'/$escaped_single_quote}'"
-				quoted_valid_options_for_package+=( "${this_quoted_valid_options_for_package}" )
-				quoted_valid_options_for_package_check_without_picture+=( "${this_quoted_valid_options_for_package}" ) # This will be identical to quoted_valid_options_for_package except the "--picture" option will not be added so that we can run a "--check-only" before extracting the picture.
+				printf -v this_escaped_valid_options_for_package '%q' "${this_valid_option_for_package}"
+				escaped_valid_options_for_package+=( "${this_escaped_valid_options_for_package}" )
+				escaped_valid_options_for_package_check_without_picture_or_password+=( "${this_escaped_valid_options_for_package}" ) # This will be identical to escaped_valid_options_for_package except the "--picture" and "--password" options will not be added so that we can run a "--check-only" before extracting the picture (and the blank/empty password will not be validated during a package check only run).
 			fi
 		done
 
@@ -3146,7 +3179,6 @@ if [[ "\$1" != 'check-only-from-preinstall' ]]; then # Do not log "Starting..." 
 fi
 
 current_user_id="\$(echo 'show State:/Users/ConsoleUser' | scutil | awk '(\$1 == "UID") { print \$NF; exit }')"
-current_user_name="\$(dscl /Search -search /Users UniqueID "\${current_user_id}" 2> /dev/null | awk '{ print \$1; exit }')"
 
 mkuser_installer_display_error() { # Only when running graphically via "Installer" app, display an alert if an error occurred since "Installer" doesn't actually show any specific error string.
 	if [[ -n "\${current_user_id}" ]] && (( COMMAND_LINE_INSTALL != 1 && current_user_id != 0 )) && pgrep -qx 'Installer'; then
@@ -3160,7 +3192,7 @@ mkuser_installer_display_error() { # Only when running graphically via "Installe
 		# The package title is base64 encoded (when this script is created) since doing the dual escaping to be placed within a here-doc that's within another here-doc is more complicated than just encoding the string and decoding it within AppleScript.
 		# The "error_message" string is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
 		# The environment variable is retrieved within AppleScript using "printenv" via "do shell script" since "system attribute" mangles multibyte characters that may exist in the error message.
-		launchctl asuser "\${current_user_id}" sudo -u "\${current_user_name}" OSASCRIPT_ENV_ERROR_MESSAGE="\${error_message}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
+		launchctl asuser "\${current_user_id}" sudo -u "#\${current_user_id}" OSASCRIPT_ENV_ERROR_MESSAGE="\${error_message}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
 set userFullAndAccountNameDisplay to (do shell script "echo '$(echo -n "${user_full_and_account_name_display_for_package_title}" | base64)' | base64 -D")
 set errorMessage to (do shell script "printenv OSASCRIPT_ENV_ERROR_MESSAGE")
 -- Telling "Installer" to "display alert" makes the icon correct and properly blocks the "Installer" app. This DOES NOT trigger TCC since "Installer" will be the parent process.
@@ -3247,16 +3279,15 @@ PACKAGE_PREINSTALL_EOF
 
 			if [[ "${user_picture_path}" == '/Library/User Pictures/'* ]]; then
 				# If a default user picture is specified, check if it exists on the target system and use it instead of the copy that is included in the package (which will have been extracted if needed as a fallback in case the same default user picture doesn't exist for some reason).
-				quoted_valid_options_for_package+=( '--picture' "\"\$([[ -f '${user_picture_path}' && \"\$(file -bI '${user_picture_path}' 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' '${user_picture_path}') <= 1000000 )) && echo '${user_picture_path}' || echo '${extracted_resources_dir}/mkuser.picture')\"" )
+				printf -v escaped_user_picture_path '%q' "${user_picture_path}"
+				escaped_valid_options_for_package+=( '--picture' "\"\$([[ -f ${escaped_user_picture_path} && \"\$(file -bI ${escaped_user_picture_path} 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' ${escaped_user_picture_path}) <= 1000000 )) && echo ${escaped_user_picture_path} || echo $(printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
 			else
-				quoted_valid_options_for_package+=( '--picture' "'${extracted_resources_dir}/mkuser.picture'" )
+				escaped_valid_options_for_package+=( '--picture' "$(printf '%q' "${extracted_resources_dir}/mkuser.picture")" )
 			fi
 		fi
 
 		echo "
 ${mkuser_function_source_for_package}" >> "${package_scripts_dir}/postinstall"
-
-		if [[ -n "${user_password}" ]]; then quoted_valid_options_for_package_check_without_picture+=( '--password' "'FAKE-PASSW0RD for-mkuser-check-only'" ); fi
 
 		cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
@@ -3265,7 +3296,7 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 
 	echo "mkuser \$([[ "\$1" == 'check-only-from-preinstall' ]] && echo 'PREINSTALL' || echo 'POSTINSTALL') PACKAGE: Checking if user can be created before doing anything..."
 
-	mkuser_check_only_error_output="\$(mkuser ${quoted_valid_options_for_package_check_without_picture[*]} --suppress-status-messages --check-only 2>&1)" # Redirect stderr to save to variable.
+	mkuser_check_only_error_output="\$(mkuser ${escaped_valid_options_for_package_check_without_picture_or_password[*]} --suppress-status-messages --check-only 2>&1)" # Redirect stderr to save to variable.
 
 	mkuser_check_only_return_code="\$?"
 
@@ -3297,7 +3328,7 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 	fi
 fi
 
-mkuser_options=( ${quoted_valid_options_for_package[*]} '--do-not-confirm' )
+mkuser_options=( ${escaped_valid_options_for_package[*]} --do-not-confirm )
 PACKAGE_POSTINSTALL_EOF
 
 		# Create long random filename between to be used for the passwords deobfuscation script file so that the checksum of "postinstall" is always unique (which is verified during passwords deobfuscation).
@@ -3413,12 +3444,12 @@ if ! \$got_decrypted_user_password || ! \$got_decrypted_st_admin_password; then
 fi
 
 # In this situation it is secure to include passwords as parameters since the "mkuser" command is just a local function call whose arguments will not show in the process list (as opposed to being an external command).
-mkuser_options+=( '--password' "\${decrypted_user_password}" )
+mkuser_options+=( --password "\${decrypted_user_password}" )
 PACKAGE_POSTINSTALL_EOF
 
 			if [[ -n "${st_admin_account_name}" ]]; then
 				cat << 'PACKAGE_POSTINSTALL_EOF' >> "${package_scripts_dir}/postinstall"
-mkuser_options+=( '--secure-token-admin-password' "${decrypted_st_admin_password}" )
+mkuser_options+=( --secure-token-admin-password "${decrypted_st_admin_password}" )
 PACKAGE_POSTINSTALL_EOF
 			fi
 		fi
@@ -3999,7 +4030,7 @@ ${package_distribution_xml_header}
 \uc0\u55357 \u56420  \ul Primary Settings\ul0 \line
 \b Account Name:\b0  ${user_account_name}\line
 \b Full Name:\b0  ${user_full_name_rtf}\line
-\b User ID:\b0  ${user_uid:-\i [NEXT AVAILABLE UID STARTING FROM $( ( $set_role_account || $set_service_account ) && echo '200' || echo '501' )]\i0 }\line
+\b User ID:\b0  ${user_uid:-\i [NEXT AVAILABLE UID STARTING FROM $( { $set_role_account || $set_service_account; } && echo '200' || echo '501' )]\i0 }\line
 \b Generated UID:\b0  ${user_guid:-\i [RANDOM GUID ASSIGNED DURING CREATION]\i0 }\line
 \b Group ID:\b0  ${user_gid:-20}\line
 \b Login Shell:\b0  ${user_shell:-/bin/zsh \i (on macOS 10.15 Catalina and newer)\i0  \b or\b0  /bin/bash \i (on macOS 10.14 Mojave and older)\i0 }\line
@@ -4240,7 +4271,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 
 			if [[ "${this_signed_32_bit_integer}" == '0'* || "${this_signed_32_bit_integer}" == '-0'* ]]; then
 				this_signed_32_bit_integer="${this_signed_32_bit_integer//[^${DIGITS}]/}" # Need to temporarily remove any minus sign to remove leading zeros.
-				this_signed_32_bit_integer="$($original_integer_was_negative && echo '-')${this_signed_32_bit_integer#"${this_signed_32_bit_integer%%[^0]*}"}" # Remove any leading zeros and add back any minus sign.
+				this_signed_32_bit_integer="$($original_integer_was_negative && printf '-')${this_signed_32_bit_integer#"${this_signed_32_bit_integer%%[^0]*}"}" # Remove any leading zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
 				if [[ -z "${this_signed_32_bit_integer}" || "${this_signed_32_bit_integer}" == '-' ]]; then this_signed_32_bit_integer='0'; fi # Catch if the number was all zeros with or without a minus sign.
 			fi
 
@@ -4348,7 +4379,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 		# Thanks to Simon Andersen for discovering this weird UID assignment behavior after UID 700.
 		# In at least macOS *12.1* Monterey, "sysadminctl -addUser" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
 
-		starting_uid="$( ( $set_role_account || $set_service_account ) && echo '200' || echo '501' )" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
+		starting_uid="$( { $set_role_account || $set_service_account; } && echo '200' || echo '501' )" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
 		user_uid="${starting_uid}"
 
 		IFS=$'\n'
@@ -5076,7 +5107,7 @@ Check \"--help\" for detailed information about each available option."
 			# This function uses OpenDirectory's changePassword:toPassword:error: method (https://developer.apple.com/documentation/opendirectory/odrecord/1427145-changepassword?language=objc)
 			# with the "oldPassword" value always set to nil. This means it will only work when the code is run as root and the specified Account Name DOES NOT have a Secure Token (which the newly created user will NEVER have at this point, regardless of macOS version).
 			# That makes this functionally equivalent to running $(dscl . -passwd "/Users/$1" "$2"), but can operate more securely by never revealing the new password in the process list (and without having to use "expect" which has a variety of pitfalls).
-			# If a password is already set, $(echo "${old_password}"$'\n'"${new_password}" | launchctl asuser "${user_uid}" sudo -u "${user_account_name}" sysadminctl -newPassword - -oldPassword - 2>&1) can be used securely, but it CANNOT be used if no password has been set yet.
+			# If a password is already set, $(printf '%s\n' "${old_password}" "${new_password}" | launchctl asuser "${user_uid}" sudo -u "#${user_uid}" sysadminctl -newPassword - -oldPassword - 2>&1) can be used securely, but it CANNOT be used if no password has been set yet.
 			# See comments in "mkuser_verify_password" function about the security considerations of this process (which also apply to this function).
 
 			local set_password_result
@@ -5084,7 +5115,7 @@ Check \"--help\" for detailed information about each available option."
 			# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
 			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
 			# shellcheck disable=SC2016
-			set_password_result="$(echo -nE "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
+			set_password_result="$(printf '%s' "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password change methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
@@ -5523,7 +5554,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special kcpassword repeating cipher hex characters.
 		cipher_key_length="${#cipher_key[@]}"
 
-		password_hex_string="$(echo -n "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (separated by line breaks via "-c 1"). Must pipe to "xxd" with "echo -n" to not include a trailing line break character.
+		password_hex_string="$(printf '%s' "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (separated by line breaks via "-c 1"). Must pipe to "xxd" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 
 		encoded_password_hex_string=''
 		this_password_hex_char_index=0
@@ -5577,11 +5608,11 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		# I don't think this random data needs to be XORed with the cipher characters since it's just gibberish either way.
 
 		encoded_password_random_data_padding_multiples="$(( cipher_key_length + 1 ))"
-		until (( ($(echo -n "${encoded_password}" | wc -c) % encoded_password_random_data_padding_multiples) == 0 )); do # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+		until (( ($(printf '%s' "${encoded_password}" | wc -c) % encoded_password_random_data_padding_multiples) == 0 )); do # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output an encoded password that starts with a hyphen and only contains valid echo option chars (which probably isn't actually possible with the encoded characters, but doesn't hurt to use printf anyway).
 			# Adding the random data bytes in a loop even though the following command *should* add them all at once, but it sometimes ends up with 1 too few bytes than specified and I'm not exactly sure why.
 			# Maybe NUL characters or other special characters confuse "head -c"? But, adding the random bytes in a loop until the byte count is correct seems to work reliably.
 			# Doing it this way rather than adding 1 byte at a time in this loop means fewer passes through the loop (usually just 1 loop pass will be needed) and when 1 too few bytes are returned in the first pass, it'll be fixed in the second pass with the same code.
-			encoded_password+="$(head -c "$(( encoded_password_random_data_padding_multiples - ($(echo -n "${encoded_password}" | wc -c) % encoded_password_random_data_padding_multiples) ))" /dev/urandom)"
+			encoded_password+="$(head -c "$(( encoded_password_random_data_padding_multiples - ($(printf '%s' "${encoded_password}" | wc -c) % encoded_password_random_data_padding_multiples) ))" /dev/urandom)"
 		done
 
 		rm -rf '/private/etc/kcpassword'
@@ -5591,7 +5622,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		chmod 600 '/private/etc/kcpassword' # permissions for other users to have No Access, like macOS does when it creates this file.
 		# Setting ownership and permissions BEFORE writing the contents is important since the file will contain an easily decipherable version of the password.
 
-		echo -n "${encoded_password}" > '/private/etc/kcpassword'
+		printf '%s' "${encoded_password}" > '/private/etc/kcpassword'
 
 		if [[ ! -f '/private/etc/kcpassword' || "$(cat /private/etc/kcpassword)" != "${encoded_password}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create kcpassword file for auto-login."
@@ -5678,14 +5709,14 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			fi
 
 			# When run in a Terminal, the CLI interactive password prompts of "sysadminctl -secureTokenOn" fails to accept passwords over 128 bytes for some reason for the grantee OR the Secure Token admin granter (interactive "dscl . -authonly" has the same issue),
-			# but when run like is done below by passing the passwords via stdin, that odd 128 byte bug/limitation seems to not be an issue, and while I don't really understand why it is quite nice to not have that limitation (the input must be getting processed differently somehow).
+			# but when run like is done below by passing the passwords via stdin, that odd 128 byte bug/limitation seems to not be an issue, and while I don't really understand why, it is quite nice to not have that limitation (the input must be getting processed differently somehow).
 			# But, all CLI interactive password prompts (including the "read -rs" prompts in this script) CANNOT accept secure input of 1024 bytes or more, which this technique is also limited by.
 			# And while that doesn't matter for our usage since mkuser does not allow new user passwords over 511 bytes, an existing Secure Token admin granter password made by other means could theoretically have a password of 1024 bytes (or longer) which would fail to authenticate in the following command.
 			# While passing passwords this way does actually allow a 1023 byte password for the grantee, there seems to be some other odd limitation (or bug) that I don't fully understand that limits the Secure Token admin granter password length to 1022 bytes instead of 1023 bytes.
 			# What's odd is that when a Secure Token admin granter password of 1023 bytes is attempted, the failure error message states that the *grantee* password was wrong when that password is not the issue and it is actually the length of the granter password that is causing the failure.
 			# This 1022 byte Secure Token admin granter limitation has been confirmed on macOS 10.14 Mojave, macOS 10.15 Catalina, macOS 11 Big Sur, and macOS 12 Monterey but it's actually NOT a limitation on macOS 10.13 High Sierra where 1023 byte admin granter passwords are allowed,
 			# but still not going to allow 1023 byte Secure Token admin granter passwords on macOS 10.13 High Sierra for simplicity and consistency across macOS versions.
-			# Therefore, Secure Token admin passwords used with to mkuser are limited to 1022 bytes so that they are always useable and any longer are rejected before user creation rather than failing when attempting to grant a Secure Token when the password is actually correct.
+			# Therefore, Secure Token admin passwords used with mkuser are limited to 1022 bytes so that they are always useable and any longer are rejected before user creation rather than failing when attempting to grant a Secure Token when the password is actually correct.
 
 			# This process was previously done using "expect", but that had the 128 byte password length limitation as described above, and "expect" also did not support emoji (but does support other multibyte characters) so would fail if either password contained emoji.
 			# While that is likely a very rare edge case, passing the passwords via stdin as done below is much simpler and more robust as it handles longer passwords and emoji just fine.
@@ -5706,8 +5737,8 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			# None of this brokenness affects mkuser directly at all since these longer passwords would never be allowed to be granted a Secure Token, or allowed to be used to grant a Secure Token.
 			# This information is just documentation of my testing when I was trying to understand some odd behavior on macOS 10.13 High Sierra that didn't make sense at first.
 
-			# Use the specially quoted $'\n' to be interpreted as a line break instead of just "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the passwords.
-			grant_secure_token_output="$(echo "${st_admin_password}"$'\n'"${user_password}" | sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword - 2>&1)"
+			# Use "printf '%s\n'" to separate the passwords with a line break without incorrectly interpreting any possible literal backslashes in the passwords.
+			grant_secure_token_output="$(printf '%s\n' "${st_admin_password}" "${user_password}" | sysadminctl -secureTokenOn "${user_account_name}" -password - -adminUser "${st_admin_account_name}" -adminPassword - 2>&1)"
 
 			grant_secure_token_exit_code="$?" # Exit code will be 0 even if there was an error, but that's fine and doesn't hurt to check it anyway since we're also checking (in every possible way) that the user was actually granted a Secure Token.
 

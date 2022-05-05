@@ -70,7 +70,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--full-name, --real-name, -f` < *string* >
 
-> There are no limitations on the characters allowed in the full name, except that it cannot be only whitespace or have line breaks.<br/>
+> The only limitations on the characters allowed in the full name are that it cannot be only whitespace and cannot contain control characters other than tabs (such as line breaks).<br/>
 > See notes below about the non-specific length limit of the full name.<br/>
 > The full name must not already be assigned to another user.<br/>
 > If omitted, the account name will be used as the full name.
@@ -141,7 +141,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > *Regardless of the password content policy*, `mkuser` enforces a maximum password length of 511 bytes, or 251 bytes when enabling auto-login.<br/>
 > See notes below for more details about these maximum length limitations.
 >
-> There are no limitations on the characters allowed in the password, except that it cannot contain line breaks.<br/>
+> The only limitation on the characters allowed in the password is that it cannot contain any control characters such as line breaks or tabs.<br/>
 > If omitted, a blank/empty password will be specified.
 >
 > **BLANK/EMPTY PASSWORD NOTES:**<br/>
@@ -160,7 +160,9 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > If not being able to use the `login` and `su` commands is not an issue, and you want to use a longer password, you can just set a temporary password when creating a user with `mkuser` and then change the password to something 512 bytes or longer manually using `dscl . -passwd`.<br/>
 > If you manually set a password 512 bytes or longer, you will be able to login via login window as well as authenticate graphical prompts, such as unlocking "System Preferences" panes if the user in an admin.<br/>
 > For fun, I tested logging in via login window with passwords up to 10,000 bytes (typed via an Arduino) and unlocking "System Preferences" panes with passwords up to 150,000 bytes (copy-and-pasted).<br/>
-> Longer passwords took overly long for the Arduino to type or macOS to paste.
+> Longer passwords took overly long for the Arduino to type or macOS to paste.<br/>
+> But, that longer password testing was done with non-Secure Token accounts.<br/>
+> When an account has a Secure Token, there are other limitations described in the *SECURE TOKEN ADMIN 1022 BYTE PASSWORD LENGTH LIMIT NOTES* in the help information for the `--secure-token-admin-password` option below.
 >
 > **PASSWORDS IN PACKAGE NOTES:**<br/>
 > When outputting a user creation package (with the `--package` option), only the default password content requirements are checked since the password content policy may be different on the target system.<br/>
@@ -208,7 +210,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--password-hint, --hint, --ph` < *string* >
 
-> Must be 280 characters or less, but there are no limitations on the characters allowed in the password hint.<br/>
+> Must be 280 characters or less and the only limitations on the characters allowed in the password hint are that it cannot be only whitespace and can't contain control characters other than line breaks (\n) or tabs (\t).<br/>
 > Line breaks and tabs can also be included.<br/>
 > If omitted, no password hint will be set.
 >
@@ -450,7 +452,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > If you're using `mkuser` to create users before going through Setup Assistant, and you want the user created by first boot Setup Assistant to be granted the first Secure Token, be sure to take the necessary steps for each version of macOS (as outline above) to ensure any users created by `mkuser` are not granted the first Secure Token.<br/>
 > Once the first Secure Token has been granted by macOS, you must use `sysadminctl -secureTokenOn` to grant other users a Secure Token and authenticate the command with an existing Secure Token administrator either interactively or by passing their credentials with the `-adminUser` and `-adminPassword` options.<br/>
 > Or, `mkuser` can securely take care of this for you when creating new users if you pass an existing Secure Token admins credentials using the `--secure-token-admin-account-name` option along with one of the three different Secure Token admin password options below.<br/>
-> See the *SECURE TOKEN 1022 BYTE PASSWORD LENGTH LIMIT NOTES* in the help information for the `--secure-token-admin-password` option below and the *PASSWORDS IN PACKAGE NOTES* in help information for the `--password` option above for more information about how passwords are handled securely by `mkuser`, all of which also apply to Secure Token admin passwords.<br/>
+> See the *SECURE TOKEN ADMIN 1022 BYTE PASSWORD LENGTH LIMIT NOTES* in the help information for the `--secure-token-admin-password` option below and the *PASSWORDS IN PACKAGE NOTES* in help information for the `--password` option above for more information about how passwords are handled securely by `mkuser`, all of which also apply to Secure Token admin passwords.<br/>
 > Users created in the "Users & Groups" pane of the "System Preferences" will only get a Secure Token when the pane has been unlocked by an existing Secure Token administrator.<br/>
 > Similarly, users created using `sysadminctl -addUser` will only get a Secure Token when the command is authenticated with an existing Secure Token administrator (the same way as when using the `sysadminctl -secureTokenOn` option).<br/>
 > The only exception to this subsequent Secure Token behavior is when utilizing MDM with a Bootstrap Token.
@@ -466,8 +468,8 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--secure-token-admin-password, --st-admin-pass, --st-pass` < *string* >
 
-> The password must be at least 4 characters and 1022 bytes or less, or a blank/empty password.<br/>
 > The password will be validated to be correct for the specified `--secure-token-admin-account-name`.<br/>
+> The password must be 1022 bytes or less (see notes below for more info).<br/>
 > If omitted, blank/empty password will be specified.<br/>
 > This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
 >
