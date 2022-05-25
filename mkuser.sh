@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.5.4-1'
+	readonly MKUSER_VERSION='2022.5.24-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -35,9 +35,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	user_account_name=''
 	user_full_name=''
-	user_uid=''
+	declare -i user_uid
 	user_guid=''
-	user_gid=''
+	declare -i user_gid
 	user_shell=''
 
 	user_password=''
@@ -92,7 +92,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	readonly IS_PACKAGE=false # This will be set to "true" when this script is modified during package creation.
 
-	error_code='1' # This error code will be incremented as it passes each potential error.
+	declare -i error_code=1 # This error code will be incremented as it passes each potential error.
 
 	if [[ -n "${ZSH_VERSION}" ]]; then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool is not compatible with \"zsh\" and must be run in \"bash\" instead."
@@ -110,7 +110,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool can only run on macOS."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	readonly A_Z='ABCDEFGHIJKLMNOPQRSTUVWXYZ' # Set these "A_Z" and "a_z" variables for use in regex and string manipulation to conveniently specify english letters directly instead of using character ranges like "[A-Za-z]" or classes like "[[:alpha:]]"
 	readonly a_z='abcdefghijklmnopqrstuvwxyz' # so the intended characters are always matched regardless of locale, and without having to set LC_COLLATE=C for the desired behavior. http://teaching.idallen.com/cst8177/13w/notes/000_character_sets.html
@@ -121,7 +121,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	has_invalid_options=false # If ANY options or parameters were INVALID, DO NOT create a user or package with possibly unintended settings.
 
-	valid_options_for_package=() # Need to collect valid user creation options to use within package if making a package.
+	declare -a valid_options_for_package=() # Need to collect valid user creation options to use within package if making a package.
 
 	all_actual_case_options=''
 	all_options_as_list=''
@@ -134,8 +134,8 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	short_options_as_list="$(echo "${all_options_as_list}" | grep '^.\{2\}$')"
 	short_options_as_list_without_hyphens="${short_options_as_list//-/}"
 
-	long_options_as_array_reverse_sorted=()
-	long_options_as_array_reverse_sorted_without_word_hyphens=()
+	declare -a long_options_as_array_reverse_sorted=()
+	declare -a long_options_as_array_reverse_sorted_without_word_hyphens=()
 	while IFS='' read -r this_option_line; do
 		long_options_as_array_reverse_sorted+=( "${this_option_line}" )
 		long_options_as_array_reverse_sorted_without_word_hyphens+=( "--${this_option_line//-/}" ) # This list will be used to allow options to be passed without the word separating hyphens.
@@ -148,7 +148,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	fi
 
 	while (( $# > 0 )); do
-		this_option_group=()
+		declare -a this_option_group=()
 
 		if [[ "$1" =~ ^\-{1}[^-]+ ]]; then # Short form (single character) options specified with a single hyphen can be grouped together or have a parameter passed with an equals or with no whitespace or equals, so they need to be parsed and re-formatted for the next loop.
 			if [[ -z "${short_options_as_list_without_hyphens}" ]]; then
@@ -231,7 +231,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				fi
 			fi
 
-			# This will always be true for long form option, but must be checked for short form options with parameters since they must be the last in the group and the only option in the group to take a parameter.
+			# This will always be true for long form options, but must be checked for short form options with parameters since they must be the last in the group and the only option in the group to take a parameter.
 			is_last_option_in_group="$( (( this_option_group_count == ( this_option_group_index + 1 ) )) && echo 'true' || echo 'false' )"
 
 			case "${this_option}" in
@@ -310,17 +310,18 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						if [[ -n "$1" ]]; then # Allow UIDs to be negative (start with "-").
 							if [[ -z "${user_uid}" ]]; then
 								if [[ "$1" =~ ^\-?[${DIGITS}]+$ ]]; then # Only allow numbers except for a leading minus (-) for negative numbers.
-									user_uid="$1" # Next available UID starting from "501" (or "200" for Role/Service Accounts) will be assigned if not specified.
+									possible_user_uid="$1" # Next available UID starting from "501" (or "200" for Role/Service Accounts) will be assigned if not specified.
 
-									if [[ "${user_uid}" == '0'* || "${user_uid}" == '-0'* ]]; then
-										user_uid="${user_uid//[^${DIGITS}]/}" # Need to temporarily remove any minus sign to remove leading zeros.
-										user_uid="$([[ "$1" == '-'* ]] && printf '-')${user_uid#"${user_uid%%[^0]*}"}" # Remove any leading zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
-										if [[ -z "${user_uid}" || "${user_uid}" == '-' ]]; then user_uid='0'; fi # Catch if the number was all zeros with or without a minus sign.
+									if [[ "${possible_user_uid}" =~ ^\-?0+ ]]; then # Need to remove leading zeros BEFORE setting the int cast user_uid so they aren't interpreted as octal zeros.
+										possible_user_uid="$([[ "$1" == '-'* ]] && printf '-')${possible_user_uid#"${possible_user_uid%%[^-0]*}"}" # Remove any leading minus sign and zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
+										if [[ -z "${possible_user_uid}" || "${possible_user_uid}" == '-' ]]; then possible_user_uid=0; fi # Catch if the number was all zeros with or without a minus sign.
 									fi
+
+									user_uid="${possible_user_uid}"
 
 									valid_options_for_package+=( "${this_option}" "${user_uid}" )
 
-									shift # Only shift "$1" if it was a valid UID (all numbers), otherwise it might actually be the next valid option is someone made a mistake like "--uid --hint" or will show as an "invalid option" error.
+									shift # Only shift "$1" if it was a valid UID (all numbers), otherwise it might actually be the next valid option if someone made a mistake like "--uid --hint" or will show as an "invalid option" error.
 								else
 									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be only numbers, except for a leading minus (-) for negative numbers."
 									has_invalid_options=true
@@ -379,17 +380,18 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						if [[ -n "$1" ]]; then # Allow GIDs to be negative (start with "-").
 							if [[ -z "${user_gid}" ]]; then
 								if [[ "$1" =~ ^\-?[${DIGITS}]+$ ]]; then # Only allow numbers except for a leading minus (-) for negative numbers.
-									user_gid="$1" # Will be validated against existing Group IDs and will be set to default of "20" (or "-2" for Service Accounts) if not specified.
+									possible_user_gid="$1" # Will be validated against existing Group IDs and will be set to default of "20" (or "-2" for Service Accounts) if not specified.
 
-									if [[ "${user_gid}" == '0'* || "${user_gid}" == '-0'* ]]; then
-										user_gid="${user_gid//[^${DIGITS}]/}" # Need to temporarily remove any minus sign to remove leading zeros.
-										user_gid="$([[ "$1" == '-'* ]] && printf '-')${user_gid#"${user_gid%%[^0]*}"}" # Remove any leading zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
-										if [[ -z "${user_gid}" || "${user_gid}" == '-' ]]; then user_gid='0'; fi # Catch if the number was all zeros with or without a minus sign.
+									if [[ "${possible_user_gid}" =~ ^\-?0+ ]]; then # Need to remove leading zeros BEFORE setting the int cast user_gid so they aren't interpreted as octal zeros.
+										possible_user_gid="$([[ "$1" == '-'* ]] && printf '-')${possible_user_gid#"${possible_user_gid%%[^-0]*}"}" # Remove any leading minus sign and zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
+										if [[ -z "${possible_user_gid}" || "${possible_user_gid}" == '-' ]]; then possible_user_gid=0; fi # Catch if the number was all zeros with or without a minus sign.
 									fi
+
+									user_gid="${possible_user_gid}"
 
 									valid_options_for_package+=( "${this_option}" "${user_gid}" )
 
-									shift # Only shift "$1" if it was a valid GID (all numbers), otherwise it might actually be the next valid option is someone made a mistake like "--gid --hint" or will show as an "invalid option" error.
+									shift # Only shift "$1" if it was a valid GID (all numbers), otherwise it might actually be the next valid option if someone made a mistake like "--gid --hint" or will show as an "invalid option" error.
 								else
 									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"$1\" for option \"${this_unaltered_option}\", it must be only numbers, except for a leading minus (-) for negative numbers."
 									has_invalid_options=true
@@ -457,7 +459,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 					;;
 				--stdin-password|--stdin-pass|--sp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
-					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is open so that the script doesn't hang forever if "--stdin-password" is used with no stdin via pipe, here-string, etc.
+					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is in use so that the script doesn't hang forever if "--stdin-password" is specified with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
 							possible_user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (and will validate the password meets the global password content policy requirements later in the code).
 
@@ -996,10 +998,10 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	elif $has_invalid_options; then
 		>&2 echo "mkuser WARNING: $($make_package && echo 'Package' || echo 'User') WILL NOT be created since INVALID OPTIONS OR PARAMETERS were specified, but still running checks to detect more possible errors."
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-	local open_command_asuser_or_not=()
+	declare -a open_command_asuser_or_not=()
 	if (( ${EUID:-$(id -u)} == 0 )); then
 		# Must only run as current user with "sudo -u" if running as root since that would fail if already running as a standard user (which cannot run "sudo" commands).
 
@@ -1411,8 +1413,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
 
   ${ansi_bold}--home-folder, --home-path, --home, -H${clear_ansi}  < ${ansi_underline}non-existing path${clear_ansi} >
 
-    The home folder path must not currently exist,
-      unless specifying the special \"/var/empty\" or \"/dev/null\" paths.
+    The home folder path must not currently exist and must be directly
+      within \"/Users/\" or \"/private/var/\" (or \"/var/\"),
+      or on an external drive (but that is not recommended).
+    The special \"/var/empty\" and \"/dev/null\" paths are also allowed.
     The total length of the home folder path must be 511 bytes or less,
       or home folder creation will fail during login or ${ansi_bold}createhomedir${clear_ansi}.
     Each folder within the home folder path must be 255 bytes or less each,
@@ -2125,7 +2129,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool has only been tested to work on macOS 10.13 High Sierra and newer."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# VALIDATE FORMAT OF ALL PARAMETERS
 	# Do all of these checks before preparing a package (if specified) since none of these are specific to the installation system.
@@ -2176,7 +2180,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if (( ${#user_account_name} > 244 )); then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name must be 244 characters or less. Specified account name is ${#user_account_name} characters long. See \"--help\" for more information about this limitation."
@@ -2190,7 +2194,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# So, limit the account name to 244 chars since that seems to be a true limit of all macOS account creation techniques.
 		# This 244 character limit was tested and confirmed on both macOS 11 Big Sur and macOS 10.13 High Sierra.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if ! [[ "${user_account_name}" =~ [${a_z}]+ ]]; then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name must contain at least one letter."
@@ -2201,13 +2205,13 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# "sysadminctl -addUser" DOES allow account names that don't contain any letter and "dsimport" will also successfully create a user with an account name of only numbers and the user
 		# seemed to work fine in my brief testing. But still, I've chosen to match what System Preferences and Setup Assistant allows for consistency with normal user creation on macOS.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ "${user_account_name}" == 'guest' ]]; then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name \"${user_account_name}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -z "${user_full_name}" ]]; then
 		user_full_name="${user_account_name}" # If no full name specified, use the account name (which will always be a valid full name).
@@ -2215,7 +2219,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -n "${user_uid}" ]] && { [[ "$(( user_uid ))" != "${user_uid}" ]] || (( user_uid < -2147483648 || user_uid > 2147483647 )); }; then
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
@@ -2224,7 +2228,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -n "${user_gid}" ]] && { [[ "$(( user_gid ))" != "${user_gid}" ]] || (( user_gid < -2147483648 || user_gid > 2147483647 )); }; then
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
@@ -2233,7 +2237,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Group ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $prompt_for_user_password; then
 		if $has_invalid_options; then
@@ -2265,7 +2269,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			fi
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	mkuser_check_password_content() { # $1 = Password to Check, $2 = "onlyCheckDefault" OR "bypassFallback"
 		# If the password passes the content policy check, the string "PASSED" will be returned (via stdout) with an exit code of 0.
@@ -2303,7 +2307,9 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
-let passwordToCheck = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.availableData, $.NSUTF8StringEncoding)
+let passwordToCheck = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding)
 
 let odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
 let odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
@@ -2417,7 +2423,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if (( ${#user_password_hint} > 280 )); then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Password hint must be 280 characters or less. Specified password hint is ${#user_password_hint} characters long. See \"--help\" for more information about this limitation."
@@ -2435,15 +2441,19 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# The FileVault login window would also show more characters and line on macOS 10.13 High Sierra, but it would just continue off the end of the screen and cover the shut down and restart buttons and push the "If you forgot your password, you can reset it using your Recovery Key" button, which is not good.
 		# So, even though macOS 10.13 High Sierra could display longer password hints, I still thing 280 characters is a reasonable limit to set for all possible login scenarios and macOS versions.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# REMOVE any and all trailing "/" characters from the home folder path.
 	# Just remove these instead of forbidding them since it's a simple mistake to make and represents the same intended folder whether or not it has a trailing slash.
 	# Do this before other validation since trailing slashes could make some issues not properly show as errors, such as "/Root Folder/" being allowed instead of forbid.
+	original_user_home_path="${user_home_path}" # Save the original home folder path to be able to check if it was all slashes.
 	user_home_path="${user_home_path%"${user_home_path##*[^/]}"}"
 
 	if [[ -z "${user_home_path}" ]]; then
-		if $set_sharing_only_account; then
+		if [[ -n "${original_user_home_path}" ]]; then # If removing trailing slashes made the home folder an empty string and it wasn't an empty string before, the root of the boot volume was specified.
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"/\" is not a valid path, it cannot be the root of the boot volume."
+			return "${error_code}"
+		elif $set_sharing_only_account; then
 			user_home_path='/dev/null'
 		elif $set_role_account || $set_service_account; then
 			user_home_path='/private/var/empty' # Will be converted to "/var/empty" below to match macOS, but set to "/private/var/empty" here to make the following conditions simpler for all possible situations.
@@ -2456,55 +2466,27 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid absolute path, it must start with \"/\"."
 		return "${error_code}"
 	elif [[ "${user_home_path}" == *'//'* ]]; then
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it contains \"//\" (an empty folder name)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot contain \"//\" (an empty folder name)."
 		return "${error_code}"
 	elif [[ "${user_home_path}" == *':'* ]]; then
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it contains \":\" (not allowed by macOS)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot contain \":\" (prohibited by macOS)."
 		return "${error_code}"
 	elif [[ "${user_home_path//[^\/]/}" == '/' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot be a folder at the root of the volume."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot be a folder at the root of the boot volume."
 		return "${error_code}"
-	elif [[ "$(echo "${user_home_path}" | tr '[:upper:]' '[:lower:]')" == '/var/'* ]]; then
-		# Replace "/var/" with "/private/var/" so that the home folder path is not a symlink path.
-		# Don't worry about resolving other possible symlinks since that would be more tedious and this is the most common home folder location other than within "/Users/".
-
-		user_home_path="/private/var/${user_home_path:5}"
 	fi
-	(( error_code ++ ))
-
-	user_home_path_byte_length="$(echo -n "${user_home_path}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
-	user_home_path_byte_length="${user_home_path_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
-	if (( user_home_path_byte_length > 511 )); then
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder path too long, it must be 511 bytes or less. Specified home folder path is ${user_home_path_byte_length} bytes long. See \"--help\" for more information about this limitation."
-		return "${error_code}"
-
-		# Through testing, I found that the total home folder path length must be 511 BYTES or less (less than 512 bytes)
-		# or "createhomedir" errors on GetSingleValueAttribute when retrieving NFSHomeDirectory even though the longer value exists.
-		# When NOT creating the home folder via "createhomedir" and then logging in with a 512 byte home folder path for the home folder
-		# to be created during login, login just hangs forever (presumably because home folder creation failed in the background).
-		# So, must limit the total home folder path to 511 bytes or less so that "createhomedir" can always work and someone doesn't get hung forever during login.
-	fi
-	(( error_code ++ ))
-
-	IFS='/'
-	for this_user_home_path_folder_name in ${user_home_path}; do
-		if (( $(printf '%s' "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a folder name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Some folder name in the specified home folder path is over the macOS maximum of 255 bytes."
-			return "${error_code}"
-
-			# No folder name in the home folder path can be over 255 bytes, as that is the macOS (HFS/APFS) max file/folder name limit.
-		fi
-	done
-	unset IFS
-	(( error_code ++ ))
+	error_code+=1
 
 	user_home_path_lowercased="$(echo "${user_home_path}" | tr '[:upper:]' '[:lower:]')"
 
-	if [[ "${user_home_path_lowercased}" == '/users/guest' || "${user_home_path_lowercased}" == '/users/shared' ]]; then
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is a reserved by macOS."
-		return "${error_code}"
+	if [[ "${user_home_path_lowercased}" == '/var/'* ]]; then
+		# Replace "/var/" with "/private/var/" so that the home folder path is not a symlink path.
+		# Don't worry about resolving other possible symlinks since that would be more tedious and this is the only other
+		# allowed home folder path other than directly within "/Users/" (or at "/dev/null" or on an external drive).
+
+		user_home_path="/private/var/${user_home_path:5}"
+		user_home_path_lowercased="$(echo "${user_home_path}" | tr '[:upper:]' '[:lower:]')"
 	fi
-	(( error_code ++ ))
 
 	user_home_is_var_empty=false
 	if [[ "${user_home_path_lowercased}" == '/private/var/empty' ]]; then # Except if the home folder is "/private/var/empty", then use the symlinked "/var/empty" to match macOS exactly for Role Accounts.
@@ -2517,6 +2499,68 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		user_home_path='/dev/null' # Make sure "/dev/null" home is in the proper lowercased form even if it was entered with incorrect capitals.
 		user_home_is_dev_null=true
 	fi
+
+	# Even though the user_home_path_byte_length won't be checked right now if the home folder is "/var/empty" or "/dev/null", we still need this byte length for the critical_combined_byte_length_difference check later.
+	user_home_path_byte_length="$(echo -n "${user_home_path}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+	user_home_path_byte_length="${user_home_path_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
+
+	if ! $user_home_is_var_empty && ! $user_home_is_dev_null; then # No need to check for disallowed home folder paths or length or individual folder name lengths if we already know it's "/var/empty" or "/dev/null".
+		user_home_path_depth="$(echo -n "${user_home_path//[^\/]/}" | wc -c)"
+
+		if [[ "${user_home_path_lowercased}" == '/users/'* ]]; then
+			if (( user_home_path_depth != 2 )); then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it can only be directly within the \"/Users/\" folder (not within another subfolder)."
+				return "${error_code}"
+			elif [[ "${user_home_path_lowercased}" == '/users/guest' || "${user_home_path_lowercased}" == '/users/shared' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it is reserved by macOS."
+				return "${error_code}"
+			fi
+		elif [[  "${user_home_path_lowercased}" == '/private/var/'* ]]; then
+			if (( user_home_path_depth != 3 )); then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it can only be directly within the \"/private/var/\" (or \"/var/\") folder (not within another subfolder)."
+				return "${error_code}"
+			fi
+		elif [[ "${user_home_path_lowercased}" == '/volumes/'* ]]; then
+			if (( user_home_path_depth == 2 )); then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot be the root of an external volume."
+				return "${error_code}"
+			elif ! $make_package; then # Do not check if external drive is mounted if creating a package (it will be checked when installing the package).
+				user_home_path_volume_name="${user_home_path:9}"
+				user_home_path_volume_name="${user_home_path_volume_name%%/*}"
+
+				if [[ ! -d "/Volumes/${user_home_path_volume_name}" ]]; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it cannot be on an external drive that is currently unavailable."
+					return "${error_code}"
+				fi
+			fi
+		else # From previous checks, we now know the home folder path is not "/dev/null" or within "/Users/" or "/private/var/" or on an external drive.
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder \"${user_home_path}\" is not a valid path, it can only be directly within \"/Users/\" or \"/private/var/\" (or \"/var/\") or at \"/dev/null\" (or on an external drive, but that is not recommended)."
+			return "${error_code}"
+		fi
+
+		if (( user_home_path_byte_length > 511 )); then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Home folder path too long, it must be 511 bytes or less. Specified home folder path is ${user_home_path_byte_length} bytes long. See \"--help\" for more information about this limitation."
+			return "${error_code}"
+
+			# Through testing, I found that the total home folder path length must be 511 BYTES or less (less than 512 bytes)
+			# or "createhomedir" errors on GetSingleValueAttribute when retrieving NFSHomeDirectory even though the longer value exists.
+			# When NOT creating the home folder via "createhomedir" and then logging in with a 512 byte home folder path for the home folder
+			# to be created during login, login just hangs forever (presumably because home folder creation failed in the background).
+			# So, must limit the total home folder path to 511 bytes or less so that "createhomedir" can always work and someone doesn't get hung forever during login.
+		fi
+
+		IFS='/'
+		for this_user_home_path_folder_name in ${user_home_path}; do
+			if (( $(printf '%s' "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a folder name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Some folder name in the specified home folder path is over the macOS maximum of 255 bytes."
+				return "${error_code}"
+
+				# No folder name in the home folder path can be over 255 bytes, as that is the macOS (HFS/APFS) max file/folder name limit.
+			fi
+		done
+		unset IFS
+	fi
+	error_code+=1
 
 	if $set_sharing_only_account; then
 		if ! $user_home_is_dev_null; then
@@ -2636,7 +2680,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		set_prohibit_user_password_changes=true
 		set_prohibit_user_picture_changes=true
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $do_not_create_home_folder || $user_home_is_var_empty || $user_home_is_dev_null; then
 		if $set_hidden_home; then
@@ -2652,7 +2696,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 
 		do_not_share_public_folder=true # Public folder will never be shared for these home folder options. This is just being set for accurate display in "--check-only" output.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -n "${user_shell}" ]]; then
 		if [[ ! -f "${user_shell}" ]]; then
@@ -2673,7 +2717,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# But, that is not a typical scenario and it's safer for most typical packaging to make sure the login shell is a valid executable that should exist on any system by default.
 		# When creating a user immediately (not creating a package), it doesn't matter either way whether this is checked here or lower down.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	user_shell_lowercased="$(echo "${user_shell}" | tr '[:upper:]' '[:lower:]')"
 
@@ -2777,7 +2821,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_auto_login; then
 		if $user_shell_is_false; then
@@ -2788,7 +2832,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $user_home_is_var_empty || $user_home_is_dev_null; then
 		if ! $user_shell_is_false; then
@@ -2799,7 +2843,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -n "${st_admin_account_name}" ]]; then
 		# Check that Secure Token admin exist BEFORE prompting for Secure Token admin password so that it's not needlessly prompted if the specified Secure Token admin doesn't exist.
@@ -2828,7 +2872,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			# and all of them are intended to get Secure Tokens from the first admin created by mkuser (which, again, will not get the first Secure Token on macOS 10.15 Catalina until after their first authentication).
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $prompt_for_st_admin_password && [[ "${user_password}" != '*' ]]; then # Do not prompt for ST admin password if NO USER PASSWORD is set since that will error below anyways.
 		if ! $boot_volume_is_apfs && ! $make_package; then # Secure Token can only be granted if boot volume is APFS (but still prompt if making a package since it could be run on another system).
@@ -2867,7 +2911,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# THIS mkuser_verify_password FUNCTION WILL BE USED TO VERIFY THE SECURE TOKEN ADMIN PASSWORD NOW, AS WELL AS THE NEW USERS PASSWORD AFTER USER CREATION.
 	mkuser_verify_password() { # $1 = Account Name, $2 = Password
@@ -2920,7 +2964,9 @@ ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by de
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
 let accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
-let password = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.availableData, $.NSUTF8StringEncoding)
+let password = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding)
 
 // Code in the open source OpenDirectory "TestApp.m" from Apple contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
 
@@ -2971,7 +3017,7 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 		return 1
 	}
 
-	if $boot_volume_is_apfs || $make_package; then  # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
+	if $boot_volume_is_apfs || $make_package; then # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
 		if [[ -n "${st_admin_account_name}" ]]; then
 			st_admin_password_byte_length="$(printf '%s' "${st_admin_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 			st_admin_password_byte_length="${st_admin_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
@@ -3008,7 +3054,7 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if ! $set_sharing_only_account && $user_shell_is_false && $user_home_is_dev_null && ! $set_admin && { $set_prevent_secure_token_on_big_sur_and_newer || (( darwin_major_version < 20 )); }; then
 		set_sharing_only_account=true
@@ -3121,8 +3167,8 @@ print_mkuser_function {
 			return "${error_code}"
 		fi
 
-		escaped_valid_options_for_package=()
-		escaped_valid_options_for_package_check_without_picture_or_password=()
+		declare -a escaped_valid_options_for_package=()
+		declare -a escaped_valid_options_for_package_check_without_picture_or_password=()
 		for this_valid_option_for_package in "${valid_options_for_package[@]}"; do
 			if [[ -n "${this_valid_option_for_package}" ]]; then
 				printf -v this_escaped_valid_options_for_package '%q' "${this_valid_option_for_package}"
@@ -3328,7 +3374,7 @@ if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; the
 	fi
 fi
 
-mkuser_options=( ${escaped_valid_options_for_package[*]} --do-not-confirm )
+declare -a mkuser_options=( ${escaped_valid_options_for_package[*]} --do-not-confirm )
 PACKAGE_POSTINSTALL_EOF
 
 		# Create long random filename between to be used for the passwords deobfuscation script file so that the checksum of "postinstall" is always unique (which is verified during passwords deobfuscation).
@@ -3363,6 +3409,7 @@ wrapped_encrypted_passwords_and_key=''
 for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= 2; passwords_deobfuscation_attempt ++ )); do
 	# Do 2 attempts at deobfuscating passwords in case there is some fluke with the ancestor process checks or something.
 	# Maybe that's what happened here when the final "pgrep -qafx" check failed? https://macadmins.slack.com/archives/CF6DX18KY/p1649671076493339
+	# But, this user later let me know that the issue was not reproducable and that password deobfuscation has worked properly since encountering that issue.
 
 	wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | osascript 2> /dev/null)"
 
@@ -3655,7 +3702,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 
 			# Break the obfuscate_characters_shift_count integers into separate variables to be concatenated within the script and mix them in among
 			# a bunch of junk variables which are set to random single integers to make the real ones difficult to identify in a decompiled source.
-			obfuscate_characters_shift_count_jumble=()
+			declare -a obfuscate_characters_shift_count_jumble=()
 			for (( obfuscate_characters_shift_count_jumble_junk_var_index = 0; obfuscate_characters_shift_count_jumble_junk_var_index < 100; obfuscate_characters_shift_count_jumble_junk_var_index ++ )); do
 				mkuser_set_new_random_variable_name
 				obfuscate_characters_shift_count_jumble+=( "set ${this_random_variable_name} to $(jot -r 1 1 9)" )
@@ -3663,7 +3710,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 
 			# Replace the first 6 of the 100 random variables set to random integers with randomly named variables containing each actual number in the obfuscate_characters_shift_count.
 			# The obfuscate_characters_shift_count_jumble will be shuffled randomly before it is written into the script so it's fine to just replace the first 6.
-			obfuscate_characters_shift_count_jumble_actual_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the actual number within the script.
+			declare -a obfuscate_characters_shift_count_jumble_actual_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the actual number within the script.
 			for obfuscate_characters_shift_count_char_index in {0..5}; do
 				mkuser_set_new_random_variable_name
 				obfuscate_characters_shift_count_jumble["${obfuscate_characters_shift_count_char_index}"]="set ${this_random_variable_name} to ${obfuscate_characters_shift_count:${obfuscate_characters_shift_count_char_index}:1}"
@@ -3705,7 +3752,7 @@ OSASCRIPT_OBFUSCATE_STRING_EOF
 			deobfuscate_string_func="${this_random_variable_name}"
 
 			# Break passwords encryption key into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
-			wrapping_passwords_encryption_key_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the passwords encryption key within the script.
+			declare -a wrapping_passwords_encryption_key_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the passwords encryption key within the script.
 			for (( random_variable_name_index = 0; random_variable_name_index < 7; random_variable_name_index ++ )); do
 				mkuser_set_new_random_variable_name
 				wrapping_passwords_encryption_key_chunk_variable_names+=( "${this_random_variable_name}" )
@@ -3714,7 +3761,7 @@ OSASCRIPT_OBFUSCATE_STRING_EOF
 			wrapping_passwords_encryption_key_chunk_length="$(( ${#wrapping_passwords_encryption_key} / 7 ))"
 
 			# Since it's not easy to shuffle an array, create a string separated by lines to be able to shuffle with "sort -R" and then set those shuffled lines to an array.
-			wrapping_passwords_encryption_key_chunk_var_assignments_shuffled=()
+			declare -a wrapping_passwords_encryption_key_chunk_var_assignments_shuffled=()
 			while IFS='' read -r wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line; do
 				wrapping_passwords_encryption_key_chunk_var_assignments_shuffled+=( "${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line}" )
 			done < <(echo "set ${wrapping_passwords_encryption_key_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:0:${wrapping_passwords_encryption_key_chunk_length}}")\")
@@ -3726,7 +3773,7 @@ set ${wrapping_passwords_encryption_key_chunk_variable_names[5]} to ${deobfuscat
 set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 6 ))}")\")" | sort -R)
 
 			# Break encrypted passwords into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
-			wrapped_encrypted_passwords_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the encrypted passwords key within the script.
+			declare -a wrapped_encrypted_passwords_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the encrypted passwords key within the script.
 			for (( random_variable_name_index = 0; random_variable_name_index < 7; random_variable_name_index ++ )); do
 				mkuser_set_new_random_variable_name
 				wrapped_encrypted_passwords_chunk_variable_names+=( "${this_random_variable_name}" )
@@ -3735,7 +3782,7 @@ set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscat
 			wrapped_encrypted_passwords_chunk_length="$(( ${#wrapped_encrypted_passwords} / 7 ))"
 
 			# Since it's not easy to shuffle an array, create a string separated by lines to be able to shuffle with "sort -R" and then set those shuffled lines to an array.
-			wrapped_encrypted_passwords_chunk_var_assignments_shuffled=()
+			declare -a wrapped_encrypted_passwords_chunk_var_assignments_shuffled=()
 			while IFS='' read -r wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line; do
 				wrapped_encrypted_passwords_chunk_var_assignments_shuffled+=( "${wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line}" )
 			done < <(echo "set ${wrapped_encrypted_passwords_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:0:${wrapped_encrypted_passwords_chunk_length}}")\")
@@ -3909,10 +3956,10 @@ PACKAGE_PREINSTALL_EOF
 				# If default package name is over 255 characters, build the longest possible filename that includes the most identifier and version info
 				# possible by adding characters on one a time for each string until they are fully included or the total filename length is 255 characters.
 
-				pkg_identifier_and_version_max_char=1
+				declare -i pkg_identifier_and_version_max_char=1
 				until (( ${#default_package_name} == 255 )); do
 					default_package_name="${pkg_identifier:0:pkg_identifier_and_version_max_char}-${pkg_version:0:pkg_identifier_and_version_max_char}.pkg"
-					(( pkg_identifier_and_version_max_char ++ ))
+					pkg_identifier_and_version_max_char+=1
 				done
 			fi
 
@@ -3928,7 +3975,7 @@ PACKAGE_PREINSTALL_EOF
 			echo '' # Line break before "pkgbuild" and "productbuild" output.
 		fi
 
-		pkgbuild_options=( '--scripts' "${package_scripts_dir}" )
+		declare -a pkgbuild_options=( '--scripts' "${package_scripts_dir}" )
 		pkgbuild_options+=( '--nopayload' )
 		pkgbuild_options+=( '--identifier' "${pkg_identifier}" )
 		pkgbuild_options+=( '--version' "${pkg_version}" )
@@ -3949,7 +3996,7 @@ PACKAGE_PREINSTALL_EOF
 		package_distribution_xml_output_path="${package_tmp_dir}/distribution.xml"
 		rm -f "${package_distribution_xml_output_path}"
 
-		productbuild_synthesize_options=( '--synthesize' )
+		declare -a productbuild_synthesize_options=( '--synthesize' )
 		productbuild_synthesize_options+=( '--package' "${package_tmp_output_path}" )
 		if $suppress_status_messages; then productbuild_synthesize_options+=( '--quiet' ); fi # Inhibits status messages on stdout. Any error messages are still sent to stderr.
 		productbuild_synthesize_options+=( "${package_distribution_xml_output_path}" )
@@ -4107,7 +4154,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 
 		rm -f "${pkg_path}"
 
-		productbuild_options=( '--distribution' "${package_distribution_xml_output_path}" )
+		declare -a productbuild_options=( '--distribution' "${package_distribution_xml_output_path}" )
 		productbuild_options+=( '--package-path' "${package_tmp_dir}" )
 		productbuild_options+=( '--identifier' "${pkg_identifier}" )
 		productbuild_options+=( '--version' "${pkg_version}" )
@@ -4133,7 +4180,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 		return 0
 	fi
 	# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-	(( error_code ++ )) # Put the "<MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT>" marker BEFORE incrementing the error_code so that error numbers are consistent whether or not it is a package installation.
+	error_code+=1 # Put the "<MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT>" marker BEFORE incrementing the error_code so that error numbers are consistent whether or not it is a package installation.
 
 
 	# DO REMAINING SYSTEM SPECIFIC CHECKS BEFORE CREATING THE USER
@@ -4177,7 +4224,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name \"${user_account_name}\" already exists."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# Also make sure an existing full name doesn't have the desired account name.
 	assigned_account_name_as_full_name_dscl_search="$(dscl /Search -search /Users RealName "${user_account_name}" 2> /dev/null)"
@@ -4185,21 +4232,21 @@ CUSTOM_DISTRIBUTION_XML_EOF
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Account name \"${user_account_name}\" already assigned to full name of \"$(echo "${assigned_account_name_as_full_name_dscl_search}" | awk '{ print $1; exit }')\"."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	assigned_full_name_dscl_search="$(dscl /Search -search /Users RealName "${user_full_name}" 2> /dev/null)" # Luckily, this RealName search is case-insensitive.
 	if [[ -n "${assigned_full_name_dscl_search}" ]]; then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" already assigned to \"$(echo "${assigned_full_name_dscl_search}" | awk '{ print $1; exit }')\"."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# Also make sure an existing account name doesn't have the desired full name.
 	if dscl /Search -read "/Users/${user_full_name}" RecordName &> /dev/null; then # Luckily, this RecordName query is also case-insensitive.
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" already taken by an existing users account name."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# UIDs CAN BE REPRESENTED IN DIFFERENT FORMS (this also applieds to GIDs)
 	# When viewing UIDs/GIDs in "dscacheutil", they are always displays in their signed 32-bit integer form (-2147483648 through 2147483647).
@@ -4245,7 +4292,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 	# But, for invalid UIDs/GIDs in the full "dscacheutil -q user" output, the user is included with a UID/GID of the numbers up to the first invalid character, if there are no numbers or it doesn't start with a number, 0 is used instead.
 	# "mkuser_convert_to_signed_32_bit_integer" will interpret invalid UIDs/GIDs in this same way by only using any leading valid integer, or using 0 if there is no valid leading integer. (But these kind of invalid UIDs/GIDs are not allowed as parameter input for "mkuser".)
 
-	this_signed_32_bit_integer='0'
+	this_signed_32_bit_integer=0
 	mkuser_convert_to_signed_32_bit_integer() { # This function will convert any number into the signed 32-bit integer range the same way that "dscacheutil" does for UIDs and GIDs.
 		# this_signed_32_bit_integer IS NOT LOCAL to this function, so that is can be referenced after calling the function without needing a subshell (https://rus.har.mn/blog/2010-07-05/subshells/).
 
@@ -4265,14 +4312,13 @@ CUSTOM_DISTRIBUTION_XML_EOF
 					this_signed_32_bit_integer="${this_possible_signed_32_bit_integer}"
 					if $original_integer_was_negative; then this_signed_32_bit_integer="-${this_signed_32_bit_integer}"; fi # Add back minus sign if it was a valid negative number.
 				else # Any input that did not have a valid leading number is interpreted as 0.
-					this_signed_32_bit_integer='0'
+					this_signed_32_bit_integer=0
 				fi
 			fi
 
-			if [[ "${this_signed_32_bit_integer}" == '0'* || "${this_signed_32_bit_integer}" == '-0'* ]]; then
-				this_signed_32_bit_integer="${this_signed_32_bit_integer//[^${DIGITS}]/}" # Need to temporarily remove any minus sign to remove leading zeros.
-				this_signed_32_bit_integer="$($original_integer_was_negative && printf '-')${this_signed_32_bit_integer#"${this_signed_32_bit_integer%%[^0]*}"}" # Remove any leading zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
-				if [[ -z "${this_signed_32_bit_integer}" || "${this_signed_32_bit_integer}" == '-' ]]; then this_signed_32_bit_integer='0'; fi # Catch if the number was all zeros with or without a minus sign.
+			if [[ "${this_signed_32_bit_integer}" =~ ^\-?0+ ]]; then
+				this_signed_32_bit_integer="$($original_integer_was_negative && printf '-')${this_signed_32_bit_integer#"${this_signed_32_bit_integer%%[^-0]*}"}" # Remove any leading minus sign and zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
+				if [[ -z "${this_signed_32_bit_integer}" || "${this_signed_32_bit_integer}" == '-' ]]; then this_signed_32_bit_integer=0; fi # Catch if the number was all zeros with or without a minus sign.
 			fi
 
 			if [[ "$(( this_signed_32_bit_integer ))" != "${this_signed_32_bit_integer}" ]]; then
@@ -4280,7 +4326,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 				# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
 				if $original_integer_was_negative; then # If it was negative, then it was lower than the 64-bit integer minimum and should be interpreted as "0".
-					this_signed_32_bit_integer='0'
+					this_signed_32_bit_integer=0
 				else # If it was positive, then it was higher than the 64-bit integer maximum and should be interpreted as "-1".
 					this_signed_32_bit_integer='-1'
 				fi
@@ -4385,7 +4431,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 		IFS=$'\n'
 		for this_assigned_uid in ${all_assigned_uids}; do
 			if (( "${this_assigned_uid}" == user_uid )); then
-				(( user_uid ++ ))
+				user_uid+=1
 			elif (( "${this_assigned_uid}" > user_uid )); then
 				break
 			fi
@@ -4400,7 +4446,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 
 		did_assign_uid=true
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# Still need to verify that the UID does not exist if it was specified explicitly rather than just assigned dynamically. And, these checks are an extra safety net to make sure the UID assignment worked properly.
 	if [[ $'\n'"${all_assigned_uids}"$'\n' == *$'\n'"${user_uid}"$'\n'* ]]; then
@@ -4431,7 +4477,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -n "${user_guid}" ]]; then
 		assigned_guid_dscl_search="$(dscl /Search -search /Users GeneratedUID "${user_guid}" 2> /dev/null)"
@@ -4440,7 +4486,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# GIDs have the same 32-bit integer range complexity as UIDs, so we need to do all the same things for GIDs that we did above for UIDs.
 	# This list of all_assigned_uids will also be used later in the code if and when creating a new SharePoint Group.
@@ -4519,7 +4565,7 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 
 		# The proper default "PrimaryGroupID" of "20" (staff) will be set during creation if not specified.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -z "${user_shell}" ]]; then
 		if (( darwin_major_version >= 19 )); then
@@ -4545,7 +4591,7 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_prevent_secure_token_on_big_sur_and_newer && (( darwin_major_version < 20 )); then
 		# Disable set_prevent_secure_token_on_big_sur_and_newer if not running on macOS 11 Big Sur and newer.
@@ -4645,7 +4691,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool must be run as root."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if ! $do_not_confirm; then
 		# Use the specially quoted $'\n' to be interpreted as a line break instead of just "\n" which would require "-e" and would incorrectly interpret any possible literal backslashes in the full name.
@@ -4659,7 +4705,7 @@ Check \"--help\" for detailed information about each available option."
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# After this point, use "dscl ." instead of "dscl /Search" since all subsequent checks will be exclusively for the newly created local user.
 
@@ -4678,8 +4724,8 @@ Check \"--help\" for detailed information about each available option."
 	# The following order of the attibutes does not matter, but I chose to use the "StandardUserRecord" order for the first 6 attributes (excluding "Password") as described in "man dsimport" and here:
 	# https://support.apple.com/guide/server/create-a-file-to-import-users-apd41051f16/mac#apd31dc619d2b014
 
-	dsimport_record_attributes=( 'RecordName' 'UniqueID' 'PrimaryGroupID' 'RealName' 'NFSHomeDirectory' 'UserShell' 'GeneratedUID' 'AuthenticationHint' )
-	dsimport_record_values=( "${user_account_name}" "${user_uid}" "${user_gid}" "${user_full_name}" "${user_home_path}" "${user_shell}" "${user_guid}" "${user_password_hint}" )
+	declare -a dsimport_record_attributes=( 'RecordName' 'UniqueID' 'PrimaryGroupID' 'RealName' 'NFSHomeDirectory' 'UserShell' 'GeneratedUID' 'AuthenticationHint' )
+	declare -a dsimport_record_values=( "${user_account_name}" "${user_uid}" "${user_gid}" "${user_full_name}" "${user_home_path}" "${user_shell}" "${user_guid}" "${user_password_hint}" )
 
 	# The "user_gid", "user_guid", or "user_password_hint" values could be empty strings in the array above and it's fine since "dsimport" ignores empty values rather than setting empty strings for those attributes.
 	# Therefore, if "user_guid" is empty a "GeneratedUID" will be assigned upon creation and if "user_gid" is empty a "PrimaryGroupID" will be set to the default of "20" (staff).
@@ -4800,7 +4846,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Number of specified attributes does not match the number specified values (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if ! $suppress_status_messages; then
 		echo "mkuser: Creating ${creating_user_type} ${user_full_and_account_name_display} with User ID ${user_uid}..."
@@ -4808,7 +4854,7 @@ Check \"--help\" for detailed information about each available option."
 
 	# The following structure used for the "dsimport" file is fully described in https://support.apple.com/guide/server/create-a-file-to-import-users-apd41051f16/mac#apdd7625a0b981d4
 
-	dsimport_record_description=( '0x0A' ) # End-of-record indicator ("\n" in hex notation)
+	declare -a dsimport_record_description=( '0x0A' ) # End-of-record indicator ("\n" in hex notation)
 	dsimport_record_description+=( '0x5C' ) # Escape character ("\" in hex notation)
 	dsimport_record_description+=( '0x3A' ) # Field separator (":" in hex notation)
 	dsimport_record_description+=( '0x2C' ) # Value separator ("," in hex notation)
@@ -4851,7 +4897,8 @@ Check \"--help\" for detailed information about each available option."
 
 	# Also save the relevant "dsimport_output_plist_path" contents to be checked after
 	# deleting the file since we want to delete it either way (before returning if there was an error).
-	dsimport_plist_results="$(grep -B 2 -F "<string>${user_account_name}</string>" "${dsimport_output_plist_path}" 2> /dev/null)"
+	plutil -convert xml1 "${dsimport_output_plist_path}" &> /dev/null # This conversion shouldn't be necessary, but do it anyway just in case since the file MUST be in textual (and NOT binary) format to be able to be parsed with "xmllint --xpath".
+	dsimport_plist_results_keys="$(xmllint --xpath "//string[text()='${user_account_name}']/../preceding-sibling::key[1]" "${dsimport_output_plist_path}" 2> /dev/null)"
 	rm -f "${dsimport_output_plist_path}"
 
 
@@ -4865,9 +4912,9 @@ Check \"--help\" for detailed information about each available option."
 		# "dsimport" seems to always exit 0 even when it fails to create a user (and never outputs to stdout or stderr), but doesn't hurt to check the exit code anyway.
 		# Even though "dsimport" doesn't use stdout or stderr, it can output useful results to a plist specified with the "--outputfile" option, which will be checked next.
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
-	if [[ "${dsimport_plist_results}" != *'<key>Succeeded</key>'* ]]; then
+	if [[ "${dsimport_plist_results_keys}" != *'<key>Succeeded</key>'* ]]; then
 		# "man dsimport" states that "The format of this file is likely to change in a future release of Mac OS X." in the "--outputfile" section,
 		# but I have checked the plist contents in macOS 10.13 High Sierra and macOS 11 Big Sur and it seems to be the same across those versions.
 		# The expected contents of "dsimport_output_plist_path" are as follows:
@@ -4897,13 +4944,14 @@ Check \"--help\" for detailed information about each available option."
 
 		# If the user is listed in the "Failed" and/or "Users not imported because of bad short names" keys, they
 		# should NOT be in the "Users" key, but ignore it anyway just in case since it's not a useful failure reason.
-		dsimport_failure_reasons="$(echo "${dsimport_plist_results}" | awk -F '<key>|</key>' '/<\/key>$/ && ($2 != "Users") { print $2 }')"
-		dsimport_failure_reasons="${dsimport_failure_reasons//$'\n'/ + }"
+		dsimport_failure_reasons_display="${dsimport_plist_results_keys/<key>Users<\/key>/}"
+		dsimport_failure_reasons_display="${dsimport_failure_reasons_display//<\/key><key>/ + }"
+		dsimport_failure_reasons_display="${dsimport_failure_reasons_display:5:${#dsimport_failure_reasons_display}-11}"
 
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"dsimport\" failed with reasons: ${dsimport_failure_reasons:-UNKNOWN}"
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"dsimport\" failed with reasons: ${dsimport_failure_reasons_display:-UNKNOWN}"
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	# Now, to be extra thorough, independently confirm that the user got created (and do the final steps).
 
@@ -4911,9 +4959,10 @@ Check \"--help\" for detailed information about each available option."
 		echo "mkuser: Verifying ${user_full_and_account_name_display} user creation..."
 	fi
 
-	if ! dscl . -read "/Users/${user_account_name}" RecordName &> /dev/null || ! id -- "${user_account_name}" &> /dev/null; then
+	if ! dscl . -read "/Users/${user_account_name}" RecordName &> /dev/null || ! id -- "${user_account_name}" &> /dev/null || [[ -z "$(dscacheutil -q user -a name "${user_account_name}")" ]]; then
 		# Check for user with "dscl" instead of only using "id" so we know we are finding a user with the actual account name, "id" alone is just
 		# not precise enough (but still check it to be extra thorough since we want to know all typical user commands work properly for this new user).
+		# Also, make sure the user has been cached with "dscacheutil" since those values will also be verified in the next step.
 
 		did_detect_user_after_delay=false
 		for (( detect_user_delay_seconds = 1; detect_user_delay_seconds <= 5; detect_user_delay_seconds ++ )); do
@@ -4922,7 +4971,7 @@ Check \"--help\" for detailed information about each available option."
 			# Even though these outrageously long passwords are not allowed to be used, it doesn't hurt to keep this extra delayed check in here just in case since it won't get hit if the user if detected immediately.
 
 			sleep 1
-			if dscl . -read "/Users/${user_account_name}" RecordName &> /dev/null && id -- "${user_account_name}" &> /dev/null; then
+			if dscl . -read "/Users/${user_account_name}" RecordName &> /dev/null && id -- "${user_account_name}" &> /dev/null && [[ -n "$(dscacheutil -q user -a name "${user_account_name}")" ]]; then
 				did_detect_user_after_delay=true
 				break
 			fi
@@ -4935,7 +4984,7 @@ Check \"--help\" for detailed information about each available option."
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	created_dscacheutil_user="$(dscacheutil -q user -a name "${user_account_name}")" # Retrieve user info from "dscacheutil" to verify all values from cache
 	# as well as the keys we want to compare against from "dscl" to make sure the new user has been properly created and cached.
@@ -4952,7 +5001,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect User ID (${created_user_uid:-N/A} != ${user_uid}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	created_user_gid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:PrimaryGroupID:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_gid}" != "${user_gid:-20}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"gid: ${user_gid:-20}"$'\n'* ]]; then
@@ -4960,7 +5009,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect Group ID (${created_user_gid:-N/A} != ${user_gid:-20}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	created_user_home_path="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:NFSHomeDirectory:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_home_path}" != "${user_home_path}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"dir: ${user_home_path}"$'\n'* ]]; then
@@ -4968,7 +5017,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect home folder (${created_user_home_path:-N/A} != ${user_home_path}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	created_user_shell="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:UserShell:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_shell}" != "${user_shell}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"shell: ${user_shell}"$'\n'* ]]; then
@@ -4976,7 +5025,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect login shell (${created_user_shell:-N/A} != ${user_shell}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	created_user_full_name="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:RealName:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	if [[ "${created_user_full_name}" != "${user_full_name}" || $'\n'"${created_dscacheutil_user}"$'\n' != *$'\n'"gecos: ${user_full_name}"$'\n'* ]]; then
@@ -4984,7 +5033,7 @@ Check \"--help\" for detailed information about each available option."
 		>&2 echo -e "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but with incorrect full name (${created_user_full_name:-N/A} != ${user_full_name}).\n${created_dscacheutil_user}"
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	created_user_guid="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:GeneratedUID:0' "${created_dscl_user_plist_path}" 2> /dev/null)"
 	rm -f "${created_dscl_user_plist_path}"
@@ -4999,7 +5048,7 @@ Check \"--help\" for detailed information about each available option."
 	else
 		user_guid="${created_user_guid}" # If no "user_guid" was specified, set it to the "created_user_guid" since it's needed for the SharePoint "com_apple_sharing_uuid" attribute if sharing the Public folder (when specified) as well as confirming a Secure Token was granted (when specified).
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if ! $set_service_account; then
 		# Add empty string attributes after user creation since "dsimport" ignores empty strings and does not create the attributes at all.
@@ -5120,7 +5169,9 @@ ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by de
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
 let accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
-let newPassword = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.availableData, $.NSUTF8StringEncoding)
+let newPassword = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding)
 
 // Code in the open source OpenDirectory "TestApp.m" from Apple contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
 
@@ -5187,7 +5238,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_prohibit_user_password_changes; then
 		# See notes above (where "_writers_" attributes are set) for information about why this is deleted down here when password changes are prohibited.
@@ -5197,7 +5248,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	did_create_home_folder=false
 
@@ -5223,7 +5274,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 
 		did_create_home_folder=true
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $did_create_home_folder && $set_hidden_home && [[ -z "$(find "/$(echo "${user_home_path}" | cut -d '/' -f 2)" -flags +hidden -maxdepth 0 2> /dev/null)" ]]; then
 		# Also hide home folder if user is set as hidden (only if root level folder isn't already hidden such as "/private").
@@ -5233,108 +5284,224 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
-	if $did_create_home_folder; then
-		user_full_name_for_share_point="${user_full_name}"
-		user_share_point_name_suffix="’s Public Folder"
+	if $did_create_home_folder && ! $do_not_share_public_folder && ! $set_hidden_home && [[ "${user_home_path}" == '/Users/'* ]]; then
+		# Only add Public folder SharePoints for users with home folders that are not hidden and are in the default location (not hidden locations such as within "/private/var/"), and only if they didn't choose not to share the Public folder.
 
-		# Since user full name will now be used at the SharePoint RecordName, removing any invalid leading characters ("." and "-") for RecordNames (see account name limitations for reasoning).
-		user_full_name_for_share_point="${user_full_name_for_share_point#"${user_full_name_for_share_point%%[^.-]*}"}"
+		# Before sharing this users Public folder, check if any existing SharePoints (and SharePoint Groups) exists for the users exact Public folder path and delete them.
+		# This is done because if a user with the same home folder was created and then manually deleted using only "dscl" commands, for example, the users Public folder SharePoint record could have been left behind.
+		# Since this user would not have been allowed to be created if the home folder already existed, we can be certain that if a SharePoint exists for this users Public folder, it's an orphan that can be safely deleted.
+		# It's best to delete any existing SharePoint and re-create it since it's possible the users RealName (that's part of the SharePoint RecordName) could be changed and needs to be updated
+		# as well as other attributes such as "com_apple_sharing_uuid" which would be the previously deleted users GUID, and also to be sure that the associated SharePoint Group is properly created.
 
-		# Full names longer than 226 *BYTES* will cause the Public folder SharePoint to fail to be created by the "sharing" command.
-		# This is because the Public folder SharePoint's default RecordName "${user_full_name}’s Public Folder" would be 244 bytes when the full name is 226 bytes.
-		# It seems that all OpenDirectory RecordName's have a 244 byte limit, just like the User RecordName has this same byte length limit.
+		share_point_group_name_prefix='com.apple.sharepoint.group.'
 
-		# WEIRD SIDE NOTE: When a RecordName contains multibyte characters, it seems that sometimes the max bytes before the record breaks can be a few more than 244.
-		# When testing by adding characters 1-by-1 in Directory Utility and switching to the data view to see the current byte length, with mutli-byte characters in the string,
-		# sometimes I could set to 247 bytes and save and it worked fine and then saving 1 more breaks it and with different mult-byte characters I could fit 248 bytes and 1 more breaks it.
-		# But that is just an oddity and I could not discern any specific pattern to when or why exactly more byte might be allowed in a RecordName.
-		# And, when there are NO multibyte chars, the limit seems to always just be 244 bytes flat and 1 more will break the record.
-		# So, 244 bytes is the maximum safe limit in all cases that we will stick to throughout this code.
+		if [[ -n "$(dscl . -search /SharePoints directory_path "${user_home_path}/Public")" ]]; then
+			# Only use "dscl . -search" as a quick and efficient way to check if there are any existing duplicate SharePoints that need to be deleted.
+			# But, DO NOT use the output from "dscl . -search" for this since it could be tedious to extract any and all actual SharePoint RecordNames from the results.
+			# This is because the SharePoint RecordNames will likely contain spaces (unlike almost all other types of RecordNames) and could also contain tabs,
+			# so splitting on whitespace (or only tabs) with "awk" to retreive the first element like is normally done with RecordNames from "dscl . -search" results would not work in all cases for SharePoints.
+			# It would be possible to trim off the last 37 characaters from the results lines that contain SharePoint names (which will always end with exactly "		dsAttrTypeNative:directory_path = ("),
+			# BUT even though it's not allowed by mkuser it is technically possible that a SharePoint RecordName could contain line breaks.
+			# If line breaks exist in the SharePoint RecordNames returned by "dscl . -search" it becomes even more tedious to try to extract the full and correct
+			# SharePoint RecordName from that output since those line breaks are displayed and multiple lines would need to be combined to get a full RecordName.
+			# So, instead, once we know there are duplicate existing SharePoints that need to be deleted since the "dscl . -search" results were not empty,
+			# we will retrieve a plist of ALL of the SharePoints using "dscl -plist . -readall /SharePoints" and loop through those contents where we can check if the "directory_path"
+			# within a SharePoint matches this users Public folder and then easily extract any full SharePoint RecordName even if it contains tabs or line breaks or anything.
+			# This code continues looping even after a match is found just in case of the rare situation where there are multiple orphaned SharePoints for the same Public folder.
 
-		# But, before worrying about the 244 byte limit, truncate the full name and suffix characters to fit within 244 characters.
-		# Since 244 characters will be at least 244 bytes or more, truncating the characters first makes it much faster to truncate bytes
-		# down from that this reduced length instead of truncating from a full name that could be more than twice as long to begin with.
-		user_full_name_for_share_point="${user_full_name_for_share_point:0:244-${#user_share_point_name_suffix}}"
+			# Save this "dscl" output (which will be passed to PlistBuddy multiple times) to a file so that only one file is created instead of using a here-string over and over which creates a new temp file each time.
+			dscl_share_points_plist_path="${dsimport_output_plist_path/+output.plist/+shrpts.plist}" # Reuse the unique filename already created for dsimport_output_plist_path but replace the suffix (which is safe with the previous max length calculations since the new suffix is the same length).
+			rm -rf "${dscl_share_points_plist_path}"
+			dscl -plist . -readall /SharePoints RecordName directory_path com_apple_sharing_uuid sharepoint_group_id > "${dscl_share_points_plist_path}" 2> /dev/null
 
-		user_share_point_name="${user_full_name_for_share_point}${user_share_point_name_suffix}"
+			for (( this_share_point_index = 0; ; this_share_point_index ++ )); do # This would loop forever on its own, but we'll manually break out of the loop below when there are no more SharePoint indexes in the plist.
+				if ! this_share_point_name="$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeStandard\:RecordName:0" "${dscl_share_points_plist_path}" 2> /dev/null)" || [[ -z "${this_share_point_name}" ]]; then
+					break # Must check if RecordName is empty which will indicate there are no more SharePoint indexes and we need to break this infinite loop.
+				elif [[ "$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeNative\:directory_path:0" "${dscl_share_points_plist_path}" 2> /dev/null)" == "${user_home_path}/Public" ]]; then
+					# Along with confirming this SharePoint is for this new users Public folder, also make sure this SharePoints "com_apple_sharing_uuid" attribute (which will only be set on macOS 10.15 Catalina or newer) is not associated with any existing users GUID (if the attribute exists).
+					# This means there is a (very rare) case where a duplicate existing SharePoint for this new users Public folder could be NOT deleted (when it somehow is still assocated with an existing users GUID) which would cause the Public folder to NOT be shared by mkuser, which will make mkuser output a warning, but still complete successfully.
+					this_share_point_user_guid="$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeNative\:com_apple_sharing_uuid:0" "${dscl_share_points_plist_path}" 2> /dev/null)"
 
-		if (( $(echo -n "${user_share_point_name}" | wc -c) > 244 )); then
-			# When truncated full name for SharePoint RecordName, add "…" to the end of the full name to indicate that it was truncated.
-			until (( $(echo -n "${user_full_name_for_share_point}…${user_share_point_name_suffix}" | wc -c) <= 244 )); do # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
-				user_full_name_for_share_point="${user_full_name_for_share_point:0:${#user_full_name_for_share_point}-1}"
-			done
+					if [[ -z "${this_share_point_user_guid}" || -z "$(dscl /Search -search /Users GeneratedUID "${this_share_point_user_guid}" 2> /dev/null)" ]]; then # Allow for "this_share_point_user_guid" to either not exist OR not be associated with any existing user since the "com_apple_sharing_uuid" attribute was not set by macOS before macOS 10.15 Catalina.
+						if ! $suppress_status_messages; then
+							echo "mkuser: Unsharing existing duplicate SharePoint \"${this_share_point_name}\" for \"${user_home_path}/Public\", probably leftover from a previously deleted user..."
+						fi
 
-			# Remove any trailing spaces if full name was truncated.
-			user_full_name_for_share_point="${user_full_name_for_share_point%"${user_full_name_for_share_point##*[^[:space:]]}"}"
+						if [[ "$(sharing -l)" == *$'\t'"${this_share_point_name}"$'\n'* ]] || dscl . -read "/SharePoints/${this_share_point_name}" RecordName &> /dev/null; then
+							if ! sharing -r "${this_share_point_name}" || [[ "$(sharing -l)" == *$'\t'"${this_share_point_name}"$'\n'* ]] || dscl . -read "/SharePoints/${this_share_point_name}" RecordName &> /dev/null; then
+								>&2 echo "mkuser WARNING: Failed to delete existing duplicate SharePoint \"${this_share_point_name}\" (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+							elif this_share_point_group_guid="$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeNative\:sharepoint_group_id:0" "${dscl_share_points_plist_path}" 2> /dev/null)" && [[ -n "${this_share_point_group_guid}" ]] && \
+								this_share_point_group_name="$(dscl . -search /Groups GeneratedUID "${this_share_point_group_guid}" | awk '{ print $1; exit }')" && [[ "${this_share_point_group_name}" == "${share_point_group_name_prefix}"* ]] && dscl . -read "/Groups/${this_share_point_group_name}" RecordName &> /dev/null; then
+								# Also check for an associated SharePoint Group and delete it as well (whose GeneratedUID is referenced in the "sharepoint_group_id attribute" of this SharePoint) since "sharing -r" leaves the behind the SharePoint Group (as of macOS 12 Monterey).
 
-			user_share_point_name="${user_full_name_for_share_point}…${user_share_point_name_suffix}"
+								this_share_point_group_gid="$(dscl -plist . -read "/Groups/${this_share_point_group_name}" PrimaryGroupID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" # Save this GID before deleting the group to be able to remove it from all_assigned_gids after the group is deleted.
 
-			# Even when the full name contains no multibyte characters, this loop will ALWAYS be entered since the "’" in the suffix is a 3-byte character, which will make the user_share_point_name always over 244 bytes even if we already truncated to 244 characters.
-			# This is fine though since it means the desired "…" 3-byte character will always be added when truncating and fit into the proper byte limit even if the full name is made up of only 1-byte characters.
-		fi
+								if ! dseditgroup -q -o delete "${this_share_point_group_name}" &> /dev/null; then
+									>&2 echo "mkuser WARNING: Failed to delete existing duplicate SharePoint Group \"${this_share_point_group_name}\" (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+								fi
 
-		# Replace any forward slash (/) or percent (%) characters in the SharePoint RecordName with underscores (_) for the following reasons:
-		# When forward slash (/) or percent (%) characters are included in a full name for user created by "sysadminctl -addUser" or System Preferences, they are allowed and properly displayed in the Shared folder name in the File Sharing section of the Sharing pane in System Preferences (as well as in Directory Utility).
-		# What happens internally is that percent (%) characters are replaced with "%25" and forward slash (/) characters are replaced with "%2F", since literal forward slashes cannot exist in folder or file names and the RecordName is a plist filename, and then any escape character (the %) would also need to be escaped to not be misinterpreted when used literally.
-		# In fact, "sharing -a" does this same escape/replacing automatically, so it may seem that these characters could be left in and "sharing -a" would take care of this escaping for us.
-		# While this seems true at first glance, I found a bug when trying to use "dscl . -create" with a SharePoint RecordName that contains these forward slash (/) or percent (%) characters.
-		# When using "dscl . -read" (and all "sharing" commands) the RecordName must be specified in its display form with literal forward slash (/) or percent (%) characters.
-		# When using "dscl . -delete" the RecordName must be specified with the forward slash (/) or percent (%) characters escaped to their "%2F" and "%25" forms, respectively.
-		# So far so good since those commands can still work and function properly when the RecordName is specified correctly.
-		# BUT, when trying to use "dscl . -create", neither of these forms (or any other variations I tried) would work and "dscl" would display an "Uncaught Exception" error stating "[__NSArrayM insertObject:atIndex:]: object cannot be nil" (tested and observed on macOS 10.13 High Sierra and macOS 12 Monterey, which is enough to justify not using these characters in SharePoint RecordNames).
-		# Since I could not figure out how to properly use "dscl . -create" to workaround this bug when either the forward slash (/) or percent (%) characters were present in a RecordName, they will both be replaced with underscores (_) so that "dscl . -create" can be used with these SharePoint RecordNames to be able to properly add the required attributes to the SharePoint record.
-		# Doing these replacements AFTER truncating the full name since this does not change the byte count and doing it here means only the characters that would have made it into the RecordName are being replaced.
+								did_confirm_share_point_group_deleted=false
+								if [[ -z "$(dscacheutil -q group -a name "${this_share_point_group_name}")" ]]; then # Check non-existence with "dscacheutil" to make sure the group deletion has been cached.
+									did_confirm_share_point_group_deleted=true
+								else # But, sometimes "dscacheutil" appears to not be updated immediately, so keep checking for 5 more seconds and only display a warning if the group is still detected after that time.
+									for (( confirm_share_point_group_deleted_seconds = 1; confirm_share_point_group_deleted_seconds <= 5; confirm_share_point_group_deleted_seconds ++ )); do
+										sleep 1
+										if [[ -z "$(dscacheutil -q group -a name "${this_share_point_group_name}")" ]]; then
+											did_confirm_share_point_group_deleted=true
+											break
+										fi
+									done
+								fi
 
-		user_share_point_name="${user_share_point_name//%/_}"
-		user_share_point_name="${user_share_point_name//\//_}"
-
-		# SIDE NOTE ABOUT THE COLON (:) CHARACTER BEING ALLOWED IN SHAREPOINT RECORDNAME (WHICH IS A PLIST FILENAME IN THE DSLOCAL FOLDER STRUCTURE):
-		# The colon (:) character is not allowed in Finder, but actually is a valid character in file and folder names and will confusingly be displayed in Finder as a forward slash (/).
-		# If you add a forward slash (/) to a file or folder name in Finder, it will be allowed and the actual file or folder name set will have a colon (:) in place of the forward slash (/).
-		# But, unlike in Finder, Shared folder names with colons (:) in them are properly displayed as colons in the File Sharing section of the Sharing pane in System Preferences (as well as in Directory Utility) instead of a forward slash, so they can be allowed here without causing any error or confusion.
-
-		if $do_not_share_public_folder || $set_hidden_home || [[ "${user_home_path}" != '/Users/'* ]]; then
-			if [[ "$(sharing -l)" == *$'\t'"${user_share_point_name}"$'\n'* ]] || dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
-				if ! $suppress_status_messages; then
-					echo "mkuser: Unsharing ${user_full_and_account_name_display} user Public folder..."
-				fi
-
-				# If hiding home folder, also remove the SharePoint (and SharePoint Group) as described on https://support.apple.com/HT203998
-				# THIS SHOULD NEVER ACTUALLY RUN SINCE THE SHAREPOINT WILL NOT BE CREATED YET. IT WILL BE MANUALLY ADDED RIGHT BELOW HERE FOR NON-HIDDEN USERS.
-				# But still, doesn't hurt to check and try to remove any existing SharePoint (and SharePoint Group) anyway. The code may be a good reference for something else in the future.
-
-				# Also check for an associated SharePoint Group and delete it as well.
-				# This must be done before deleting the SharePoint since the GeneratedUID of the SharePoint Group is references within the SharePoint.
-				user_share_point_group_guid="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
-				if [[ -n "${user_share_point_group_guid}" ]]; then
-					user_share_point_group_name="$(dscl . -search /Groups GeneratedUID "${user_share_point_group_guid}" | awk '{ print $1; exit }')"
-
-					if [[ -n "${user_share_point_group_name}" ]]; then
-						if ! dseditgroup -o delete "${user_share_point_group_name}" &> /dev/null || [[ -n "$(dscacheutil -q group -a name "${user_share_point_group_name}")" ]]; then # Check non-existence with "dscacheutil" to make sure the group deletion has been cached.
-							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete SharePoint Group \"${user_share_point_group_name}\" for hidden user."
-							return "${error_code}"
+								if ! $did_confirm_share_point_group_deleted; then
+									>&2 echo "mkuser WARNING: Failed to confirm existing duplicate SharePoint Group \"${this_share_point_group_name}\" was deleted after 5 seconds (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+								elif [[ -n "${this_share_point_group_gid}" ]]; then
+									all_assigned_gids="$(echo "${all_assigned_gids}" | grep -xFv "${this_share_point_group_gid}")" # Delete this_share_point_group_gid from all_assigned_gids to be able to get the correct next available GID for the new SharePoint Group.
+								fi
+							fi
+						else
+							>&2 echo "mkuser WARNING: Detected SharePoint name \"${this_share_point_name}\" IS NOT correct for existing duplicate SharePoint for \"${user_home_path}/Public\" (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
 						fi
 					fi
 				fi
+			done
 
-				if ! sharing -r "${user_share_point_name}" || [[ "$(sharing -l)" == *$'\t'"${user_share_point_name}"$'\n'* ]] || dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
-					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete SharePoint \"${user_share_point_name}\" for hidden user."
-					return "${error_code}"
+			rm -f "${dscl_share_points_plist_path}"
+		fi
+
+		# And, even though we've now deleted any existing duplicate SharePoints and their associated SharePoint Groups for this users Public folder, also check for and delete any orphaned SharePoint Groups.
+		# This is done because even if a user if "fully" deleted properly using System Preferences or "sysadminctl -deleteUser", neither of these technique actually delete the SharePoint Groups (as of macOS 10.13 High Sierra through macOS 12 Monterey).
+		# Both of those proper user deletion methods delete the users actual Public folder SharePoint record, but they leave behind the SharePoint Groups that were assocated with the deleted SharePoints.
+		# Also, even removing a Shared folder of an existing user in System Preferences or using "sharing -r" leaves behind the the SharePoint Group as well (as of macOS 10.13 High Sierra through macOS 12 Monterey).
+		# That means that it's not unlikely that there could be orphaned SharePoint Groups from any previously deleted users or unshared Public folders.
+		# It is easy to be certain that any given SharePoint Group is an orphan by checking if its "GeneratedUID" matches a "sharepoint_group_id" attribute in some existing SharePoint record.
+		# While orphaned SharePoint Groups are really nothing more than clutter, it is pretty easy to detect and delete them to keep things tidy.
+		# This also allows for mkuser to use the actual lowest available SharePoint Group RecordName and SharePoint Group GID after these orphaned SharePoint Groups are deleted.
+
+		all_share_point_group_names="$(dscl . -list /Groups 2> /dev/null | grep "^${share_point_group_name_prefix//./\\.}" | sort -t '.' -k 5 -n)"
+
+		IFS=$'\n'
+		for this_share_point_group_name in ${all_share_point_group_names}; do
+			if this_share_point_group_guid="$(dscl -plist . -read "/Groups/${this_share_point_group_name}" GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" && [[ -n "${this_share_point_group_guid}" ]]; then
+				search_share_points_for_group_guid_results="$(dscl /Search -search /SharePoints sharepoint_group_id "${this_share_point_group_guid}" 2> /dev/null)"
+				if [[ -z "${search_share_points_for_group_guid_results}" || "${search_share_points_for_group_guid_results}" == 'search: Invalid Path' ]]; then # Whenever no SharePoints exists, "dscl /Search" commands (but not "dscl .") will error with "<dscl_cmd> DS Error: -14009 (eDSUnknownNodeName)" to stderr and output "search: Invalid Path" to stdout (but the first word will be for whatever command was used). This result is as good as no output since it means no SharePoints exist as all.
+					this_share_point_group_real_name="$(PlistBuddy -c 'Print :dsAttrTypeStandard\:RealName:0' /dev/stdin <<< "$(dscl -plist . -read "/Groups/${this_share_point_group_name}" RealName 2> /dev/null)" 2> /dev/null)" # Use "PlistBuddy" and here-string for this one instead of "xmllint --xpath" and pipe since the former displays multibyte characters (such as the "’" which should always be in the name) while the latter displays the escaped value instead.
+
+					if ! $suppress_status_messages; then
+						echo "mkuser: Deleting orphaned SharePoint Group \"${this_share_point_group_name}\" (${this_share_point_group_real_name:-UNKNOWN PUBLIC FOLDER NAME}), probably leftover from a previously deleted user..."
+					fi
+
+					this_share_point_group_gid="$(dscl -plist . -read "/Groups/${this_share_point_group_name}" PrimaryGroupID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" # Save this GID before deleting the group to be able to remove it from all_assigned_gids after the group is deleted.
+
+					if ! dseditgroup -q -o delete "${this_share_point_group_name}" &> /dev/null; then
+						>&2 echo "mkuser WARNING: Failed to delete orphaned SharePoint Group \"${this_share_point_group_name}\" (${this_share_point_group_real_name:-UNKNOWN PUBLIC FOLDER NAME}) (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+					fi
+
+					did_confirm_share_point_group_deleted=false
+					if [[ -z "$(dscacheutil -q group -a name "${this_share_point_group_name}")" ]]; then # Check non-existence with "dscacheutil" to make sure the group deletion has been cached.
+						did_confirm_share_point_group_deleted=true
+					else # But, sometimes "dscacheutil" appears to not be updated immediately, so keep checking for 5 more seconds and only display a warning if the group is still detected after that time.
+						for (( confirm_share_point_group_deleted_seconds = 1; confirm_share_point_group_deleted_seconds <= 5; confirm_share_point_group_deleted_seconds ++ )); do
+							sleep 1
+							if [[ -z "$(dscacheutil -q group -a name "${this_share_point_group_name}")" ]]; then
+								did_confirm_share_point_group_deleted=true
+								break
+							fi
+						done
+					fi
+
+					if ! $did_confirm_share_point_group_deleted; then
+						>&2 echo "mkuser WARNING: Failed to confirm orphaned SharePoint Group \"${this_share_point_group_name}\" (${this_share_point_group_real_name:-UNKNOWN PUBLIC FOLDER NAME}) was deleted after 5 seconds (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+					elif [[ -n "${this_share_point_group_gid}" ]]; then
+						all_assigned_gids="$(echo "${all_assigned_gids}" | grep -xFv "${this_share_point_group_gid}")" # Delete this_share_point_group_gid from all_assigned_gids to be able to get the correct next available GID for the new SharePoint Group.
+					fi
 				fi
 			fi
-		elif [[ "$(sharing -l)" != *$'\t'"${user_share_point_name}"$'\n'* ]] && ! dscl /Search -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then # Use "dscl /Search" for these checks when checking for pre-existing Groups and SharePoints rather than just newly created stuff.
-			# Only add SharePoints for users with home folders that are not hidden and are in the default location (not hidden locations such as within "/private/var/").
+		done
+		unset IFS
 
+		search_share_points_for_user_public_folder_results="$(dscl /Search -search /SharePoints directory_path "${user_home_path}/Public" 2> /dev/null)" # Now use "dscl /Search" when checking for duplicate SharePoints (and SharePoint Groups) to leave alone and avoid rather than only checking local stuff like was being done above when those SharePoints (and SharePoint Groups) would be deleted.
+		if [[ -z "${search_share_points_for_user_public_folder_results}" || "${search_share_points_for_user_public_folder_results}" == 'search: Invalid Path' ]]; then # Whenever no SharePoints exists, "dscl /Search" commands (but not "dscl .") will error with "<dscl_cmd> DS Error: -14009 (eDSUnknownNodeName)" to stderr and output "search: Invalid Path" to stdout (but the first word will be for whatever command was used). This result is as good as no output since it means no SharePoints exist as all.
 			if ! $suppress_status_messages; then
 				echo "mkuser: Sharing ${user_full_and_account_name_display} user Public folder..."
 			fi
 
+			user_share_point_name=''
+
+			user_full_name_for_share_point="${user_full_name}"
+			# Since user full name will now be used at the SharePoint RecordName, removing any invalid leading characters ("." and "-") for RecordNames (see account name limitations for reasoning).
+			user_full_name_for_share_point="${user_full_name_for_share_point#"${user_full_name_for_share_point%%[^.-]*}"}"
+
+			declare -i user_share_point_name_suffix_index=1
+
+			# Keep looping until a unique user_share_point_name is found (by incrementing and adding user_share_point_name_suffix_index to the end as needed). Along with SharePoint RecordNames, this also checks SharePoint Group RealNames so that a duplicate name is not created for either of them.
+			sharing_list_output="$(sharing -l)"
+			while [[ -z "${user_share_point_name}" || "${sharing_list_output}" == *$'\t'"${user_share_point_name}"$'\n'* || -n "$(dscl /Search -search /Groups RealName "${user_share_point_name}")" ]] || dscl /Search -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; do
+				user_share_point_name_suffix="’s Public Folder"
+				if (( user_share_point_name_suffix_index > 1 )); then user_share_point_name_suffix+=" ${user_share_point_name_suffix_index}"; fi
+
+				# Full names longer than 226 *BYTES* will cause the Public folder SharePoint to fail to be created by the "sharing" command.
+				# This is because the Public folder SharePoint's default RecordName "${user_full_name}’s Public Folder" would be 244 bytes when the full name is 226 bytes.
+				# It seems that all OpenDirectory RecordName's have a 244 byte limit, just like the User RecordName has this same byte length limit.
+
+				# WEIRD SIDE NOTE: When a RecordName contains multibyte characters, it seems that sometimes the max bytes before the record breaks can be a few more than 244.
+				# When testing by adding characters 1-by-1 in Directory Utility and switching to the data view to see the current byte length, with mutli-byte characters in the string,
+				# sometimes I could set to 247 bytes and save and it worked fine and then saving 1 more breaks it and with different mult-byte characters I could fit 248 bytes and 1 more breaks it.
+				# But that is just an oddity and I could not discern any specific pattern to when or why exactly more byte might be allowed in a RecordName.
+				# And, when there are NO multibyte chars, the limit seems to always just be 244 bytes flat and 1 more will break the record.
+				# So, 244 bytes is the maximum safe limit in all cases that we will stick to throughout this code.
+
+				# But, before worrying about the 244 byte limit, truncate the full name and suffix characters to fit within 244 characters.
+				# Since 244 characters will be at least 244 bytes or more, truncating the characters first makes it much faster to truncate bytes
+				# down from that this reduced length instead of truncating from a full name that could be more than twice as long to begin with.
+				possible_user_full_name_for_share_point="${user_full_name_for_share_point:0:244-${#user_share_point_name_suffix}}"
+
+				user_share_point_name="${possible_user_full_name_for_share_point}${user_share_point_name_suffix}"
+
+				if (( $(echo -n "${user_share_point_name}" | wc -c) > 244 )); then
+					# When truncated full name for SharePoint RecordName, add "…" to the end of the full name to indicate that it was truncated.
+					until (( $(echo -n "${possible_user_full_name_for_share_point}…${user_share_point_name_suffix}" | wc -c) <= 244 )); do # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "echo -n" to not count a trailing line break character.
+						possible_user_full_name_for_share_point="${possible_user_full_name_for_share_point:0:${#possible_user_full_name_for_share_point}-1}"
+					done
+
+					# Remove any trailing spaces if full name was truncated.
+					possible_user_full_name_for_share_point="${possible_user_full_name_for_share_point%"${possible_user_full_name_for_share_point##*[^[:space:]]}"}"
+
+					user_share_point_name="${possible_user_full_name_for_share_point}…${user_share_point_name_suffix}"
+
+					# Even when the full name contains no multibyte characters, this loop will ALWAYS be entered since the "’" in the suffix is a 3-byte character, which will make the user_share_point_name always over 244 bytes even if we already truncated to 244 characters.
+					# This is fine though since it means the desired "…" 3-byte character will always be added when truncating and fit into the proper byte limit even if the full name is made up of only 1-byte characters.
+				fi
+
+				# Replace any forward slash (/) or percent (%) characters in the SharePoint RecordName with underscores (_) for the following reasons:
+				# When forward slash (/) or percent (%) characters are included in a full name for user created by "sysadminctl -addUser" or System Preferences, they are allowed and properly displayed in the Shared folder name in the File Sharing section of the Sharing pane in System Preferences (as well as in Directory Utility).
+				# What happens internally is that percent (%) characters are replaced with "%25" and forward slash (/) characters are replaced with "%2F", since literal forward slashes cannot exist in folder or file names and the RecordName is a plist filename, and then any escape character (the %) would also need to be escaped to not be misinterpreted when used literally.
+				# In fact, "sharing -a" does this same escape/replacing automatically, so it may seem that these characters could be left in and "sharing -a" would take care of this escaping for us.
+				# While this seems true at first glance, I found a bug when trying to use "dscl . -create" with a SharePoint RecordName that contains these forward slash (/) or percent (%) characters.
+				# When using "dscl . -read" (and all "sharing" commands) the RecordName must be specified in its display form with literal forward slash (/) or percent (%) characters.
+				# When using "dscl . -delete" the RecordName must be specified with the forward slash (/) or percent (%) characters escaped to their "%2F" and "%25" forms, respectively.
+				# So far so good since those commands can still work and function properly when the RecordName is specified correctly.
+				# BUT, when trying to use "dscl . -create", neither of these forms (or any other variations I tried) would work and "dscl" would display an "Uncaught Exception" error stating "[__NSArrayM insertObject:atIndex:]: object cannot be nil" (tested and observed on macOS 10.13 High Sierra and macOS 12 Monterey, which is enough to justify not using these characters in SharePoint RecordNames).
+				# Since I could not figure out how to properly use "dscl . -create" to workaround this bug when either the forward slash (/) or percent (%) characters were present in a RecordName, they will both be replaced with underscores (_) so that "dscl . -create" can be used with these SharePoint RecordNames to be able to properly add the required attributes to the SharePoint record.
+				# Doing these replacements AFTER truncating the full name since this does not change the byte count and doing it here means only the characters that would have made it into the RecordName are being replaced.
+
+				user_share_point_name="${user_share_point_name//%/_}"
+				user_share_point_name="${user_share_point_name//\//_}"
+
+				# SIDE NOTE ABOUT THE COLON (:) CHARACTER BEING ALLOWED IN SHAREPOINT RECORDNAME (WHICH IS A PLIST FILENAME IN THE DSLOCAL FOLDER STRUCTURE):
+				# The colon (:) character is not allowed in Finder, but actually is a valid character in file and folder names and will confusingly be displayed in Finder as a forward slash (/).
+				# If you add a forward slash (/) to a file or folder name in Finder, it will be allowed and the actual file or folder name set will have a colon (:) in place of the forward slash (/).
+				# But, unlike in Finder, Shared folder names with colons (:) in them are properly displayed as colons in the File Sharing section of the Sharing pane in System Preferences (as well as in Directory Utility) instead of a forward slash, so they can be allowed here without causing any error or confusion.
+
+				user_share_point_name_suffix_index+=1
+			done
+
 			# Create user SharePoint (using "sharing -a") since that is default macOS behavior for users created by "sysadminctl -addUser" and System Preferences (but "dsimport" does not add the SharePoint automatically).
-			# After creating a new SharePoint (using "sharing -a"), the SharePoint structure does not match what would be created by "sysadminctl -addUser" and System Preferences,
+			# But, after creating a new SharePoint using "sharing -a", the SharePoint structure does not match exactly what would be created by "sysadminctl -addUser" and System Preferences,
 			# and also a new SharePoint Group (com.apple.sharepoint.group.#) does not get creating like "sysadminctl -addUser" and System Preferences would create.
-			# So, we will add a new SharePoint Group (com.apple.sharepoint.group.#) manually and modify the "sharing -a" SharePoint structure to match how "sysadminctl -addUser" and System Preferences would make it.
+			# So, we will add a new SharePoint Group (com.apple.sharepoint.group.#) manually and modify the SharePoint structure to match how "sysadminctl -addUser" and System Preferences would make it.
 
 			# I am not actually sure what the purpose of the SharePoint Group (com.apple.sharepoint.group.#) is, since a shared folder seems to work fine without it, but the
 			# goal here is to match "sysadminctl -addUser" and System Preferences as exactly as possible, so we will replicate those exact SharePoint and SharePoint Group structures.
@@ -5349,11 +5516,11 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			# all_assigned_gids is loaded above when confirming that the users Primary Group ID already exists.
 			# See "UIDs CAN BE REPRESENTED IN DIFFERENT FORMS" notes and following code for important information about GIDs and UIDs.
 
-			user_share_point_group_id='701'
+			declare -i user_share_point_group_id=701
 			IFS=$'\n'
 			for this_assigned_gid in ${all_assigned_gids}; do
 				if (( "${this_assigned_gid}" == user_share_point_group_id )); then
-					(( user_share_point_group_id ++ ))
+					user_share_point_group_id+=1
 				elif (( "${this_assigned_gid}" > user_share_point_group_id )); then
 					break
 				fi
@@ -5370,8 +5537,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			fi
 
 			# Find the lowest available name for the SharePoint Group starting at "com.apple.sharepoint.group.1", like "sysadminctl -addUser" and System Preferences does.
-			share_point_group_name_prefix='com.apple.sharepoint.group.'
-			user_share_point_group_name_index=1
+			declare -i user_share_point_group_name_index=1
 			user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
 
 			all_assigned_share_point_group_names="$(dscl /Search -list /Groups 2> /dev/null | grep "^${share_point_group_name_prefix//./\\.}" | sort -t '.' -k 5 -n)"
@@ -5379,7 +5545,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			IFS=$'\n'
 			for this_assigned_share_point_group_name in ${all_assigned_share_point_group_names}; do
 				if [[ "${this_assigned_share_point_group_name}" == "${user_share_point_group_name}" ]]; then
-					(( user_share_point_group_name_index ++ ))
+					user_share_point_group_name_index+=1
 					user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
 				else
 					break
@@ -5394,7 +5560,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 
 			# Create the SharePoint (using "sharing -a").
 			if ! sharing -a "${user_home_path}/Public" -n "${user_share_point_name}" || [[ "$(sharing -l)" != *$'\t'"${user_share_point_name}"$'\n'* ]] || ! dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint \"${user_share_point_name}\"."
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create SharePoint \"${user_share_point_name}\"."
 				return "${error_code}"
 			fi
 
@@ -5433,15 +5599,35 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 				return "${error_code}"
 			fi
 
-			if [[ "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" PrimaryGroupID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${user_share_point_group_id}" ]]; then
+			if ! dscl . -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
 				# While "mkuser" does not officially support older than macOS 10.13 High Sierra, I did do one test on OS X 10.11 El Capitan and was surprised to see that "sharing -a" actually created the SharePoint Group, unlike newer versions of macOS.
 				# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra or newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
 				# This check should make this one thing simpler if official support for older versions of macOS is ever needed, or if things change in a future version of macOS.
 
 				# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl -addUser" and System Preferences does.
-				if ! dseditgroup -q -o create -i "${user_share_point_group_id}" -r "${user_share_point_name}" -a 'everyone' -t 'group' "${user_share_point_group_name}" || ! dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then # Check existence with "dscacheutil" to verify GID and to make sure the new group has been cached.
-					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint Group \"${user_share_point_group_name}\"."
+				if ! dseditgroup -q -o create -i "${user_share_point_group_id}" -r "${user_share_point_name}" -a 'everyone' -t 'group' "${user_share_point_group_name}"; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create SharePoint Group \"${user_share_point_group_name}\"."
 					return "${error_code}"
+				fi
+
+				# Also check existence with "dscacheutil" to verify GID and to make sure the new group has been cached.
+				# But, sometimes "dscacheutil" appears to not be updated immediately.
+				# So, if it's not cached right away, keep checking for 5 more seconds and only error if the group is still NOT detected after that time.
+				if ! dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then
+					did_confirm_share_point_group_created=false
+
+					for (( confirm_share_point_group_created_seconds = 1; confirm_share_point_group_created_seconds <= 5; confirm_share_point_group_created_seconds ++ )); do
+						sleep 1
+						if dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then
+							did_confirm_share_point_group_created=true
+							break
+						fi
+					done
+
+					if ! $did_confirm_share_point_group_created; then
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to confirm SharePoint Group \"${user_share_point_group_name}\" was created after 5 seconds."
+						return "${error_code}"
+					fi
 				fi
 			else
 				>&2 echo "mkuser WARNING: SharePoint Group \"${user_share_point_name}\" (${user_share_point_group_id}) was unexpectedly already created by the \"sharing -a\" command." # Log warning if the SharePoint Group was created by "sharing -a" to notice if things ever change in a future version of macOS.
@@ -5461,10 +5647,10 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 				return "${error_code}"
 			fi
 		else
-			>&2 echo "mkuser WARNING: NOT sharing Public folder since SharePoint \"${user_share_point_name}\" already exists, maybe from a previous user that was not fully deleted (CONTINUING ANYWAY)."
+			>&2 echo "mkuser WARNING: NOT sharing Public folder since a SharePoint already exists for \"${user_home_path}/Public\" that is associated with an existing user or was unable to be removed (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_admin; then
 		if ! $suppress_status_messages; then
@@ -5480,9 +5666,9 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		# Admin users created by "sysadminctl -addUser" or System Preferences are also be added to the "_appserverusr" and "_appserveradm" groups (along with "admin").
 		# I have confirmed admins are added to these 2 groups on macOS 10.13 High Sierra and macOS 11 Big Sur, but I eventually want research more macOS versions to see if there are any variations.
 
-		admin_groups=( 'admin' '_appserverusr' '_appserveradm' )
+		declare -a admin_groups=( 'admin' '_appserverusr' '_appserveradm' )
 		for this_admin_group in "${admin_groups[@]}"; do
-			if ! dseditgroup -o edit -a "${user_account_name}" -t user "${this_admin_group}"; then
+			if ! dseditgroup -q -o edit -a "${user_account_name}" -t user "${this_admin_group}"; then
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add to \"${this_admin_group}\" group."
 				return "${error_code}"
 			fi
@@ -5520,13 +5706,13 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			fi
 		done
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_prevent_secure_token_on_big_sur_and_newer && [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but Secure Token got granted when it should not have."
 		return "${error_code}"
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_auto_login; then
 		if ! $suppress_status_messages; then
@@ -5551,19 +5737,19 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		# So, I reworked this code to use the "xxd" technique and that is why I now consider this code to basically be an adaptation of Joel Brunerd's code rather than a port of the Python code I started with.
 		# This code also includes other changes and comments based on my own research.
 
-		cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special kcpassword repeating cipher hex characters.
+		declare -a cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special kcpassword repeating cipher hex characters.
 		cipher_key_length="${#cipher_key[@]}"
 
 		password_hex_string="$(printf '%s' "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (separated by line breaks via "-c 1"). Must pipe to "xxd" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
 
 		encoded_password_hex_string=''
-		this_password_hex_char_index=0
+		declare -i this_password_hex_char_index=0
 		IFS=$'\n' # Only loop on line breaks, this is not required since default IFS would work, but I like to be specific.
 		for this_password_hex_char in ${password_hex_string}; do
 			# Do the kcpassword encoding by XORing each password hex character with a cipher hex character (and keep looping through the cipher hex characters in order)
 			# which will return the integer representation from $(( 0x## ^ 0x## )) and then use printf '%02x' to convert the XORed integer to its hex character.
 			encoded_password_hex_string+="$(printf '%02x' "$(( 0x${this_password_hex_char} ^ 0x${cipher_key[this_password_hex_char_index % cipher_key_length]} ))") "
-			(( this_password_hex_char_index ++ ))
+			this_password_hex_char_index+=1
 			# Using modulo for the cipher_key index will loop through the cipher_key characters, which is more like what is done in this other bash code rather than the Python code:
 			# https://github.com/erikberglund/Scripts/blob/ac60be1e1284dc8cbb6d7a484ee8e3ad9c71b19a/installer/installerCreateUser/installerCreateUser#L436
 			# https://gist.github.com/brunerd/d60343434a8a5121db423bf21025ea66#file-kcpasswordencode-sh-L40
@@ -5634,7 +5820,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		encoded_password_hex_string="$(xxd -c 1 -p /private/etc/kcpassword)" # Convert each Unicode character of the kcpassword contents to their hex represention (separated by line breaks via "-c 1").
 
 		decoded_password_hex_string=''
-		this_encoded_password_hex_char_index=0
+		declare -i this_encoded_password_hex_char_index=0
 		IFS=$'\n' # Only loop on line breaks, this is not required since default IFS would work, but I like to be specific.
 		for this_encoded_password_hex_char in ${encoded_password_hex_string}; do
 			this_cipher_char="${cipher_key[this_encoded_password_hex_char_index % cipher_key_length]}"
@@ -5645,7 +5831,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 				# Do the kcpassword DECODING by XORing each encoded password hex character with a cipher hex character (and keep looping through the cipher hex characters in order)
 				# which will return the integer representation from $(( 0x## ^ 0x## )) and then use printf '%02x' to convert the XORed integer to its hex character (this is the same as encoding).
 				decoded_password_hex_string+="$(printf '%02x' "$(( 0x${this_encoded_password_hex_char} ^ 0x${this_cipher_char} ))") "
-				(( this_encoded_password_hex_char_index ++ ))
+				this_encoded_password_hex_char_index+=1
 			fi
 		done
 		unset IFS
@@ -5657,7 +5843,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $set_auto_login; then
 		defaults write '/Library/Preferences/com.apple.loginwindow' autoLoginUser -string "${user_account_name}"
@@ -5667,7 +5853,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $did_create_home_folder && $skip_setup_assistant_on_first_login && [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
 		if ! $suppress_status_messages; then
@@ -5683,7 +5869,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $skip_setup_assistant_on_first_boot && [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
 		if ! $suppress_status_messages; then
@@ -5698,7 +5884,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if [[ -n "${st_admin_account_name}" ]]; then
 		if ! $boot_volume_is_apfs; then # Should never hit this condition since st_admin_account_name will have been cleared if not running on an APFS boot volume, but doesn't hurt to check anyway.
@@ -5751,7 +5937,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			echo "mkuser: Do not need to manually grant ${user_full_and_account_name_display} user a Secure Token (as specified) since user already has one (maybe from a Bootstrap Token)..."
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if $boot_volume_is_apfs && [[ -n "${st_admin_account_name}" || ( "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* && "$(diskutil apfs listUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* && $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ) ]]; then
 		# Update Preboot Volume separately from granting a Secure Token so that the Preboot Volume will also get updated when macOS has granted this account the first Secure Token or if the account was granted a Secure Token from a Bootstrap Token.
@@ -5773,7 +5959,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			return "${error_code}"
 		fi
 	fi
-	(( error_code ++ ))
+	error_code+=1
 
 	if ! $suppress_status_messages; then
 		echo "mkuser: Successfully created ${creating_user_type} ${user_full_and_account_name_display} and all ${error_code} verifications passed!"

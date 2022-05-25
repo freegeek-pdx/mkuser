@@ -234,7 +234,8 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 #### `--home-folder, --home-path, --home, -H` < *non-existing path* >
 
-> The home folder path must not currently exist, unless specifying the special "/var/empty" or "/dev/null" paths.<br/>
+> The home folder path must not currently exist and must be directly within "/Users/" or "/private/var/" (or "/var/"), or on an external drive (but that is not recommended).<br/>
+> The special "/var/empty" and "/dev/null" paths are also allowed.<br/>
 > The total length of the home folder path must be 511 bytes or less, or home folder creation will fail during login or `createhomedir`.<br/>
 > Each folder within the home folder path must be 255 bytes or less each, as that is the max folder/file name length set by macOS.<br/>
 > If the home folder is not within the "/Users/" folder, the users Public folder will not be shared.<br/>
