@@ -8,7 +8,7 @@ Along with abundant options and excessive verifications, `mkuser` has detailed h
 
 `mkuser` is also focused on precision and accuracy. The user accounts created by `mkuser` should be indistinguishable from a user account created by `sysadminctl -addUser` or System Preferences. This may not sound like much, but if you read through the source you'll see that there are a variety of subtleties and nuances that took quite a bit of research and effort to match exactly what `sysadminctl -addUser` and System Preferences does. Also, `mkuser` actually does better in some situations to avoid possible errors or macOS bugs! If you're interested in this, there are many detailed technical notes throughout the source that basically serve as a study in user account creation. No other scripted user account creation that I'm aware of creates user accounts as accurately as `mkuser`.
 
-`mkuser` is a single function within a single script written in `bash` with no external dependencies. If you want to incorporate `mkuser`'s functionality into your own `bash` (not `zsh`) script without requiring another file, you can simply copy-and-paste the whole function into your code. Or, of course, you can call the separate `mkuser` script file from any code written in any language or directly on the command line.
+`mkuser` is a single function within a single script written in `bash` with no 3rd-party dependencies (every command that `mkuser` calls is included in macOS). If you want to incorporate `mkuser`'s functionality into your own `bash` (not `zsh`) script without requiring another file, you can simply copy-and-paste the whole function into your code. Or, of course, you can call the separate `mkuser` script file from any code written in any language or directly on the command line.
 
 Some of the features of `mkuser` that are not available in other user creation tools are: create a user immediately or save a user creation package, setup automatic login, skip Setup Assistant on first boot and/or first login, prohibit standard users from changing their own password or picture, and prevent the first user from getting a Secure Token, along with all other normal user creation options you would expect and more.
 
@@ -211,7 +211,6 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 #### `--password-hint, --hint, --ph` < *string* >
 
 > Must be 280 characters or less and the only limitations on the characters allowed in the password hint are that it cannot be only whitespace and can't contain control characters other than line breaks (\n) or tabs (\t).<br/>
-> Line breaks and tabs can also be included.<br/>
 > If omitted, no password hint will be set.
 >
 > **280 CHARACTER PASSWORD HINT LENGTH LIMIT NOTES:**<br/>
@@ -384,7 +383,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > But, you can specify any User ID, Primary Group ID, or login shell.<br/>
 > If `--user-id` is omitted, the next available User ID starting from *200* will be assigned by default (the same as a "Role Account").<br/>
 > If `--group-id` is omitted, the *-2* (nobody) group will be used.<br/>
-> If `--login-shell` is omitted, the "/usr/bin/false" will be used.<br/>
+> If `--login-shell` is omitted, "/usr/bin/false" will be used.<br/>
 > If `--home-folder` is omitted, "/var/empty" will be used.
 >
 > Also, you cannot specify `--sharing-only` or `--role-account` with this option since they are mutually exclusive account types.
@@ -555,7 +554,8 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Include this option with either no parameter or specify "*both*" to skip both the first boot and first login Setup Assistant screens.
 >
 > Specify "*firstBootOnly*" to skip only the first boot Setup Assistant screens.<br/>
-> This affects all users and will only have an effect if the first boot Setup Assistant has not already run.
+> This affects all users and has no effect if first boot Setup Assistant has already been completed.<br/>
+> If Setup Assistant is already running when the user is being created, `mkuser` will exit Setup Assistant after the user creation process is done.
 >
 > Specify "*firstLoginOnly*" to skip only the users first login Setup Assistant screens.<br/>
 > This affects only this user and will also skip any and all future user Setup Assistant screens that may appear when and if macOS is updated.

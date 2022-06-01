@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.5.24-1'
+	readonly MKUSER_VERSION='2022.6.1-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -1619,7 +1619,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     If ${ansi_bold}--user-id${clear_ansi} is omitted, the next available User ID starting from ${ansi_underline}200${clear_ansi}
       will be assigned by default (the same as a \"Role Account\").
     If ${ansi_bold}--group-id${clear_ansi} is omitted, the ${ansi_underline}-2${clear_ansi} (nobody) group will be used.
-    If ${ansi_bold}--login-shell${clear_ansi} is omitted, the \"/usr/bin/false\" will be used.
+    If ${ansi_bold}--login-shell${clear_ansi} is omitted, \"/usr/bin/false\" will be used.
     If ${ansi_bold}--home-folder${clear_ansi} is omitted, \"/var/empty\" will be used.
 
     Also, you cannot specify ${ansi_bold}--sharing-only${clear_ansi} or ${ansi_bold}--role-account${clear_ansi}
@@ -1935,8 +1935,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       to skip both the first boot and first login Setup Assistant screens.
 
     Specify \"${ansi_underline}firstBootOnly${clear_ansi}\" to skip only the first boot Setup Assistant screens.
-    This affects all users and will only have an effect if the first boot
-      Setup Assistant has not already run.
+    This affects all users and has no effect if first boot
+      Setup Assistant has already been completed.
+    If Setup Assistant is already running when the user is being created,
+      ${ansi_bold}mkuser${clear_ansi} will exit Setup Assistant after the user creation process is done.
 
     Specify \"${ansi_underline}firstLoginOnly${clear_ansi}\" to skip only the users first login
       Setup Assistant screens.
@@ -2136,6 +2138,32 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if ! $suppress_status_messages; then
 		echo "mkuser: Validating specified options and parameters (version ${MKUSER_VERSION} on macOS $(sw_vers -productVersion) $(sw_vers -buildVersion))..."
+	fi
+
+	if ! pgrep -q 'coreauthd' && ! pgrep -q 'bootinstalld' && ! pgrep -q 'Language Chooser'; then
+		# WAIT FOR FULL BOOT
+		# In case mkuser is being run by a LaunchDaemon which starts very early on boot, always wait for full boot before continuing so that everything is run in a consistent state and all system services have been started.
+		# Through investigation, I found that "coreauthd" is consistently the last, or nearly the last, root process to be started before the login window is displayed (or auto-login or "Setup Assistant") and continues running forever.
+		# But, "coreauthd" will not be running yet when installing packages that were specified with "startosinstall", so checking for "bootinstalld" catches that scenario ("bootinstalld" will also be running during normal boots even before "coreauthd", but it doesn't continue running like "coreauthd" does so can't check for only "bootinstalld").
+		# Also, "coreauthd" or "bootinstalld" may or may NOT be running yet when "Language Chooser" launches on first boot (I saw examples of them running before "Language Chooser" and also not being launched until "Language Chooser" was exited on multiple versions of macOS), so check for that as well to reliably allow users to be created when "Language Chooser" is running on first boot.
+		# If something changes in a future macOS and these checks are not enough, mkuser will still proceed after waiting for 30 seconds regardless of what processes are detected to be running.
+
+		if ! $suppress_status_messages; then
+			echo "mkuser: Waiting for full boot before starting user creation process..."
+		fi
+
+		did_detect_full_boot=false
+		for (( detect_full_boot_seconds = 1; detect_full_boot_seconds <= 30; detect_full_boot_seconds ++ )); do
+			sleep 1
+			if pgrep -q 'coreauthd' || pgrep -q 'bootinstalld' || pgrep -q 'Language Chooser'; then
+				did_detect_full_boot=true
+				break
+			fi
+		done
+
+		if ! $did_detect_full_boot; then
+			>&2 echo 'mkuser WARNING: Failed to detect full boot after 30 seconds (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE).'
+		fi
 	fi
 
 	boot_volume_is_apfs="$([[ "$(PlistBuddy -c 'Print :FilesystemType' /dev/stdin <<< "$(diskutil info -plist /)" 2> /dev/null)" == 'apfs' ]] && echo 'true' || echo 'false')" # Need to check if boot volume is APFS to know whether or not a Secure Token can be granted.
@@ -3224,6 +3252,30 @@ if [[ "\$1" != 'check-only-from-preinstall' ]]; then # Do not log "Starting..." 
 	echo "mkuser \${script_name} PACKAGE: Starting (version ${MKUSER_VERSION} on macOS \$(sw_vers -productVersion) \$(sw_vers -buildVersion))..."
 fi
 
+if ! pgrep -q 'coreauthd' && ! pgrep -q 'bootinstalld' && ! pgrep -q 'Language Chooser'; then
+	# WAIT FOR FULL BOOT
+	# In case this user creation package is being run by a LaunchDaemon which starts very early on boot, always wait for full boot before continuing so that everything is run in a consistent state and all system services have been started.
+	# Through investigation, I found that "coreauthd" is consistently the last, or nearly the last, root process to be started before the login window is displayed (or auto-login or "Setup Assistant") and continues running forever.
+	# But, "coreauthd" will not be running yet when installing packages that were specified with "startosinstall", so checking for "bootinstalld" catches that scenario ("bootinstalld" will also be running during normal boots even before "coreauthd", but it doesn't continue running like "coreauthd" does so can't check for only "bootinstalld").
+	# Also, "coreauthd" or "bootinstalld" may or may NOT be running yet when "Language Chooser" launches on first boot (I saw examples of them running before "Language Chooser" and also not being launched until "Language Chooser" was exited on multiple versions of macOS), so check for that as well to reliably allow users to be created when "Language Chooser" is running on first boot.
+	# If something changes in a future macOS and these checks are not enough, mkuser will still proceed after waiting for 30 seconds regardless of what processes are detected to be running.
+
+	echo "mkuser \${script_name} PACKAGE: Waiting for full boot before starting user creation process..."
+
+	did_detect_full_boot=false
+	for (( detect_full_boot_seconds = 1; detect_full_boot_seconds <= 30; detect_full_boot_seconds ++ )); do
+		sleep 1
+		if pgrep -q 'coreauthd' || pgrep -q 'bootinstalld' || pgrep -q 'Language Chooser'; then
+			did_detect_full_boot=true
+			break
+		fi
+	done
+
+	if ! \$did_detect_full_boot; then
+		>&2 echo "mkuser \${script_name} PACKAGE WARNING: Failed to detect full boot after 30 seconds (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+	fi
+fi
+
 current_user_id="\$(echo 'show State:/Users/ConsoleUser' | scutil | awk '(\$1 == "UID") { print \$NF; exit }')"
 
 mkuser_installer_display_error() { # Only when running graphically via "Installer" app, display an alert if an error occurred since "Installer" doesn't actually show any specific error string.
@@ -3235,11 +3287,10 @@ mkuser_installer_display_error() { # Only when running graphically via "Installe
 			error_message+=\$'\n\nView "Show All Logs" output of the "Installer Log" (within the "Window" menu) for more details. Or, you can view "install.log" within the "Console" app.\n\nTHIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE.'
 		fi
 
-		# The package title is base64 encoded (when this script is created) since doing the dual escaping to be placed within a here-doc that's within another here-doc is more complicated than just encoding the string and decoding it within AppleScript.
-		# The "error_message" string is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
-		# The environment variable is retrieved within AppleScript using "printenv" via "do shell script" since "system attribute" mangles multibyte characters that may exist in the error message.
-		launchctl asuser "\${current_user_id}" sudo -u "#\${current_user_id}" OSASCRIPT_ENV_ERROR_MESSAGE="\${error_message}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
-set userFullAndAccountNameDisplay to (do shell script "echo '$(echo -n "${user_full_and_account_name_display_for_package_title}" | base64)' | base64 -D")
+		# The display name and error message strings are passed to "osascript" as a command specific environment variables so that escaping any possible quotes or backslashes that would break the AppleScript is not necessary.
+		# The environment variable is retrieved within AppleScript using "printenv" via "do shell script" since "system attribute" mangles multibyte characters that may exist in the variables.
+		launchctl asuser "\${current_user_id}" sudo -u "#\${current_user_id}" OSASCRIPT_ENV_USER_DISPLAY_NAME=$(printf '%q' "${user_full_and_account_name_display_for_package_title}") OSASCRIPT_ENV_ERROR_MESSAGE="\${error_message}" osascript << OSASCRIPT_DISPLAY_ALERT_EOF &> /dev/null
+set userFullAndAccountNameDisplay to (do shell script "printenv OSASCRIPT_ENV_USER_DISPLAY_NAME")
 set errorMessage to (do shell script "printenv OSASCRIPT_ENV_ERROR_MESSAGE")
 -- Telling "Installer" to "display alert" makes the icon correct and properly blocks the "Installer" app. This DOES NOT trigger TCC since "Installer" will be the parent process.
 tell application "Installer" to display alert ("\$1 to Create ${creating_user_type} " & userFullAndAccountNameDisplay & " on This System") message errorMessage as critical
@@ -3340,7 +3391,8 @@ ${mkuser_function_source_for_package}" >> "${package_scripts_dir}/postinstall"
 if [[ ! -f "\${PWD}/preinstall" || "\$1" == 'check-only-from-preinstall' ]]; then
 	# If a "preinstall" script exists to extract resources, this check will have already been run once before getting to the "postinstall" script.
 
-	echo "mkuser \$([[ "\$1" == 'check-only-from-preinstall' ]] && echo 'PREINSTALL' || echo 'POSTINSTALL') PACKAGE: Checking if user can be created before doing anything..."
+	user_full_and_account_name_display=$(printf '%q' "${user_full_and_account_name_display}")
+	echo "mkuser \$([[ "\$1" == 'check-only-from-preinstall' ]] && echo 'PREINSTALL' || echo 'POSTINSTALL') PACKAGE: Checking if ${creating_user_type} \${user_full_and_account_name_display} can be created before doing anything..."
 
 	mkuser_check_only_error_output="\$(mkuser ${escaped_valid_options_for_package_check_without_picture_or_password[*]} --suppress-status-messages --check-only 2>&1)" # Redirect stderr to save to variable.
 
@@ -3406,18 +3458,34 @@ fi
 
 wrapped_encrypted_passwords_and_key=''
 
-for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= 2; passwords_deobfuscation_attempt ++ )); do
-	# Do 2 attempts at deobfuscating passwords in case there is some fluke with the ancestor process checks or something.
+max_passwords_deobfuscation_attempts=5
+for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= max_passwords_deobfuscation_attempts; passwords_deobfuscation_attempt ++ )); do
+	# Do multiple attempts at deobfuscating passwords (waiting progressively longer between each attempt) in case there is some random fluke error or something.
 	# Maybe that's what happened here when the final "pgrep -qafx" check failed? https://macadmins.slack.com/archives/CF6DX18KY/p1649671076493339
 	# But, this user later let me know that the issue was not reproducable and that password deobfuscation has worked properly since encountering that issue.
+
+	# In some later testing, I ran into sporadic occurrences of AppleScript error -600 "Application isn't running" which is basically a non-specific OS error and the documentation states "they are rare, and often there is nothing you can do about them in a script".
+	# https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/reference/ASLR_error_codes.html#//apple_ref/doc/uid/TP40000983-CH220-SW2
+	# I think that maybe the "-600" error may have actually been what happened to the user when the final "pgrep -qafx" check failed, but I didn't have detailed enough error messages at the time to know what actual error occurred.
+	# This "-600" error is very rare, but I found that I could reproduce/trigger it reliably by installing mutliple users back-to-back while the system is at the login window AND relaunching the login window after each user creation using "killall 'loginwindow'" (to make the newly created user appear in the list).
+	# This was just during some testing though and I decided not to relaunch the login window when mkuser creates a user while the system is at the login window because it disrupted LoginWindow LaunchAgents, and also made the screen flash black each time which made the computer look like it was broken/freaking out when multiple users were being created.
+	# Also, the fact that it caused/exacerbated this possible "-600" error is another reason for mkuser NOT to relaunch login window. But, the login window could still be relaunched once by mkuser to exit the first boot "Setup Assistant" if a user is created when "Setup Assistant" (or "Language Chooser") is running and "--skip-setup-assistant" is specified.
+	# If another user is created right after "Setup Assistant" (or "Language Chooser") is exited by relaunching login window, the "-600" error may likely occur during that password deobfuscation and this re-attempt loop could be very important to get the passwords successfully deobfuscated.
+
+	# I found that when the "-600" error happens, it will often work properly after another re-attempt.
+	# Moreover, re-attempting within the AppleScript code itself is actually much more successful since when the "-600" error happens, just one more attempt of the same command tends to work.
+	# So, along with this outer loop to attempt the entire password deobfuscation script multiple times, the AppleScript code itself will do multiple attempts when unexpected errors occur within the script.
+	# These errors seem to most frequently happen within the AppleScript deobfuscate_string_func (probably just because it's called so many times), so that function will also do multiple attempts (but often just one more attempt is enough).
+	# Along with doing the multiple re-attempts within the AppleScript code, I also improved return values to include the actual error that occurred along with what point in the code it happend so if all AppleScript re-attempts fail and this outer re-attempt loop is ever hit, the included error code from the AppleScript will be much more informative.
+	# In my final testing with the multiple attempts within the AppleScript code, this outer loop to re-attempt the entire password deobfuscation script was only necessary very few times times and only for a single re-attempt over the course of many tests since the loops within the AppleScript code recovered from nearly all possible "-600" errors.
 
 	wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | osascript 2> /dev/null)"
 
 	if [[ "\${wrapped_encrypted_passwords_and_key}" != *$'\n'* ]]; then
-		package_error="PACKAGE ERROR: Attempt \${passwords_deobfuscation_attempt} of 2 failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+		package_error="PACKAGE ERROR: Attempt \${passwords_deobfuscation_attempt} of \${max_passwords_deobfuscation_attempts} failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 		>&2 echo "mkuser POSTINSTALL \${package_error}"
 
-		if (( passwords_deobfuscation_attempt == 2 )); then
+		if (( passwords_deobfuscation_attempt == max_passwords_deobfuscation_attempts )); then
 			if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 				rm -rf '${extracted_resources_dir}'
 			fi
@@ -3425,7 +3493,7 @@ for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= 2
 			mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
 			exit 1
 		else
-			sleep 1
+			sleep "\${passwords_deobfuscation_attempt}"
 		fi
 	else
 		break
@@ -3798,6 +3866,11 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 
 			# Create random variable names to be used throughout the script.
 			mkuser_set_new_random_variable_name
+			last_error_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			this_error_number="${this_random_variable_name}"
+
+			mkuser_set_new_random_variable_name
 			script_pwd_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			script_path_var="${this_random_variable_name}"
@@ -3829,86 +3902,111 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 			osacompile -x -o "${package_tmp_dir}/passwords-deobfuscation.scpt" << PACKAGE_PASSWORD_OSACOMPILE_EOF
 use AppleScript version "2.7"
 use scripting additions
-try
-	if ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PATH')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin:/bin:/usr/sbin:/sbin')")) then return 1
-	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
-	if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then return 2
-	set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
-	if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) or ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then return 3
-	set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
+set ${last_error_var} to -1
+repeat 5 times -- See comments in the "passwords_deobfuscation_attempt" about why all of this code is attempted multiple times (it's in case of random "-600" errors).
+	set ${last_error_var} to -1
 	try
-		((${script_path_var} as POSIX file) as alias)
-	on error
-		return 4
-	end try
-	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
-	if (((POSIX path of (path to me)) is not equal to ${script_path_var}) or ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) or ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then return 5
-	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
-	set ${this_ancestor_pid_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$PPID -o ppid=")"))
-	set ${parent_script_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command= | cut -d ' ' -f 2")")))
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
-	set ${intended_parent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
-	if ((${intended_parent_script_path_var} is not equal to ${parent_script_path_var}) and (${intended_parent_script_path_var} is not equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then return 6 -- parent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
-	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
-	if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is not equal to ((last word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'openssl dgst -sha512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then return 7
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
-	set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
-	considering numeric strings
-		if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
-			set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
-		else
-			set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
-		end if
-	end considering
-	${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
-	set ${actual_ancestor_process_var} to ""
-	try
-		repeat until (${actual_ancestor_process_var} is equal to ${intended_ancestor_process_var}) -- Traverse up the whole process tree searching for the intended ancestor process since if this package is being installed from within another package the intended ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
-			set ${this_ancestor_pid_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")))
-			set ${actual_ancestor_process_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")))
-		end repeat
-	on error
-		return 8
-	end try
-	if (${intended_ancestor_process_var} is not equal to ${actual_ancestor_process_var}) then return 9
-	${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
-	try
-		do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure there are not any instances of intended_ancestor_process_var that ARE NOT an ancestor of this process.
-		return 10
-	on error
+		if ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PATH')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin:/bin:/usr/sbin:/sbin')")) then return 1
+		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
+		if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'id -u')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then return 2
+		set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
+		if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) or ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then return 3
+		set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
 		try
-			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
-			do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- Confirm intended_ancestor_process_var IS an ancestor of this process (this check is actually redundant because it's already been manually confirmed in the actual_ancestor_process_var loop, but doesn't hurt to double check).
-			${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
-			set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
-			${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
-			set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
-			return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
-		on error
-			return 11
+			((${script_path_var} as POSIX file) as alias)
+		on error number ${this_error_number}
+			if (${this_error_number} is equal to -1700) then return 4 -- "-1700" would be the error number if somehow the script_path_var file does not exist (which shouldn't happen).
+			set ${last_error_var} to ("4/" & ${this_error_number}) -- Error and include actual error number in last_error_var if any other error occurred.
+			error number ${this_error_number}
+		end try
+		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
+		if (((POSIX path of (path to me)) is not equal to ${script_path_var}) or ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "stat -f %A '${extracted_resources_dir}'")")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) or ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'stat -f %A ')") & (quoted form of ${script_path_var}))) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then return 5
+		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
+		set ${this_ancestor_pid_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p \$PPID -o ppid=")"))
+		set ${parent_script_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command= | cut -d ' ' -f 2")")))
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
+		set ${intended_parent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
+		if ((${intended_parent_script_path_var} is not equal to ${parent_script_path_var}) and (${intended_parent_script_path_var} is not equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then return 6 -- parent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
+		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
+		if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is not equal to ((last word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'openssl dgst -sha512 ')") & (quoted form of ${parent_script_path_var})))) as text)) then return 7
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
+		set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
+		considering numeric strings
+			if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
+				set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
+			else
+				set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
+			end if
+		end considering
+		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
+		set ${actual_ancestor_process_var} to ""
+		try
+			repeat until (${actual_ancestor_process_var} is equal to ${intended_ancestor_process_var}) -- Traverse up the whole process tree searching for the intended ancestor process since if this package is being installed from within another package the intended ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
+				set ${this_ancestor_pid_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")))
+				set ${actual_ancestor_process_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")))
+			end repeat
+		on error number ${this_error_number}
+			if (${this_error_number} is equal to 1) then return 8 -- "1" would be the error if the intended ancestor process was not running and loop got all the way to PID 0 and errored when trying to output it's parent command.
+			set ${last_error_var} to ("8/" & ${this_error_number}) -- Error and include actual error number in last_error_var if any other error occurred.
+			error number ${this_error_number}
+		end try
+		if (${intended_ancestor_process_var} is not equal to ${actual_ancestor_process_var}) then return 9
+		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
+		try
+			do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure there are not any instances of intended_ancestor_process_var that ARE NOT an ancestor of this process.
+			return 10
+		on error number ${this_error_number}
+			if (${this_error_number} is not equal to 1) then -- Error and include actual error number in last_error_var if the caught error wasn't the expected and intended "pgrep -qfx" failure.
+				set ${last_error_var} to ("10/" & ${this_error_number})
+				error number ${this_error_number}
+			else
+				try
+					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
+					do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string 'pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- Confirm intended_ancestor_process_var IS an ancestor of this process (this check is actually redundant because it's already been manually confirmed in the actual_ancestor_process_var loop, but doesn't hurt to double check).
+					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
+					set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
+					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
+					set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
+					return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
+				on error number ${this_error_number}
+					if (${this_error_number} is equal to 1) then return 11 -- "1" would be the error number if somehow the "pgrep -qafx" command failed (which it shouldn't).
+					set ${last_error_var} to ("11/" & ${this_error_number}) -- Error and include actual error number in last_error_var if any other error occurred.
+					error number ${this_error_number}
+				end try
+			end if
+		end try
+	on error number ${this_error_number}
+		if (${last_error_var} is equal to -1) then set ${last_error_var} to ("-1/" & ${this_error_number}) -- If some specific last_error_var was set before getting here, that will be used instead.
+		try -- Try to wait 1 second between multiple attempts, but even the "delay" command could cause a "-600" error, so if "delay" fails just do another attempt immediately.
+			delay 1
 		end try
 	end try
-on error
-	return -1
-end try
+end repeat
+return ${last_error_var} -- If all 5 attempts failed, return the last_error_var.
 on ${deobfuscate_string_func}(${obfuscated_string_var})
-	try
-		${obfuscate_characters_shift_count_jumble_var_lines}
-		set ${obfuscated_char_ints_var} to id of ${obfuscated_string_var} as list
-		repeat with ${this_obfuscated_char_var} in ${obfuscated_char_ints_var}
-			set contents of ${this_obfuscated_char_var} to ${this_obfuscated_char_var} - (((${obfuscate_characters_shift_count_actual_variable_names_to_concatenate}) as text) as number)
-		end repeat
-		return string id ${obfuscated_char_ints_var}
-	end try
+	repeat 5 times -- See comments in the "passwords_deobfuscation_attempt" about why this functions code is attempted multiple times (it's in case of random "-600" errors).
+		try
+			${obfuscate_characters_shift_count_jumble_var_lines}
+			set ${obfuscated_char_ints_var} to id of ${obfuscated_string_var} as list
+			repeat with ${this_obfuscated_char_var} in ${obfuscated_char_ints_var}
+				set contents of ${this_obfuscated_char_var} to ${this_obfuscated_char_var} - (((${obfuscate_characters_shift_count_actual_variable_names_to_concatenate}) as text) as number)
+			end repeat
+			return string id ${obfuscated_char_ints_var}
+		end try
+		try -- Try to wait 1 second between multiple attempts, but even the "delay" command could cause a "-600" error, so if "delay" fails just do another attempt immediately.
+			delay 1
+		end try
+	end repeat
+	return ${obfuscated_string_var} -- If every attempt failed, return the obfuscated_string_var back so that each returned value is unique so that equality checks will not incorrectly pass (which could happen in some cases if an empty string was returned).
 end ${deobfuscate_string_func}
 PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 			osacompile_exit_code="$?"
 
-			if (( "$osacompile_exit_code" != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
+			if (( osacompile_exit_code != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
 				rm -rf "${package_scripts_dir}"
 
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"osacompile\" (for passwords obfuscation within package) failed with exit code ${osacompile_exit_code}."
@@ -4010,7 +4108,7 @@ PACKAGE_PREINSTALL_EOF
 			return "${error_code}"
 		fi
 
-		# Need to escape any characters in the package title which would be cause and XML syntax error in the title text value.
+		# Need to escape any characters in the package title which would be cause an XML syntax error in the title text value.
 		# There are 5 characters that need to be escaped for XML overall, but only the following 2 need to be escaped for a text value: https://stackoverflow.com/a/1091953
 
 		user_full_and_account_name_display_for_package_title_escaped_for_xml="${user_full_and_account_name_display_for_package_title//&/&amp;}"
@@ -4430,9 +4528,9 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 
 		IFS=$'\n'
 		for this_assigned_uid in ${all_assigned_uids}; do
-			if (( "${this_assigned_uid}" == user_uid )); then
+			if (( this_assigned_uid == user_uid )); then
 				user_uid+=1
-			elif (( "${this_assigned_uid}" > user_uid )); then
+			elif (( this_assigned_uid > user_uid )); then
 				break
 			fi
 		done
@@ -5519,9 +5617,9 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			declare -i user_share_point_group_id=701
 			IFS=$'\n'
 			for this_assigned_gid in ${all_assigned_gids}; do
-				if (( "${this_assigned_gid}" == user_share_point_group_id )); then
+				if (( this_assigned_gid == user_share_point_group_id )); then
 					user_share_point_group_id+=1
-				elif (( "${this_assigned_gid}" > user_share_point_group_id )); then
+				elif (( this_assigned_gid > user_share_point_group_id )); then
 					break
 				fi
 			done
@@ -5855,37 +5953,6 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 	fi
 	error_code+=1
 
-	if $did_create_home_folder && $skip_setup_assistant_on_first_login && [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
-		if ! $suppress_status_messages; then
-			echo "mkuser: Setting first login Setup Assistant for ${user_full_and_account_name_display} user to be skipped..."
-		fi
-
-		sudo -u "${user_account_name}" touch "${user_home_path}/.skipbuddy" || touch "${user_home_path}/.skipbuddy" # Create file to skip first login Setup Assistant for user like System Image Utility did: https://discussions.apple.com/thread/7501089
-		# Run "touch" as the user so the file is owned by the user (as is normal for files within a home folder): https://scriptingosx.com/2020/08/running-a-command-as-another-user/
-		# "launchctl asuser" does not seem to necessary or helpful when running "touch" as another user, "sudo -u" is sufficient. But, if "sudo -u" fails (like it seems to for UID "-1"), just create the file as "root" instead.
-
-		if [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first login."
-			return "${error_code}"
-		fi
-	fi
-	error_code+=1
-
-	if $skip_setup_assistant_on_first_boot && [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
-		if ! $suppress_status_messages; then
-			echo 'mkuser: Setting first boot Setup Assistant to be skipped...'
-		fi
-
-		touch '/private/var/db/.AppleSetupDone'
-		chown 0:0 '/private/var/db/.AppleSetupDone' # Make sure this file is properly owned by root:wheel.
-
-		if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
-			return "${error_code}"
-		fi
-	fi
-	error_code+=1
-
 	if [[ -n "${st_admin_account_name}" ]]; then
 		if ! $boot_volume_is_apfs; then # Should never hit this condition since st_admin_account_name will have been cleared if not running on an APFS boot volume, but doesn't hurt to check anyway.
 			>&2 echo 'mkuser WARNING: NOT granting Secure Token since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
@@ -5957,6 +6024,69 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			echo "${diskutil_apfs_update_preboot_output}" | tail -2 >&2 # If there was an error, show the last 2 updatePreboot output lines since it may be informative.
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to update the Preboot Volume after $($got_first_secure_token && echo 'macOS granted' || echo 'granting') Secure Token."
 			return "${error_code}"
+		fi
+	fi
+	error_code+=1
+
+	if $did_create_home_folder && $skip_setup_assistant_on_first_login && [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
+		if ! $suppress_status_messages; then
+			echo "mkuser: Setting first login Setup Assistant for ${user_full_and_account_name_display} user to be skipped..."
+		fi
+
+		sudo -u "${user_account_name}" touch "${user_home_path}/.skipbuddy" || touch "${user_home_path}/.skipbuddy" # Create file to skip first login Setup Assistant for user like System Image Utility did: https://discussions.apple.com/thread/7501089
+		# Run "touch" as the user so the file is owned by the user (as is normal for files within a home folder): https://scriptingosx.com/2020/08/running-a-command-as-another-user/
+		# "launchctl asuser" does not seem to necessary or helpful when running "touch" as another user, "sudo -u" is sufficient. But, if "sudo -u" fails (like it seems to for UID "-1"), just create the file as "root" instead.
+
+		if [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first login."
+			return "${error_code}"
+		fi
+	fi
+	error_code+=1
+
+	if $skip_setup_assistant_on_first_boot; then
+		if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
+			if ! $suppress_status_messages; then
+				echo 'mkuser: Setting first boot Setup Assistant to be skipped...'
+			fi
+
+			touch '/private/var/db/.AppleSetupDone'
+			chown 0:0 '/private/var/db/.AppleSetupDone' # Make sure this file is properly owned by root:wheel.
+
+			if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
+				return "${error_code}"
+			fi
+		fi
+
+		current_user_is_mbsetupuser="$([[ "$(echo 'show State:/Users/ConsoleUser' | scutil | awk '($1 == "Name") { print $NF; exit }')" == '_mbsetupuser' ]] && echo 'true' || echo 'false')"
+		if $current_user_is_mbsetupuser || pgrep -q 'Setup Assistant' || pgrep -q 'Language Chooser'; then
+			if ! $suppress_status_messages; then
+				echo 'mkuser: Exiting first boot Setup Assistant since it was specified to be skipped but was already running...'
+			fi
+
+			# CANNOT simply "killall 'Setup Assistant'" or "killall 'Language Chooser'" since that will just go to a black screen (and maybe the computer will reboot after a moment, at least in the case of "Setup Assistant").
+			# Instead, we must log out the current user to make the system reload enough to detect that the ".AppleSetupDone" flag file now exists and load the login window.
+			# When "Setup Assistant" is running and the current user is "_mbsetupuser", and they will be logged out using "launchctl reboot logout".
+			# But, when "Language Chooser" is running, the current user is "root" and "launchctl reboot logout" fails with "Failed to logout 125: Domain does not support specified action" when run as root.
+			# So, in that case the root "loginwindow" process will be terminated instead which will log out the root user and terminate all its processes including "Language Chooser" and then load the login window.
+			# Both of these techniques effectively do the same thing (and just using "killall 'loginwindow'" when at "Setup Assistant" does work as well), but I belive using "launchctl reboot logout" when possible may be more "graceful" than always doing "killall 'loginwindow'", so we will do the best option that works for the current environment.
+
+			did_logout_mbsetupuser=false
+			if $current_user_is_mbsetupuser; then
+				mbsetupuser_uid="$(dscl -plist . -read /Users/_mbsetupuser UniqueID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" # This should always be "248" but doesn't hurt to get it dynamically in case it ever changes in the future.
+				if launchctl asuser "${mbsetupuser_uid}" sudo -u '_mbsetupuser' launchctl reboot logout 2> /dev/null; then
+					# "launchctl reboot logout" is described in "man launchctl" as "launchd will tear down the caller's GUI login session in a manner similar to a logout initiated from the Apple menu" (and it only works when it's run as the user that we want to log out).
+					# Not sure how exactly "launchctl reboot logout" is different from "launchctl bootout 'user/<UID>'" which can be run as root to log out another user by their UID, but the description of "launchctl reboot logout" sounds like exactly what we want while "launchctl bootout" is more broad and can be used in a variety of other ways as well.
+					# If somehow "launchctl reboot logout" fails when the current user is "_mbsetupuser", then "killall 'loginwindow'" will be run instead since that will also log out the user and reload the system to get to the login window.
+
+					did_logout_mbsetupuser=true
+				fi
+			fi
+
+			if ! $did_logout_mbsetupuser; then
+				killall 'loginwindow' # If at "Language Chooser" OR if "launchctl reboot logout" failed somehow, run "killall 'loginwindow'" instead to exit "Language Chooser" (or "Setup Assistant") to get the to login window.
+			fi
 		fi
 	fi
 	error_code+=1
