@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.6.1-1'
+	readonly MKUSER_VERSION='2022.6.21-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -2736,6 +2736,11 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		fi
 
+		if [[ -L "${user_shell}" ]]; then # If a symlink has been specified, use the actual absolute path instead.
+			user_shell="$(OSASCRIPT_ENV_USER_SHELL="${user_shell}" osascript -l 'JavaScript' -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_USER_SHELL").stringByResolvingSymlinksInPath' 2> /dev/null)"
+			# The "-f" option for "readlink" to canonicalize/standardize the path is only available on macOS 12 Monterey and newer. So, instead, use ObjC NSString stringByResolvingSymlinksInPath for the same result on all versions of macOS.
+		fi
+
 		if [[ ! -x "${user_shell}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified login shell file \"${user_shell}\" is not executable."
 			return "${error_code}"
@@ -2819,10 +2824,14 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# In this case the SharePoint RecordName will be truncated, see more info in SharePoint creation code below.
 	fi
 
+	default_user_pictures_path='/System/Library/Templates/Data/Library/User Pictures' # This "Templates" path is the actual source of the contents of "/Library/User Pictures" on macOS 10.15 Catalina and newer (with the split System and Data volumes),
+	# and while the "/Library/User Pictures" folder still contains all the actual pictures on macOS 10.15 Catalina through macOS 12 Monterey, as of macOS 13 Ventura beta 1 the "/Library/User Pictures" path only contains symlinks to the files in this "Templates" path. So, just always use this source location when it exists.
+	if [[ ! -d "${default_user_pictures_path}" ]]; then default_user_pictures_path='/Library/User Pictures'; fi # If the "Templates" path does not exist, use the regular "/Library/User Pictures" path (such as when on macOS 10.14 Mojave and older).
+
 	if [[ -n "${user_picture_path}" ]]; then
 		if [[ ! -f "${user_picture_path}" ]]; then
 			# Use "find" to allow user_picture_path to be specified by default user picture filename (with or without the file extension) such as "Earth" or "Penguin.tif" instead of only the full path.
-			possible_user_picture_path="$(find '/Library/User Pictures' -type f \( -iname "${user_picture_path}.*" -or -iname "${user_picture_path}" \) 2> /dev/null | head -1)" # Only use first match (just in case, but there should only ever be one match with this search criteria and default picture filenames).
+			possible_user_picture_path="$(find "${default_user_pictures_path}" -type f \( -iname "${user_picture_path}.*" -or -iname "${user_picture_path}" \) 2> /dev/null | head -1)" # Only use first match (just in case, but there should only ever be one match with this search criteria and default picture filenames).
 
 			if [[ -f "${possible_user_picture_path}" ]]; then
 				user_picture_path="${possible_user_picture_path}"
@@ -2830,6 +2839,11 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified $([[ "${user_picture_path}" == *'/'* ]] && echo 'picture path' || echo 'default picture name') \"${user_picture_path}\" does not exist."
 				return "${error_code}"
 			fi
+		fi
+
+		if [[ -L "${user_picture_path}" ]]; then # If a symlink has been specified, get the actual absolute path so that the next size check is accurate for the actual picture instead of for the symlink itself.
+			user_picture_path="$(OSASCRIPT_ENV_USER_PICTURE_PATH="${user_picture_path}" osascript -l 'JavaScript' -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_USER_PICTURE_PATH").stringByResolvingSymlinksInPath' 2> /dev/null)"
+			# The "-f" option for "readlink" to canonicalize/standardize the path is only available on macOS 12 Monterey and newer. So, instead, use ObjC NSString stringByResolvingSymlinksInPath for the same result on all versions of macOS.
 		fi
 
 		if (( $(stat -f '%z' "${user_picture_path}") > 1000000 )); then
@@ -2840,13 +2854,9 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			# This check was inspired by code shared by Simon Andersen: https://macadmins.slack.com/archives/C07MGJ2SD/p1621271235165000?thread_ts=1621186749.143600&cid=C07MGJ2SD
 			# But, much larger pictures DIDN'T appear to have any obvious issues during some *very minimal* testing (tested with up to 138 MB heic desktop pictures).
 			# Still, limiting the user picture to a reasonable 1 MB seems to be a wise practice as all the default user pictures are under 1 MB (the largest being 850 KB).
-		else
-			user_picture_file_type="$(file -bI "${user_picture_path}" 2> /dev/null | cut -d ';' -f 1)"
-
-			if [[ "${user_picture_file_type}" != 'image/'* ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified picture file \"${user_picture_path}\" is not an image (file type is \"${user_picture_file_type:-UNKNOWN}\")."
-				return "${error_code}"
-			fi
+		elif ! user_picture_file_type="$(file -bI "${user_picture_path}" 2> /dev/null | cut -d ';' -f 1)" || [[ "${user_picture_file_type}" != 'image/'* ]]; then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified picture file \"${user_picture_path}\" is not an image (file type is \"${user_picture_file_type:-UNKNOWN}\")."
+			return "${error_code}"
 		fi
 	fi
 	error_code+=1
@@ -3374,10 +3384,10 @@ if ! echo '$(gzip -9 -c "${user_picture_path}" | base64)' | base64 -D | zcat > '
 fi
 PACKAGE_PREINSTALL_EOF
 
-			if [[ "${user_picture_path}" == '/Library/User Pictures/'* ]]; then
+			if [[ "${user_picture_path}" == '/Library/User Pictures/'* || "${user_picture_path}" == '/System/Library/Templates/Data/Library/User Pictures/'* ]]; then
 				# If a default user picture is specified, check if it exists on the target system and use it instead of the copy that is included in the package (which will have been extracted if needed as a fallback in case the same default user picture doesn't exist for some reason).
-				printf -v escaped_user_picture_path '%q' "${user_picture_path}"
-				escaped_valid_options_for_package+=( '--picture' "\"\$([[ -f ${escaped_user_picture_path} && \"\$(file -bI ${escaped_user_picture_path} 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' ${escaped_user_picture_path}) <= 1000000 )) && echo ${escaped_user_picture_path} || echo $(printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
+				printf -v escaped_user_picture_path '%q' "${user_picture_path#/System/Library/Templates/Data}" # If the "Templates" path is specified (which will be used on macOS 10.15 Catalina and newer), trim it to the regular "/Library/User Pictures" path to be able to check for the file in either the regular path or the "Templates" path to be able to find the correct picture file on any version of macOS.
+				escaped_valid_options_for_package+=( '--picture' "\"\$(pkg_user_picture_path=\"\$([[ -d '/System/Library/Templates/Data/Library/User Pictures' ]] && echo '/System/Library/Templates/Data'${escaped_user_picture_path} ||  echo ${escaped_user_picture_path})\"; [[ -f \"\${pkg_user_picture_path}\" && \"\$(file -bI \"\${pkg_user_picture_path}\" 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' \"\${pkg_user_picture_path}\") <= 1000000 )) && echo \"\${pkg_user_picture_path}\" || echo $(printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
 			else
 				escaped_valid_options_for_package+=( '--picture' "$(printf '%q' "${extracted_resources_dir}/mkuser.picture")" )
 			fi
@@ -3459,6 +3469,7 @@ fi
 wrapped_encrypted_passwords_and_key=''
 
 max_passwords_deobfuscation_attempts=5
+is_last_passwords_deobfuscation_attempt=false
 for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= max_passwords_deobfuscation_attempts; passwords_deobfuscation_attempt ++ )); do
 	# Do multiple attempts at deobfuscating passwords (waiting progressively longer between each attempt) in case there is some random fluke error or something.
 	# Maybe that's what happened here when the final "pgrep -qafx" check failed? https://macadmins.slack.com/archives/CF6DX18KY/p1649671076493339
@@ -3482,10 +3493,12 @@ for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= m
 	wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | osascript 2> /dev/null)"
 
 	if [[ "\${wrapped_encrypted_passwords_and_key}" != *$'\n'* ]]; then
-		package_error="PACKAGE ERROR: Attempt \${passwords_deobfuscation_attempt} of \${max_passwords_deobfuscation_attempts} failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN} (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+		if (( passwords_deobfuscation_attempt == max_passwords_deobfuscation_attempts )); then is_last_passwords_deobfuscation_attempt=true; fi
+
+		package_error="PACKAGE \$(\$is_last_passwords_deobfuscation_attempt && echo 'ERROR' || echo 'WARNING'): Attempt \${passwords_deobfuscation_attempt} of \${max_passwords_deobfuscation_attempts} failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN}\$(\$is_last_passwords_deobfuscation_attempt && echo ' (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)')."
 		>&2 echo "mkuser POSTINSTALL \${package_error}"
 
-		if (( passwords_deobfuscation_attempt == max_passwords_deobfuscation_attempts )); then
+		if \$is_last_passwords_deobfuscation_attempt; then
 			if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
 				rm -rf '${extracted_resources_dir}'
 			fi
@@ -3803,13 +3816,27 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 				# Passing the AppleScript code directly via "-e" option instead of via stdin as a here-doc since a here-doc creates a temporary file and this is called many times.
 				# It's more efficient to just pass this small bit of code directly instead of having the shell make a new temporary file each time it's run.
 				OSASCRIPT_ENV_OBFUSCATE_STRING="$1" osascript -e "
-set stringID to id of (system attribute \"OSASCRIPT_ENV_OBFUSCATE_STRING\") as list
-repeat with thisCharacter in stringID
-	set contents of thisCharacter to thisCharacter + ${obfuscate_characters_shift_count}
+repeat 5 times -- See comments in the 'passwords_deobfuscation_attempt' about why this functions code is attempted multiple times (it's in case of random '-600' errors).
+	try
+		set stringID to id of (system attribute \"OSASCRIPT_ENV_OBFUSCATE_STRING\") as list
+		repeat with thisCharacter in stringID
+			set contents of thisCharacter to thisCharacter + ${obfuscate_characters_shift_count}
+		end repeat
+		return string id stringID
+	end try
+	try -- Try to wait 1 second between multiple attempts, but even the 'delay' command could cause a '-600' error, so if 'delay' fails just do another attempt immediately.
+		delay 1
+	end try
 end repeat
-return string id stringID
+error \"FAILED\"
 OSASCRIPT_OBFUSCATE_STRING_EOF
 " 2> /dev/null
+
+				mkuser_obfuscate_string_exit_code="$?"
+
+				if (( mkuser_obfuscate_string_exit_code != 0 )); then
+					touch "${package_tmp_dir}/.mkuser_obfuscate_string_did_error" # Must create flag file to check later instead of using a variable since this function will be called in a command substitution subshell which cannot set variables outside the subshell.
+				fi
 
 				# Doesn't seem like there would be any gain to set this output to a return variable (https://rus.har.mn/blog/2010-07-05/subshells/)
 				# since that would require a subshell inside the function which is equivalent to just calling the function with a subshell.
@@ -4006,8 +4033,13 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 
 			osacompile_exit_code="$?"
 
-			if (( osacompile_exit_code != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
-				rm -rf "${package_scripts_dir}"
+			if [[ -f "${package_tmp_dir}/.mkuser_obfuscate_string_did_error" ]]; then
+				rm -rf "${package_tmp_dir}"
+
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Some string obfuscation failed during password obfuscation (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+				return "${error_code}"
+			elif (( osacompile_exit_code != 0 )) || [[ ! -f "${package_tmp_dir}/passwords-deobfuscation.scpt" ]]; then
+				rm -rf "${package_tmp_dir}"
 
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: \"osacompile\" (for passwords obfuscation within package) failed with exit code ${osacompile_exit_code}."
 				return "${error_code}"
@@ -4523,7 +4555,7 @@ uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscache
 		# Thanks to Simon Andersen for discovering this weird UID assignment behavior after UID 700.
 		# In at least macOS *12.1* Monterey, "sysadminctl -addUser" appears to no longer skip 502, but still has the other odd UID skipping behavior as described above.
 
-		starting_uid="$( { $set_role_account || $set_service_account; } && echo '200' || echo '501' )" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
+		starting_uid="$({ $set_role_account || $set_service_account; } && echo '200' || echo '501')" # Normal users start at UID 501. Role Accounts start at UID 200 (and go through UID 400, which will be verified below). Service Account will also start at UID 200 if not specified, has no limited range.
 		user_uid="${starting_uid}"
 
 		IFS=$'\n'
@@ -4849,7 +4881,7 @@ Check \"--help\" for detailed information about each available option."
 	if ! $set_no_picture; then
 		chose_random_user_picture=false
 		if [[ -z "${user_picture_path}" ]]; then # If user_picture_path was not set (and not explicitly set to no picture) then, choose a random picture like "sysadminctl -addUser" and System Preferences does.
-			user_picture_path="$(find '/Library/User Pictures' -type f \( -iname '*.tif' -or -iname '*.png' \) | sort -R | head -1)"
+			user_picture_path="$(find "${default_user_pictures_path}" -type f \( -iname '*.tif' -or -iname '*.png' \) | sort -R | head -1)"
 			chose_random_user_picture=true
 		fi
 
@@ -4859,17 +4891,17 @@ Check \"--help\" for detailed information about each available option."
 			dsimport_record_attributes+=( 'externalbinary:JPEGPhoto' )
 			dsimport_record_values+=( "${user_picture_path}" )
 
-			if [[ "${user_picture_path}" == '/Library/User Pictures/'* ]]; then
+			if [[ "${user_picture_path}" == '/Library/User Pictures/'* || "${user_picture_path}" == '/System/Library/Templates/Data/Library/User Pictures/'* ]]; then
 				# If we are using a default picture, also set the Picture attribute to the user_picture_path as "sysadminctl -addUser" and System Preferences does.
 				# This is not really necessary and would not set the picture in all location when set without JPEGPhoto: https://www.alansiu.net/2019/09/20/scripting-changing-the-user-picture-in-macos/
 				# But, adding the Picture path in this case is simple to create a complete user record just like "sysadminctl -addUser" and System Preferences.
 				# If a custom picture is being used, there is no point adding this Picture attribute with the user_picture_path since it could only be stored in a temporary location anyways.
 
 				dsimport_record_attributes+=( 'Picture' )
-				dsimport_record_values+=( "${user_picture_path}" )
+				dsimport_record_values+=( "${user_picture_path#/System/Library/Templates/Data}" ) # Even if the "Templates" path was actually used, still refer to the regular "/Library/User Pictures" path in the "Picture" attribute like accounts created by "sysadminctl -addUser" and System Preferences does.
 			fi
 		else
-			>&2 echo "mkuser WARNING: Failed to get $($chose_random_user_picture && echo 'random' || echo 'specified') user picture at creation time, user will be created without a picture."
+			>&2 echo "mkuser WARNING: Failed to get $($chose_random_user_picture && echo 'random' || echo 'specified') user picture at creation time, user will be created without a picture (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
 		fi
 	fi
 
@@ -5221,13 +5253,13 @@ Check \"--help\" for detailed information about each available option."
 
 					>&2 echo "mkuser WARNING: Deleted all unintentional password attributes since the password got set to \"*\" instead of NO password (because password content policy allowed it)."
 				else
-					>&2 echo "mkuser WARNING: Password got set to \"*\" instead of NO password (because password content policy allowed it), AND THIS ACCOUNT GOT GRANTED A SECURE TOKEN SO CAN'T REMOVE IT (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+					>&2 echo "mkuser WARNING: Password got set to \"*\" instead of NO password (because password content policy allowed it), AND THIS ACCOUNT GOT GRANTED A SECURE TOKEN SO CAN'T REMOVE IT."
 				fi
 			fi
 		fi
 
 		if [[ "$(dscl . -read "/Users/${user_account_name}" HeimdalSRPKey KerberosKeys ShadowHashData _writers_passwd Password 2>&1 | sort)" != $'No such key: HeimdalSRPKey\nNo such key: KerberosKeys\nNo such key: ShadowHashData\nNo such key: _writers_passwd\nPassword: *' || "$(dscl . -read "/Users/${user_account_name}" AuthenticationAuthority 2>&1)" != "${intended_authentication_authority}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify NO password."
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to verify NO password (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 			return "${error_code}"
 		fi
 	else
@@ -5585,7 +5617,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 				# Since I could not figure out how to properly use "dscl . -create" to workaround this bug when either the forward slash (/) or percent (%) characters were present in a RecordName, they will both be replaced with underscores (_) so that "dscl . -create" can be used with these SharePoint RecordNames to be able to properly add the required attributes to the SharePoint record.
 				# Doing these replacements AFTER truncating the full name since this does not change the byte count and doing it here means only the characters that would have made it into the RecordName are being replaced.
 
-				user_share_point_name="${user_share_point_name//%/_}"
+				user_share_point_name="${user_share_point_name//\%/_}" # Escape "%" since it's a special string manipulation character meaning "end of string" (even though it is treated literally when either unescaped or escaped when doing "//" for "replace all" in bash, it is only treated literally when escaped in zsh which may be important to accomodate in the future).
 				user_share_point_name="${user_share_point_name//\//_}"
 
 				# SIDE NOTE ABOUT THE COLON (:) CHARACTER BEING ALLOWED IN SHAREPOINT RECORDNAME (WHICH IS A PLIST FILENAME IN THE DSLOCAL FOLDER STRUCTURE):
@@ -5614,6 +5646,12 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			# all_assigned_gids is loaded above when confirming that the users Primary Group ID already exists.
 			# See "UIDs CAN BE REPRESENTED IN DIFFERENT FORMS" notes and following code for important information about GIDs and UIDs.
 
+			all_assigned_gids+=$'\n'"$(dscacheutil -q group | awk -F ': ' '($1 == "gid") { print $2 }')"
+			# But, by the time this code is hit it has possibly been long enough for another SharePoint Group (or any other group) to be created,
+			# so retrieve the latest cached GIDs and combine them with the existing all_assigned_gids so we are most likely to choose an actually available GID.
+			# For example, this could happen if another user is created at the same time by another non-mkuser process (since another mkuser process would wait for this one be done).
+			all_assigned_gids="$(echo "${all_assigned_gids}" | sort -un)" # And must re-sort GIDs to iterate in order and remove duplicates.
+
 			declare -i user_share_point_group_id=701
 			IFS=$'\n'
 			for this_assigned_gid in ${all_assigned_gids}; do
@@ -5629,120 +5667,120 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			if [[ -n "${assigned_share_point_gid_dscl_search}" ]]; then
 				# It is important to search for the GID specifically since its not possible to list all AD groups and some AD GIDs could
 				# have been omitted from previous listings while this direct query will find it regardless of LDAP listing limitations.
+				# But, if this does happen, continue creating the user without a SharePoint since the subsequent tasks are likely more imporant that the Public folder getting shared.
 
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: SharePoint Group ID assignment chose \"${user_share_point_group_id}\", but it's already assigned to \"$(echo "${assigned_share_point_gid_dscl_search}" | awk '{ print $1; exit }')\" (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-				return "${error_code}"
-			fi
+				>&2 echo "mkuser WARNING: NOT sharing Public folder since SharePoint Group ID assignment chose \"${user_share_point_group_id}\", but it's already assigned to \"$(echo "${assigned_share_point_gid_dscl_search}" | awk '{ print $1; exit }')\" (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
+			else
+				# Find the lowest available name for the SharePoint Group starting at "com.apple.sharepoint.group.1", like "sysadminctl -addUser" and System Preferences does.
+				declare -i user_share_point_group_name_index=1
+				user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
 
-			# Find the lowest available name for the SharePoint Group starting at "com.apple.sharepoint.group.1", like "sysadminctl -addUser" and System Preferences does.
-			declare -i user_share_point_group_name_index=1
-			user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
+				all_assigned_share_point_group_names="$(dscl /Search -list /Groups 2> /dev/null | grep "^${share_point_group_name_prefix//./\\.}" | sort -t '.' -k 5 -n)"
 
-			all_assigned_share_point_group_names="$(dscl /Search -list /Groups 2> /dev/null | grep "^${share_point_group_name_prefix//./\\.}" | sort -t '.' -k 5 -n)"
+				IFS=$'\n'
+				for this_assigned_share_point_group_name in ${all_assigned_share_point_group_names}; do
+					if [[ "${this_assigned_share_point_group_name}" == "${user_share_point_group_name}" ]]; then
+						user_share_point_group_name_index+=1
+						user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
+					else
+						break
+					fi
+				done
+				unset IFS
 
-			IFS=$'\n'
-			for this_assigned_share_point_group_name in ${all_assigned_share_point_group_names}; do
-				if [[ "${this_assigned_share_point_group_name}" == "${user_share_point_group_name}" ]]; then
-					user_share_point_group_name_index+=1
-					user_share_point_group_name="${share_point_group_name_prefix}${user_share_point_group_name_index}"
-				else
-					break
-				fi
-			done
-			unset IFS
-
-			if dscl /Search -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: SharePoint Group Name assignment chose \"${user_share_point_group_name}\", but it already exists (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-				return "${error_code}"
-			fi
-
-			# Create the SharePoint (using "sharing -a").
-			if ! sharing -a "${user_home_path}/Public" -n "${user_share_point_name}" || [[ "$(sharing -l)" != *$'\t'"${user_share_point_name}"$'\n'* ]] || ! dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create SharePoint \"${user_share_point_name}\"."
-				return "${error_code}"
-			fi
-
-			# All of the following attributes for the "dscl" commands are "dsAttrTypeNative" types, but that prefix can be omitted when using "dscl".
-
-			user_share_point_name_escaped_for_dscl_delete_and_create="${user_share_point_name//\\/\\\\}" # Oddly need to escape backslashes in "dscl . -delete" and "dscl . -create" but NOT "dscl . -read".
-			# The former 2 fail WITHOUT backslashes escaped (eDSUnknownNodeName and no error but nothing created, respectively) and the latter fails WITH backslashes escaped (eDSRecordNotFound).
-
-			# The "sharing -a" SharePoint will contain the following 4 attributes which are not created for SharePoints created via "sysadminctl -addUser" and System Preferences, so delete them.
-			if ! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" afp_use_parent_owner &> /dev/null || \
-				! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" afp_use_parent_privs &> /dev/null || \
-				! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_readonly &> /dev/null || \
-				! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_sealed &> /dev/null || \
-				[[ "$(dscl . -read "/SharePoints/${user_share_point_name}" afp_use_parent_owner afp_use_parent_privs smb_readonly smb_sealed 2>&1 | sort)" != $'No such key: afp_use_parent_owner\nNo such key: afp_use_parent_privs\nNo such key: smb_readonly\nNo such key: smb_sealed' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete legacy attributes from SharePoint."
-				return "${error_code}"
-			fi
-
-			# The "sharing -a" SharePoint will NOT contain the following 5 (or 4) attributes which ARE created for SharePoints created via "sysadminctl -addUser" and System Preferences, so add them.
-			if (( darwin_major_version >= 19 )); then
-				# This attribute was added in macOS 10.15 Catalina and did not exist in older versions of macOS.
-				if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" com_apple_sharing_uuid "${user_guid}" || [[ "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${user_guid}" ]]; then
-					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add user's GeneratedUID to SharePoint."
-					return "${error_code}"
-				fi
-			fi
-
-			root_guid="$(dscl -plist . -read '/Users/root' GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
-			if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" ftp_name "${user_share_point_name}" || \
-				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_account_uuid "${root_guid}" || \
-				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_createmask '644' || \
-				! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_directorymask '755' || \
-				! dscl_read_modern_sharepoint_attributes_plist="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" ftp_name sharepoint_account_uuid smb_createmask smb_directorymask 2> /dev/null)" || \
-				[[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:ftp_name:0' -c 'Print :dsAttrTypeNative\:sharepoint_account_uuid:0' -c 'Print :dsAttrTypeNative\:smb_createmask:0' -c 'Print :dsAttrTypeNative\:smb_directorymask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${user_share_point_name}"$'\n'"${root_guid}"$'\n644\n755' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add modern attributes to SharePoint."
-				return "${error_code}"
-			fi
-
-			if ! dscl . -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
-				# While "mkuser" does not officially support older than macOS 10.13 High Sierra, I did do one test on OS X 10.11 El Capitan and was surprised to see that "sharing -a" actually created the SharePoint Group, unlike newer versions of macOS.
-				# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra or newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
-				# This check should make this one thing simpler if official support for older versions of macOS is ever needed, or if things change in a future version of macOS.
-
-				# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl -addUser" and System Preferences does.
-				if ! dseditgroup -q -o create -i "${user_share_point_group_id}" -r "${user_share_point_name}" -a 'everyone' -t 'group' "${user_share_point_group_name}"; then
-					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create SharePoint Group \"${user_share_point_group_name}\"."
+				if dscl /Search -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: SharePoint Group Name assignment chose \"${user_share_point_group_name}\", but it already exists (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
 					return "${error_code}"
 				fi
 
-				# Also check existence with "dscacheutil" to verify GID and to make sure the new group has been cached.
-				# But, sometimes "dscacheutil" appears to not be updated immediately.
-				# So, if it's not cached right away, keep checking for 5 more seconds and only error if the group is still NOT detected after that time.
-				if ! dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then
-					did_confirm_share_point_group_created=false
+				# Create the SharePoint (using "sharing -a").
+				if ! sharing -a "${user_home_path}/Public" -n "${user_share_point_name}" || [[ "$(sharing -l)" != *$'\t'"${user_share_point_name}"$'\n'* ]] || ! dscl . -read "/SharePoints/${user_share_point_name}" RecordName &> /dev/null; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create SharePoint \"${user_share_point_name}\"."
+					return "${error_code}"
+				fi
 
-					for (( confirm_share_point_group_created_seconds = 1; confirm_share_point_group_created_seconds <= 5; confirm_share_point_group_created_seconds ++ )); do
-						sleep 1
-						if dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then
-							did_confirm_share_point_group_created=true
-							break
-						fi
-					done
+				# All of the following attributes for the "dscl" commands are "dsAttrTypeNative" types, but that prefix can be omitted when using "dscl".
 
-					if ! $did_confirm_share_point_group_created; then
-						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to confirm SharePoint Group \"${user_share_point_group_name}\" was created after 5 seconds."
+				user_share_point_name_escaped_for_dscl_delete_and_create="${user_share_point_name//\\/\\\\}" # Oddly need to escape backslashes in "dscl . -delete" and "dscl . -create" but NOT "dscl . -read".
+				# The former 2 fail WITHOUT backslashes escaped (eDSUnknownNodeName and no error but nothing created, respectively) and the latter fails WITH backslashes escaped (eDSRecordNotFound).
+
+				# The "sharing -a" SharePoint will contain the following 4 attributes which are not created for SharePoints created via "sysadminctl -addUser" and System Preferences, so delete them.
+				if ! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" afp_use_parent_owner &> /dev/null || \
+					! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" afp_use_parent_privs &> /dev/null || \
+					! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_readonly &> /dev/null || \
+					! dscl . -delete "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_sealed &> /dev/null || \
+					[[ "$(dscl . -read "/SharePoints/${user_share_point_name}" afp_use_parent_owner afp_use_parent_privs smb_readonly smb_sealed 2>&1 | sort)" != $'No such key: afp_use_parent_owner\nNo such key: afp_use_parent_privs\nNo such key: smb_readonly\nNo such key: smb_sealed' ]]; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to delete legacy attributes from SharePoint."
+					return "${error_code}"
+				fi
+
+				# The "sharing -a" SharePoint will NOT contain the following 5 (or 4) attributes which ARE created for SharePoints created via "sysadminctl -addUser" and System Preferences, so add them.
+				if (( darwin_major_version >= 19 )); then
+					# This attribute was added in macOS 10.15 Catalina and did not exist in older versions of macOS.
+					if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" com_apple_sharing_uuid "${user_guid}" || [[ "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" com_apple_sharing_uuid 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${user_guid}" ]]; then
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add user's GeneratedUID to SharePoint."
 						return "${error_code}"
 					fi
 				fi
-			else
-				>&2 echo "mkuser WARNING: SharePoint Group \"${user_share_point_name}\" (${user_share_point_group_id}) was unexpectedly already created by the \"sharing -a\" command." # Log warning if the SharePoint Group was created by "sharing -a" to notice if things ever change in a future version of macOS.
-			fi
 
-			# Hide the SharePoint Group like "sysadminctl -addUser" and System Preferences does.
-			if ! dscl . -create "/Groups/${user_share_point_group_name}" IsHidden '1' || [[ "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" IsHidden 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != '1' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to hide SharePoint Group."
-				return "${error_code}"
-			fi
+				root_guid="$(dscl -plist . -read '/Users/root' GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
+				if ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" ftp_name "${user_share_point_name}" || \
+					! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_account_uuid "${root_guid}" || \
+					! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_createmask '644' || \
+					! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" smb_directorymask '755' || \
+					! dscl_read_modern_sharepoint_attributes_plist="$(dscl -plist . -read "/SharePoints/${user_share_point_name}" ftp_name sharepoint_account_uuid smb_createmask smb_directorymask 2> /dev/null)" || \
+					[[ "$(PlistBuddy -c 'Print :dsAttrTypeNative\:ftp_name:0' -c 'Print :dsAttrTypeNative\:sharepoint_account_uuid:0' -c 'Print :dsAttrTypeNative\:smb_createmask:0' -c 'Print :dsAttrTypeNative\:smb_directorymask:0' /dev/stdin <<< "${dscl_read_modern_sharepoint_attributes_plist}" 2> /dev/null)" != "${user_share_point_name}"$'\n'"${root_guid}"$'\n644\n755' ]]; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add modern attributes to SharePoint."
+					return "${error_code}"
+				fi
 
-			# The "sharing -a" SharePoint will also NOT contain the "sharepoint_group_id" attribute which refers back to the GeneratedUID
-			# of the SharePoint Group (com.apple.sharepoint.group.#), therefore is must be added after creating the SharePoint Group.
-			sharepoint_group_guid="$(dscl -plist . -read "/Groups/${user_share_point_group_name}" GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
-			if [[ -z "${sharepoint_group_guid}" ]] || ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_group_id "${sharepoint_group_guid}" || [[ "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${sharepoint_group_guid}" ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint Group GeneratedUID to SharePoint."
-				return "${error_code}"
+				if ! dscl . -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
+					# While "mkuser" does not officially support older than macOS 10.13 High Sierra, I did do one test on OS X 10.11 El Capitan and was surprised to see that "sharing -a" actually created the SharePoint Group, unlike newer versions of macOS.
+					# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra or newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
+					# This check should make this one thing simpler if official support for older versions of macOS is ever needed, or if things change in a future version of macOS.
+
+					# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl -addUser" and System Preferences does.
+					if ! dseditgroup -q -o create -i "${user_share_point_group_id}" -r "${user_share_point_name}" -a 'everyone' -t 'group' "${user_share_point_group_name}"; then
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create SharePoint Group \"${user_share_point_group_name}\"."
+						return "${error_code}"
+					fi
+
+					# Also check existence with "dscacheutil" to verify GID and to make sure the new group has been cached.
+					# But, sometimes "dscacheutil" appears to not be updated immediately.
+					# So, if it's not cached right away, keep checking for 5 more seconds and only error if the group is still NOT detected after that time.
+					if ! dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then
+						did_confirm_share_point_group_created=false
+
+						for (( confirm_share_point_group_created_seconds = 1; confirm_share_point_group_created_seconds <= 5; confirm_share_point_group_created_seconds ++ )); do
+							sleep 1
+							if dscacheutil -q group -a name "${user_share_point_group_name}" | grep -qxF "gid: ${user_share_point_group_id}"; then
+								did_confirm_share_point_group_created=true
+								break
+							fi
+						done
+
+						if ! $did_confirm_share_point_group_created; then
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to confirm SharePoint Group \"${user_share_point_group_name}\" was created after 5 seconds."
+							return "${error_code}"
+						fi
+					fi
+				else
+					>&2 echo "mkuser WARNING: SharePoint Group \"${user_share_point_name}\" (${user_share_point_group_id}) was unexpectedly already created by the \"sharing -a\" command." # Log warning if the SharePoint Group was created by "sharing -a" to notice if things ever change in a future version of macOS.
+				fi
+
+				# Hide the SharePoint Group like "sysadminctl -addUser" and System Preferences does.
+				if ! dscl . -create "/Groups/${user_share_point_group_name}" IsHidden '1' || [[ "$(dscl -plist . -read "/Groups/${user_share_point_group_name}" IsHidden 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != '1' ]]; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to hide SharePoint Group."
+					return "${error_code}"
+				fi
+
+				# The "sharing -a" SharePoint will also NOT contain the "sharepoint_group_id" attribute which refers back to the GeneratedUID
+				# of the SharePoint Group (com.apple.sharepoint.group.#), therefore is must be added after creating the SharePoint Group.
+				sharepoint_group_guid="$(dscl -plist . -read "/Groups/${user_share_point_group_name}" GeneratedUID 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)"
+				if [[ -z "${sharepoint_group_guid}" ]] || ! dscl . -create "/SharePoints/${user_share_point_name_escaped_for_dscl_delete_and_create}" sharepoint_group_id "${sharepoint_group_guid}" || [[ "$(dscl -plist . -read "/SharePoints/${user_share_point_name}" sharepoint_group_id 2> /dev/null | xmllint --xpath '//string[1]/text()' - 2> /dev/null)" != "${sharepoint_group_guid}" ]]; then
+					>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to add SharePoint Group GeneratedUID to SharePoint."
+					return "${error_code}"
+				fi
 			fi
 		else
 			>&2 echo "mkuser WARNING: NOT sharing Public folder since a SharePoint already exists for \"${user_home_path}/Public\" that is associated with an existing user or was unable to be removed (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE)."
@@ -5953,6 +5991,37 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 	fi
 	error_code+=1
 
+	if $did_create_home_folder && $skip_setup_assistant_on_first_login && [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
+		if ! $suppress_status_messages; then
+			echo "mkuser: Setting first login Setup Assistant for ${user_full_and_account_name_display} user to be skipped..."
+		fi
+
+		sudo -u "${user_account_name}" touch "${user_home_path}/.skipbuddy" || touch "${user_home_path}/.skipbuddy" # Create file to skip first login Setup Assistant for user like System Image Utility did: https://discussions.apple.com/thread/7501089
+		# Run "touch" as the user so the file is owned by the user (as is normal for files within a home folder): https://scriptingosx.com/2020/08/running-a-command-as-another-user/
+		# "launchctl asuser" does not seem to necessary or helpful when running "touch" as another user, "sudo -u" is sufficient. But, if "sudo -u" fails (like it seems to for UID "-1"), just create the file as "root" instead.
+
+		if [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first login."
+			return "${error_code}"
+		fi
+	fi
+	error_code+=1
+
+	if $skip_setup_assistant_on_first_boot && [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
+		if ! $suppress_status_messages; then
+			echo 'mkuser: Setting first boot Setup Assistant to be skipped...'
+		fi
+
+		touch '/private/var/db/.AppleSetupDone'
+		chown 0:0 '/private/var/db/.AppleSetupDone' # Make sure this file is properly owned by root:wheel.
+
+		if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
+			return "${error_code}"
+		fi
+	fi
+	error_code+=1
+
 	if [[ -n "${st_admin_account_name}" ]]; then
 		if ! $boot_volume_is_apfs; then # Should never hit this condition since st_admin_account_name will have been cleared if not running on an APFS boot volume, but doesn't hurt to check anyway.
 			>&2 echo 'mkuser WARNING: NOT granting Secure Token since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
@@ -6020,45 +6089,25 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 		# So, it seems like it may just be best practice to always update the Preboot Volume after a new Secure Token user is added no matter what.
 		# The only downside is that this process is not super quick, it can take around 10 seconds or so (but could be shorter or longer as the time depends on how many total Secure Token users exist).
 
-		if ! diskutil_apfs_update_preboot_output="$(diskutil apfs updatePreboot / 2>&1)" || [[ "${diskutil_apfs_update_preboot_output}" != *$'UpdatePreboot: Exiting Update Preboot operation with overall error=(ZeroMeansSuccess)=0\nFinished APFS operation' ]]; then
-			echo "${diskutil_apfs_update_preboot_output}" | tail -2 >&2 # If there was an error, show the last 2 updatePreboot output lines since it may be informative.
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to update the Preboot Volume after $($got_first_secure_token && echo 'macOS granted' || echo 'granting') Secure Token."
-			return "${error_code}"
-		fi
-	fi
-	error_code+=1
-
-	if $did_create_home_folder && $skip_setup_assistant_on_first_login && [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
-		if ! $suppress_status_messages; then
-			echo "mkuser: Setting first login Setup Assistant for ${user_full_and_account_name_display} user to be skipped..."
-		fi
-
-		sudo -u "${user_account_name}" touch "${user_home_path}/.skipbuddy" || touch "${user_home_path}/.skipbuddy" # Create file to skip first login Setup Assistant for user like System Image Utility did: https://discussions.apple.com/thread/7501089
-		# Run "touch" as the user so the file is owned by the user (as is normal for files within a home folder): https://scriptingosx.com/2020/08/running-a-command-as-another-user/
-		# "launchctl asuser" does not seem to necessary or helpful when running "touch" as another user, "sudo -u" is sufficient. But, if "sudo -u" fails (like it seems to for UID "-1"), just create the file as "root" instead.
-
-		if [[ ! -f "${user_home_path}/.skipbuddy" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first login."
-			return "${error_code}"
-		fi
+		is_last_update_preboot_attempt=false
+		for (( update_preboot_attempt = 1; update_preboot_attempt <= 3; update_preboot_attempt ++ )); do # Updating the Preboot Volume *should* work on the first attempt, but try up to 3 times just in case there is a fluke issue.
+			if ! diskutil_apfs_update_preboot_output="$(diskutil apfs updatePreboot / 2>&1)" || [[ "${diskutil_apfs_update_preboot_output}" != *$'UpdatePreboot: Exiting Update Preboot operation with overall error=(ZeroMeansSuccess)=0\nFinished APFS operation' ]]; then
+				echo "${diskutil_apfs_update_preboot_output}" | tail -2 >&2 # If there was an error, show the last 2 updatePreboot output lines since it may be informative.
+				if (( update_preboot_attempt == 3 )); then is_last_update_preboot_attempt=true; fi
+				>&2 echo "mkuser $($is_last_update_preboot_attempt && echo "ERROR ${error_code}-${LINENO}" || echo 'WARNING'): Attempt ${update_preboot_attempt} of 3 failed to update the Preboot Volume after $($got_first_secure_token && echo 'macOS granted' || echo 'granting') Secure Token$($is_last_update_preboot_attempt && echo ' (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)')."
+				if $is_last_update_preboot_attempt; then
+					return "${error_code}"
+				else
+					sleep "${update_preboot_attempt}" # If there was an error, wait a bit before trying again.
+				fi
+			else
+				break
+			fi
+		done
 	fi
 	error_code+=1
 
 	if $skip_setup_assistant_on_first_boot; then
-		if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
-			if ! $suppress_status_messages; then
-				echo 'mkuser: Setting first boot Setup Assistant to be skipped...'
-			fi
-
-			touch '/private/var/db/.AppleSetupDone'
-			chown 0:0 '/private/var/db/.AppleSetupDone' # Make sure this file is properly owned by root:wheel.
-
-			if [[ ! -f '/private/var/db/.AppleSetupDone' ]]; then
-				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to skip Setup Assistant on first boot."
-				return "${error_code}"
-			fi
-		fi
-
 		current_user_is_mbsetupuser="$([[ "$(echo 'show State:/Users/ConsoleUser' | scutil | awk '($1 == "Name") { print $NF; exit }')" == '_mbsetupuser' ]] && echo 'true' || echo 'false')"
 		if $current_user_is_mbsetupuser || pgrep -q 'Setup Assistant' || pgrep -q 'Language Chooser'; then
 			if ! $suppress_status_messages; then
@@ -6089,7 +6138,6 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			fi
 		fi
 	fi
-	error_code+=1
 
 	if ! $suppress_status_messages; then
 		echo "mkuser: Successfully created ${creating_user_type} ${user_full_and_account_name_display} and all ${error_code} verifications passed!"
