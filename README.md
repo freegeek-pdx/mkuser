@@ -2,7 +2,7 @@
 
 `mkuser` **m**a**k**es **user** accounts for macOS with more options, more validation of inputs, and more verification of the created user account than any other user creation tool, including `sysadminctl -addUser` and System Preferences!
 
-`mkuser` supports and has been thoroughly tested with macOS 10.13 High Sierra and newer (it likely works on older versions of macOS as well, but that hasn't been tested). The newest version of macOS that `mkuser` has been tested with as of writing this is macOS 12 Monterey. Because of how `mkuser` is written and the built-in tools it uses to create user accounts, it should support future versions of macOS without any major issues as the fundamentals of user creation have been consistent for years across many versions of macOS. If somehow an issue does occur with a future version of macOS, `mkuser`'s excessive verifications should detect the issue and present a detailed error message.
+`mkuser` supports and has been thoroughly tested with macOS 10.13 High Sierra and newer (it likely works on older versions of macOS as well, but that hasn't been tested). The newest version of macOS that `mkuser` has been tested with as of writing this is macOS 12 Monterey. Because of how `mkuser` is written and the built-in tools it uses to create user accounts, it should support future versions of macOS without any major issues as the fundamentals of user creation have been consistent for years across many versions of macOS. If somehow an issue does occur with a future version of macOS, `mkuser`'s excessive verifications should detect the issue and output a detailed warning or error message.
 
 Along with abundant options and excessive verifications, `mkuser` has detailed help info which explains each available option and what affect it will have on the created user account. This info may be informative beyond just using `mkuser` since it's really all about all the different kinds of advanced customizations user accounts can have on macOS.
 
@@ -141,7 +141,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > *Regardless of the password content policy*, `mkuser` enforces a maximum password length of 511 bytes, or 251 bytes when enabling auto-login.<br/>
 > See notes below for more details about these maximum length limitations.
 >
-> The only limitation on the characters allowed in the password is that it cannot contain any control characters such as line breaks or tabs.<br/>
+> The only limitation on the characters allowed in the password that `mkuser` enforces is that it cannot contain any control characters such as line breaks or tabs (but a custom password content policy may enforce other limitations).<br/>
 > If omitted, a blank/empty password will be specified.
 >
 > **BLANK/EMPTY PASSWORD NOTES:**<br/>
@@ -170,7 +170,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 >
 > The specified password (along with the existing Secure Token admin password, if specified) will be securely obfuscated within the package in such a way that the passwords can only be deobfuscated by the specific and unique script generated during package creation and only when run during the package installation process.<br/>
 > For more information about how passwords are securely obfuscated within the package, read the comments within the code of this script starting at: *OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT*<br/>
-> Also, when the passwords are deobfuscated during the package installation, they will NOT be visible in the process list since they will only exist as variables within the script and be passed to an internal `mkuser` function.
+> Also, when the passwords are deobfuscated during the package installation, they will NOT be visible in the process list or written to the filesystem since they will only exist as variables within the script and be passed to an internal `mkuser` function.
 
 <br/>
 
@@ -456,6 +456,46 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Users created in the "Users & Groups" pane of the "System Preferences" will only get a Secure Token when the pane has been unlocked by an existing Secure Token administrator.<br/>
 > Similarly, users created using `sysadminctl -addUser` will only get a Secure Token when the command is authenticated with an existing Secure Token administrator (the same way as when using the `sysadminctl -secureTokenOn` option).<br/>
 > The only exception to this subsequent Secure Token behavior is when utilizing MDM with a Bootstrap Token.
+>
+> **BOOTSTRAP TOKEN NOTES (MDM-ENROLLED macOS 10.15 Catalina AND NEWER ONLY):**<br/>
+> The Apple Platform Deployment link above also explains the Bootstrap Token.<br/>
+> But, some useful details are included below as well as information about how `mkuser` can simplify the creation of the Bootstrap Token on macOS 11 Big Sur and newer when the system is enrolled in a supported MDM.
+>
+> For a Bootstrap Token to be able to be created, the MDM must support it.<br/>
+> The Bootstrap Token was first introduced in macOS 10.15 Catalina, but required Automated Device Enrollment (ADE/DEP) and was limited to granting Secure Tokens to mobile accounts logging in graphically via login window (but not when using the `login` or `su` commands) as well as the optional MDM-created Managed Administrator.<br/>
+> Starting in macOS 11 Big Sur, the Bootstrap Token functionality was expanded to support all User Approved MDM Enrollment (UAMDM) methods and also to grant Secure Tokens to local users logging in graphically.<br/>
+> Also, more functionality was added for Apple Silicon in macOS 11 Big Sur.<br/>
+> On Apple Silicon, the Bootstrap Token can be used to authorize installation of both kernel extensions and software updates when managed using MDM.<br/>
+> Starting in macOS 12 Monterey, the Bootstrap Token can also be used to silently authorize an Erase All Content and Settings command for Apple Silicon Macs (not required for T2 Macs) when triggered through MDM.<br/>
+> One way to think of the Bootstrap Token is that it is like an invisible Secure Token/Volume Owner administrator account that can be used to automate actions via MDM that normally require authentication by a regular Secure Token/Volume Owner administrator account.
+>
+> Under normal circumstances, the first user would be created manually during Setup Assistant and then be granted the first Secure Token.<br/>
+> The Bootstrap Token would also be created during that process as that user is automatically logged in graphically.
+>
+> While it is generally recommended that the first administrator be created manually by the end user during Setup Assistant (since macOS will grant them the first Secure Token and then create the Bootstrap Token), if you choose to have `mkuser` create the first Secure Token user before that point, or choose to skip manual user creation during Setup Assistant, then a Secure Token user would need to manually log in graphically for the Bootstrap Token to be created.<br/>
+> On macOS 11 Big Sur and newer, `mkuser` simplifies this when `mkuser` is used to create the first Secure Token administrator by running the `profiles install -type bootstraptoken` command and securely authorizing it with the credentials of the newly created user during the `mkuser` process.<br/>
+> `mkuser` will only do this on macOS 11 Big Sur and newer because the first Secure Token will be granted by macOS when the password is set during the `mkuser` process (see *macOS 11 Big Sur AND NEWER FIRST SECURE TOKEN NOTES* above for more information).<br/>
+> On macOS 10.15 Catalina, the first Secure Token will NOT be granted by macOS during the `mkuser` process (see *macOS 10.15 Catalina FIRST SECURE TOKEN NOTES* above for more information) and therefore `mkuser` will not be able to create and escrow the Bootstrap Token.
+>
+> On macOS 10.15.4 Catalina and newer, when a Secure Token enabled user logs in graphically for the first time, the Bootstrap Token is created and escrowed to the supported MDM when internet is available (on older versions of macOS 10.15 Catalina, the Bootstrap Token was only created and escrowed automatically during the Setup Assistant user creation process).<br/>
+> This would normally be when the first administrator logs in graphically and is granted the first Secure Token by macOS which will also create and escrow the Bootstrap Token during that same graphical login process.<br/>
+> If internet is not available during any Bootstrap Token creation event, the Bootstrap Token will be created but will NOT be escrowed to MDM and will therefore not be able to grant other users a Secure Token until it has been escrowed to MDM.<br/>
+> If this happens, the Bootstrap Token will be escrowed to MDM the next time that user logs in graphically when internet is available.<br/>
+> Also, the Bootstrap Token can be manually created and/or escrowed to the supported MDM using the `profiles install -type bootstraptoken` command.
+>
+> For `mkuser` to create and escrow the Bootstrap Token on macOS 11 Big Sur and newer, the account name and password must be passed to the `profiles install -type bootstraptoken` command.<br/>
+> To do this in the most secure way possible (so that the password is never visible in the process list or written to the filesystem), the password is NOT passed directly as an argument but is instead passed using the interactive command line prompt (via `expect` automation).<br/>
+> But, the `profiles install -type bootstraptoken` command line password prompt fails to accept passwords over 128 bytes even if the password is correct.<br/>
+> Using `expect` to pass the password securely has one other limitation, which is that it does not support emoji characters.<br/>
+> If the password is over 128 bytes or contains emoji (even though both are quite rare), then the Bootstrap Token creation will fail with a warning.<br/>
+> Longer passwords (up to 512 bytes) as well as passwords containing emoji can be passed to `profiles install -type bootstraptoken` directly using the `-user` and `-password` arguments, but that would make the password visible in the process list.<br/>
+> Since `mkuser` strives to handle passwords in the most secure ways possible, only the secure command line prompt method using `expect` will be attempted, and if it fails then the user will need to be logged in graphically to create and escrow the Bootstrap Token, or the insecure `profiles install -type bootstraptoken -user <USER> -password <PASSWORD>` command will need to be run manually after the `mkuser` process is done.<br/>
+> Also, if the first Secure Token user is created with a blank/empty password, they cannot authenticate the `profiles install -type bootstraptoken` command and a Bootstrap Token will also NOT be created when logged in graphically.<br/>
+> The Secure Token user having some password set is simply a requirement to be able to create the Bootstrap Token.
+>
+> Once the Bootstrap Token has been created and escrowed, it will only grant Secure Tokens to users logging in graphically via login window (but not when using the `login` or `su` commands) and internet must be available during the macOS login process to communicate with the MDM.<br/>
+> Except if a user has a blank/empty password, then the Bootstrap Token will not grant that user a Secure Token.<br/>
+> Otherwise, there is *NO WAY* to prevent the Bootstrap Token from granting an account a Secure Token when logging in graphically, not even when this `--prevent-secure-token-on-big-sur-and-newer` option is specified as that only applies to macOS granting the *first* Secure Token, not to subsequent Secure Tokens granted by the Bootstrap Token.
 
 <br/>
 
@@ -477,11 +517,11 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 >
 > **SECURE TOKEN ADMIN 1022 BYTE PASSWORD LENGTH LIMIT NOTES:**<br/>
 > To grant the new user a Secure Token, the user and existing Secure Token admin passwords must be passed to `sysadminctl -secureTokenOn`.<br/>
-> To do this in the most secure way possible (so that they are never visible in the process list), the passwords are NOT passed directly as arguments but are instead passed via "stdin" using the command line prompt options.<br/>
+> To do this in the most secure way possible (so that they are never visible in the process list or written to the filesystem), the passwords are NOT passed directly as arguments but are instead passed via "stdin" using the command line prompt options.<br/>
 > But, this technique fails with Secure Token admin passwords over 1022 bytes.<br/>
 > For a bit more technical information about this limitation from my testing, search for *1022 bytes* within the source of this script.<br/>
 > The length of the new user password is not an issue for this command since it is limited to a maximum of 511 bytes as described in the *511 BYTE PASSWORD LENGTH LIMIT NOTES* in help information for the `--password` option above.<br/>
-> Since `mkuser` strives to handle passwords in the most secure ways possible, the password length of Secure Token admin is limited to 1022 bytes so that the password can be passed to `sysadminctl -secureTokenOn` in a secure way that never makes it visible in the process list.<br/>
+> Since `mkuser` strives to handle passwords in the most secure ways possible, the password length of Secure Token admin is limited to 1022 bytes so that the password can be passed to `sysadminctl -secureTokenOn` in a secure way that never makes it visible in the process list or writes it to the filesystem.<br/>
 > If your existing Secure Token admin has a longer password for any reason, you can use it to manually grant a Secure Token after creating a non-Secure Token account with `mkuser` by insecurely passing the password directly to `sysadminctl -secureTokenOn` as an argument since longer passwords are properly accepted when passed that way.
 
 <br/>

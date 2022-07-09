@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.6.21-1'
+	readonly MKUSER_VERSION='2022.7.8-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -461,6 +461,10 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--stdin-password|--stdin-pass|--sp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is in use so that the script doesn't hang forever if "--stdin-password" is specified with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
+							if [[ -f '/dev/stdin' ]]; then
+								>&2 echo "mkuser WARNING: It is recommended to use a pipe (|) instead of a here-string (<<<) when using \"${this_unaltered_option}\" because a pipe is more secure since a here-string creates a temporary file which contains the specified password while a pipe does not."
+							fi
+
 							possible_user_password="$(cat -)" # Optionally get password from stdin so that the password is never visible in the process list (and will validate the password meets the global password content policy requirements later in the code).
 
 							if [[ "${possible_user_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs). System Preferences absurdly allows line breaks in password, but they cannot be entered in loginwindow and also cannot be entered on the command line.
@@ -737,21 +741,26 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					;;
 				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ "$1" == '/dev/fd/'* ]]; then # Make sure a file descriptor path is specified.
-						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd-secure-token-admin-password" options specified).
-							if possible_st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list or written in the filesystem.
-								if [[ "${possible_st_admin_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
-									st_admin_password="${possible_st_admin_password}"
-									# Do not include "--fd-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+						if [[ ! -f "$1" ]]; then
+							if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd-secure-token-admin-password" options specified).
+								if possible_st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list or written in the filesystem.
+									if [[ "${possible_st_admin_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
+										st_admin_password="${possible_st_admin_password}"
+										# Do not include "--fd-secure-token-admin-password" in valid_options_for_package because the password will be obfuscated within a package and then deobfuscated and only passed to an internal mkuser function, which is not revealed in the process list.
+									else
+										>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain any control characters such as line breaks or tabs."
+										has_invalid_options=true
+									fi
 								else
-									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Secure Token admin password cannot contain any control characters such as line breaks or tabs."
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because no file descriptor \"$1\" contents detected, specify with \"<(echo 'PASSWORD')\" process substitution. If you are running this command manually in Terminal and using \"sudo\", the file descriptor may be getting processed by \"sudo\" instead of \"mkuser\"."
 									has_invalid_options=true
 								fi
 							else
-								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because no file descriptor \"$1\" contents detected, specify with \"<(echo 'PASSWORD')\" process substitution. If you are running this command manually in Terminal and using \"sudo\", the file descriptor may be getting processed by \"sudo\" instead of \"mkuser\"."
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
 								has_invalid_options=true
 							fi
 						else
-							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
+							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because file descriptor \"$1\" path exists in the filesystem. You must use PROCESS SUBSTITUTION like \"${this_unaltered_option} <(echo 'PASSWORD')\"."
 							has_invalid_options=true
 						fi
 
@@ -1261,8 +1270,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       password length of 511 bytes, or 251 bytes when enabling auto-login.
     See notes below for more details about these maximum length limitations.
 
-    The only limitation on the characters allowed in the password is that
-      it cannot contain any control characters such as line breaks or tabs.
+    The only limitation on the characters allowed in the password that
+      ${ansi_bold}mkuser${clear_ansi} enforces is that it cannot contain any control characters
+      such as line breaks or tabs (but a custom password content policy
+      may enforce other limitations).
     If omitted, a blank/empty password will be specified.
 
     ${ansi_bold}BLANK/EMPTY PASSWORD NOTES:${clear_ansi}
@@ -1320,8 +1331,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       the package, read the comments within the code of this script starting at:
       ${ansi_underline}OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT${clear_ansi}
     Also, when the passwords are deobfuscated during the package installation,
-      they will NOT be visible in the process list since they will only exist as
-      variables within the script and be passed to an internal ${ansi_bold}mkuser${clear_ansi} function.
+      they will NOT be visible in the process list or written to the filesystem
+      since they will only exist as variables within the script and be passed
+      to an internal ${ansi_bold}mkuser${clear_ansi} function.
 
 
   ${ansi_bold}--stdin-password, --stdin-pass, --sp${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} (stdin) >
@@ -1792,6 +1804,115 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     The only exception to this subsequent Secure Token behavior
       is when utilizing MDM with a Bootstrap Token.
 
+    ${ansi_bold}BOOTSTRAP TOKEN NOTES (MDM-ENROLLED macOS 10.15 Catalina AND NEWER ONLY):${clear_ansi}
+    The Apple Platform Deployment link above also explains the Bootstrap Token.
+    But, some useful details are included below as well as information about
+      how ${ansi_bold}mkuser${clear_ansi} can simplify the creation of the Bootstrap Token on
+      macOS 11 Big Sur and newer when the system is enrolled in a supported MDM.
+
+    For a Bootstrap Token to be able to be created, the MDM must support it.
+    The Bootstrap Token was first introduced in macOS 10.15 Catalina, but
+      required Automated Device Enrollment (ADE/DEP) and was limited to granting
+      Secure Tokens to mobile accounts logging in graphically via login window
+      (but not when using the ${ansi_bold}login${clear_ansi} or ${ansi_bold}su${clear_ansi} commands) as well as the optional
+      MDM-created Managed Administrator.
+    Starting in macOS 11 Big Sur, the Bootstrap Token functionality was expanded
+      to support all User Approved MDM Enrollment (UAMDM) methods and also to
+      grant Secure Tokens to local users logging in graphically.
+    Also, more functionality was added for Apple Silicon in macOS 11 Big Sur.
+    On Apple Silicon, the Bootstrap Token can be used to authorize installation
+      of both kernel extensions and software updates when managed using MDM.
+    Starting in macOS 12 Monterey, the Bootstrap Token can also be used
+      to silently authorize an Erase All Content and Settings command for
+      Apple Silicon Macs (not required for T2 Macs) when triggered through MDM.
+    One way to think of the Bootstrap Token is that it is like an invisible
+      Secure Token/Volume Owner administrator account that can be used to
+      automate actions via MDM that normally require authentication by a
+      regular Secure Token/Volume Owner administrator account.
+
+    Under normal circumstances, the first user would be created manually
+      during Setup Assistant and then be granted the first Secure Token.
+    The Bootstrap Token would also be created during that process
+      as that user is automatically logged in graphically.
+
+    While it is generally recommended that the first administrator be created
+      manually by the end user during Setup Assistant (since macOS will grant
+      them the first Secure Token and then create the Bootstrap Token), if you
+      choose to have ${ansi_bold}mkuser${clear_ansi} create the first Secure Token user before that
+      point, or choose to skip manual user creation during Setup Assistant,
+      then a Secure Token user would need to manually log in graphically
+      for the Bootstrap Token to be created.
+    On macOS 11 Big Sur and newer, ${ansi_bold}mkuser${clear_ansi} simplifies this when ${ansi_bold}mkuser${clear_ansi}
+      is used to create the first Secure Token administrator by running the
+      ${ansi_bold}profiles install -type bootstraptoken${clear_ansi} command and securely authorizing it
+      with the credentials of the newly created user during the ${ansi_bold}mkuser${clear_ansi} process.
+    ${ansi_bold}mkuser${clear_ansi} will only do this on macOS 11 Big Sur and newer because the first
+      Secure Token will be granted by macOS when the password is set during the
+      ${ansi_bold}mkuser${clear_ansi} process (see ${ansi_underline}macOS 11 Big Sur AND NEWER FIRST SECURE TOKEN NOTES${clear_ansi}
+      above for more information).
+    On macOS 10.15 Catalina, the first Secure Token will NOT be granted by macOS
+      during the ${ansi_bold}mkuser${clear_ansi} process (see ${ansi_underline}macOS 10.15 Catalina FIRST SECURE TOKEN${clear_ansi}
+      ${ansi_underline}NOTES${clear_ansi} above for more information) and therefore ${ansi_bold}mkuser${clear_ansi} will not be able to
+      create and escrow the Bootstrap Token.
+
+    On macOS 10.15.4 Catalina and newer, when a Secure Token enabled user logs
+      in graphically for the first time, the Bootstrap Token is created
+      and escrowed to the supported MDM when internet is available (on older
+      versions of macOS 10.15 Catalina, the Bootstrap Token was only created and
+      escrowed automatically during the Setup Assistant user creation process).
+    This would normally be when the first administrator logs in graphically
+      and is granted the first Secure Token by macOS which will also create and
+      escrow the Bootstrap Token during that same graphical login process.
+    If internet is not available during any Bootstrap Token creation event,
+      the Bootstrap Token will be created but will NOT be escrowed to MDM
+      and will therefore not be able to grant other users a Secure Token
+      until it has been escrowed to MDM.
+    If this happens, the Bootstrap Token will be escrowed to MDM the next
+      time that user logs in graphically when internet is available.
+    Also, the Bootstrap Token can be manually created and/or escrowed to the
+      supported MDM using the ${ansi_bold}profiles install -type bootstraptoken${clear_ansi} command.
+
+    For ${ansi_bold}mkuser${clear_ansi} to create and escrow the Bootstrap Token on macOS 11 Big Sur and
+      newer, the account name and password must be passed to the
+      ${ansi_bold}profiles install -type bootstraptoken${clear_ansi} command.
+    To do this in the most secure way possible (so that the password is never
+      visible in the process list or written to the filesystem), the password is
+      NOT passed directly as an argument but is instead passed using the
+      interactive command line prompt (via ${ansi_bold}expect${clear_ansi} automation).
+    But, the ${ansi_bold}profiles install -type bootstraptoken${clear_ansi} command line password prompt
+      fails to accept passwords over 128 bytes even if the password is correct.
+    Using ${ansi_bold}expect${clear_ansi} to pass the password securely has one other limitation,
+      which is that it does not support emoji characters.
+    If the password is over 128 bytes or contains emoji (even though both are
+      quite rare), then the Bootstrap Token creation will fail with a warning.
+    Longer passwords (up to 512 bytes) as well as passwords containing emoji
+      can be passed to ${ansi_bold}profiles install -type bootstraptoken${clear_ansi} directly using the
+      ${ansi_bold}-user${clear_ansi} and ${ansi_bold}-password${clear_ansi} arguments, but that would make the password visible
+      in the process list.
+    Since ${ansi_bold}mkuser${clear_ansi} strives to handle passwords in the most secure ways possible,
+      only the secure command line prompt method using ${ansi_bold}expect${clear_ansi} will be attempted,
+      and if it fails then the user will need to be logged in graphically
+      to create and escrow the Bootstrap Token, or the insecure
+      ${ansi_bold}profiles install -type bootstraptoken -user <USER> -password <PASSWORD>${clear_ansi}
+      command will need to be run manually after the ${ansi_bold}mkuser${clear_ansi} process is done.
+    Also, if the first Secure Token user is created with a blank/empty password,
+      they cannot authenticate the ${ansi_bold}profiles install -type bootstraptoken${clear_ansi} command
+      and a Bootstrap Token will also NOT be created when logged in graphically.
+    The Secure Token user having some password set is simply
+      a requirement to be able to create the Bootstrap Token.
+
+    Once the Bootstrap Token has been created and escrowed, it will only
+      grant Secure Tokens to users logging in graphically via login window
+      (but not when using the ${ansi_bold}login${clear_ansi} or ${ansi_bold}su${clear_ansi} commands) and internet must be
+      available during the macOS login process to communicate with the MDM.
+    Except if a user has a blank/empty password, then the Bootstrap Token
+      will not grant that user a Secure Token.
+    Otherwise, there is ${ansi_underline}NO WAY${clear_ansi} to prevent the Bootstrap Token from granting an
+      account a Secure Token when logging in graphically, not even when
+      this ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi} option is specified
+      as that only applies to macOS granting the ${ansi_underline}first${clear_ansi} Secure Token,
+      not to subsequent Secure Tokens granted by the Bootstrap Token.
+
 
   ${ansi_bold}--secure-token-admin-account-name, --st-admin-name, --st-admin-user, --st-name${clear_ansi}
     < ${ansi_underline}string${clear_ansi} >
@@ -1818,8 +1939,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     To grant the new user a Secure Token, the user and existing Secure Token
       admin passwords must be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}.
     To do this in the most secure way possible (so that they are never visible
-      in the process list), the passwords are NOT passed directly as arguments
-      but are instead passed via \"stdin\" using the command line prompt options.
+      in the process list or written to the filesystem), the passwords are
+      NOT passed directly as arguments but are instead passed via \"stdin\"
+      using the command line prompt options.
     But, this technique fails with Secure Token admin passwords over 1022 bytes.
     For a bit more technical information about this limitation from my testing,
       search for ${ansi_underline}1022 bytes${clear_ansi} within the source of this script.
@@ -1828,9 +1950,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       ${ansi_underline}511 BYTE PASSWORD LENGTH LIMIT NOTES${clear_ansi} in help information
       for the ${ansi_bold}--password${clear_ansi} option above.
     Since ${ansi_bold}mkuser${clear_ansi} strives to handle passwords in the most secure ways possible,
-      the password length of Secure Token admin is limited to 1022 bytes so that
-      the password can be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} in a secure way
-      that never makes it visible in the process list.
+      the password length of Secure Token admin is limited to 1022 bytes so
+      that the password can be passed to ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi} in a
+      secure way that never makes it visible in the process list
+      or writes it to the filesystem.
     If your existing Secure Token admin has a longer password for any reason,
       you can use it to manually grant a Secure Token after creating a
       non-Secure Token account with ${ansi_bold}mkuser${clear_ansi} by insecurely passing the password
@@ -2736,10 +2859,10 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		fi
 
-		if [[ -L "${user_shell}" ]]; then # If a symlink has been specified, use the actual absolute path instead.
-			user_shell="$(OSASCRIPT_ENV_USER_SHELL="${user_shell}" osascript -l 'JavaScript' -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_USER_SHELL").stringByResolvingSymlinksInPath' 2> /dev/null)"
-			# The "-f" option for "readlink" to canonicalize/standardize the path is only available on macOS 12 Monterey and newer. So, instead, use ObjC NSString stringByResolvingSymlinksInPath for the same result on all versions of macOS.
-		fi
+		# If a symlink or relative path has been specified, use the actual absolute path instead (but always do this instead of checking if it's a symlink or relative path since there could be edge cases when "." or ".." could be used within a path starting with "/").
+		user_shell="$(OSASCRIPT_ENV_USER_SHELL="${user_shell}" osascript -l 'JavaScript' -e '$.NSURL.fileURLWithPathRelativeToURL($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_USER_SHELL").stringByResolvingSymlinksInPath, $.NSURL.fileURLWithPath($.NSFileManager.defaultManager.currentDirectoryPath)).URLByResolvingSymlinksInPath.path' 2> /dev/null)"
+		# The "-f" option for "readlink" to canonicalize/standardize the path is only available on macOS 12.3 Monterey and newer.
+		# So, instead, use ObjC NSString "stringByResolvingSymlinksInPath" for the same result on all versions of macOS, but since "stringByResolvingSymlinksInPath" on it's own doesn't make relative paths absolute, also use "fileURLWithPathRelativeToURL" and then "URLByResolvingSymlinksInPath" on the absolute path as well (the first "stringByResolvingSymlinksInPath" is still necessary since it also expands any literal "~" at the beginning of the path).
 
 		if [[ ! -x "${user_shell}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified login shell file \"${user_shell}\" is not executable."
@@ -2841,10 +2964,10 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		fi
 
-		if [[ -L "${user_picture_path}" ]]; then # If a symlink has been specified, get the actual absolute path so that the next size check is accurate for the actual picture instead of for the symlink itself.
-			user_picture_path="$(OSASCRIPT_ENV_USER_PICTURE_PATH="${user_picture_path}" osascript -l 'JavaScript' -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_USER_PICTURE_PATH").stringByResolvingSymlinksInPath' 2> /dev/null)"
-			# The "-f" option for "readlink" to canonicalize/standardize the path is only available on macOS 12 Monterey and newer. So, instead, use ObjC NSString stringByResolvingSymlinksInPath for the same result on all versions of macOS.
-		fi
+		# If a symlink or relative path has been specified, get the actual absolute path so that the next size check is accurate for the actual picture instead of for the symlink itself (but always do this instead of checking if it's a symlink or relative path since there could be edge cases when "." or ".." could be used within a path starting with "/").
+		user_picture_path="$(OSASCRIPT_ENV_USER_PICTURE_PATH="${user_picture_path}" osascript -l 'JavaScript' -e '$.NSURL.fileURLWithPathRelativeToURL($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_USER_PICTURE_PATH").stringByResolvingSymlinksInPath, $.NSURL.fileURLWithPath($.NSFileManager.defaultManager.currentDirectoryPath)).URLByResolvingSymlinksInPath.path' 2> /dev/null)"
+		# The "-f" option for "readlink" to canonicalize/standardize the path is only available on macOS 12.3 Monterey and newer.
+		# So, instead, use ObjC NSString "stringByResolvingSymlinksInPath" for the same result on all versions of macOS, but since "stringByResolvingSymlinksInPath" on it's own doesn't make relative paths absolute, also use "fileURLWithPathRelativeToURL" and then "URLByResolvingSymlinksInPath" on the absolute path as well (the first "stringByResolvingSymlinksInPath" is still necessary since it also expands any literal "~" at the beginning of the path).
 
 		if (( $(stat -f '%z' "${user_picture_path}") > 1000000 )); then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified picture file \"${user_picture_path}\" is over 1 MB. Choose or create a smaller picture file."
@@ -3674,7 +3797,7 @@ PACKAGE_POSTINSTALL_EOF
 			# strong desire as well as decent knowledge of shell scripting, AppleScript, packages, macOS, etc to even attempt to extract the encrypted passwords and passwords
 			# encryption key and even then I hope that it would not be obvious, easy, or straightforward to do.
 
-			# After the encrypted passwords and passwords encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retreive the actual plain text
+			# After the encrypted passwords and passwords encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retrieve the actual plain text
 			# passwords. The way that this "openssl" command uses "pipes" and "process substitution" instead of passing the encrypted passwords and passwords encryption key as regular parameters means
 			# that the encrypted passwords and passwords encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
 			# installation process to be able to retrieve the encrypted passwords and passwords encryption key in plain text. And as I said before, if someone were to try to make a copy of
@@ -5431,7 +5554,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			# Only use "dscl . -search" as a quick and efficient way to check if there are any existing duplicate SharePoints that need to be deleted.
 			# But, DO NOT use the output from "dscl . -search" for this since it could be tedious to extract any and all actual SharePoint RecordNames from the results.
 			# This is because the SharePoint RecordNames will likely contain spaces (unlike almost all other types of RecordNames) and could also contain tabs,
-			# so splitting on whitespace (or only tabs) with "awk" to retreive the first element like is normally done with RecordNames from "dscl . -search" results would not work in all cases for SharePoints.
+			# so splitting on whitespace (or only tabs) with "awk" to retrieve the first element like is normally done with RecordNames from "dscl . -search" results would not work in all cases for SharePoints.
 			# It would be possible to trim off the last 37 characaters from the results lines that contain SharePoint names (which will always end with exactly "		dsAttrTypeNative:directory_path = ("),
 			# BUT even though it's not allowed by mkuser it is technically possible that a SharePoint RecordName could contain line breaks.
 			# If line breaks exist in the SharePoint RecordNames returned by "dscl . -search" it becomes even more tedious to try to extract the full and correct
@@ -6065,20 +6188,99 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			grant_secure_token_exit_code="$?" # Exit code will be 0 even if there was an error, but that's fine and doesn't hurt to check it anyway since we're also checking (in every possible way) that the user was actually granted a Secure Token.
 
 			if (( grant_secure_token_exit_code != 0 )) || [[ "${grant_secure_token_output}" != *'] - Done!'* || "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* || "$(diskutil apfs listUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
-				echo "${grant_secure_token_output}" | grep -F 'sysadminctl[' >&2 # If there was an error, show the sysadminctl output lines since it may be informative.
+				echo "${grant_secure_token_output}" | grep -F 'sysadminctl[' >&2 # If there was an error, show the "sysadminctl" output lines since they may be informative.
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to grant Secure Token using existing Secure Token admin \"${st_admin_account_name}\"."
 				return "${error_code}"
 			fi
 		elif ! $suppress_status_messages; then
-			echo "mkuser: Do not need to manually grant ${user_full_and_account_name_display} user a Secure Token (as specified) since user already has one (maybe from a Bootstrap Token)..."
+			echo "mkuser: Do not need to manually grant ${user_full_and_account_name_display} user a Secure Token (as specified) since user somehow already has one..."
 		fi
 	fi
 	error_code+=1
 
 	if $boot_volume_is_apfs && [[ -n "${st_admin_account_name}" || ( "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* && "$(diskutil apfs listUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* && $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ) ]]; then
-		# Update Preboot Volume separately from granting a Secure Token so that the Preboot Volume will also get updated when macOS has granted this account the first Secure Token or if the account was granted a Secure Token from a Bootstrap Token.
+		# Update Preboot Volume separately from granting a Secure Token so that the Preboot Volume will also get updated when macOS has granted this account the first Secure Token.
+		# But before that, if macOS just granted the first Secure Token, create and escrow the Bootstrap Token if the system is enrolled in an MDM that has Bootstrap Token support.
 
 		got_first_secure_token="$([[ -z "${st_admin_account_name}" ]] && echo 'true' || echo 'false')"
+
+		if $got_first_secure_token && $set_admin && (( darwin_major_version >= 19 )) && [[ "$(profiles status -type bootstraptoken 2>&1)" == $'profiles: Bootstrap Token supported on server: YES\nprofiles: Bootstrap Token escrowed to server: NO' ]]; then
+			# Bootstrap Tokens were added in macOS 10.15 Catalina (https://support.apple.com/guide/deployment/dep24dbdcf9e),
+			# but we will actually only ever get here on macOS 11 Big Sur and newer since the first Secure Token will never be granted during the mkuser process on macOS 10.15 Catalina (see "macOS 10.15 Catalina FIRST SECURE TOKEN NOTES" in the help for more information).
+			# If the system is not MDM enrolled, the "profiles status -type bootstraptoken" command will return an error and this condition will not pass.
+
+			if ! $suppress_status_messages; then
+				echo "mkuser: Creating and escrowing Bootstrap Token on MDM enrolled system after first Secure Token was granted by macOS (PLEASE WAIT, THIS MAY TAKE A FEW SECONDS OR LONGER)..."
+			fi
+
+			# Using "profiles install -type bootstraptoken" *interactively* (via "expect" in this case) always fails with passwords that are over 128 bytes (and interactive "dscl . -authonly" has the same limitation).
+			# Also, all CLI interactive password prompts (including the "read -rs" prompts in this script) DO NOT accept 1024 bytes or more, which would cause "expect" to simply timeout.
+			# This behavior was tested and confirmed on Monterey, Big Sur, and High Sierra.
+			# Longer passwords can work when passed directly to "profiles" as arguments, tested up to 512 bytes on macOS 11 Big Sur but anything longer errored with code "-69581"
+			# which seems to be a "profiles" issue since longer passwords work fine with "dscl . -authonly" when passed as arguments as well as other Secure Token granting tasks via "sysadminctl".
+			# BUT passing the passwords as arguments would make them visible in the process list and is an unacceptable security violation for this script.
+
+			# Also, "expect" (which is a "tcl" extension) DOES NOT support emoji (https://wiki.tcl-lang.org/page/emoji).
+			# If emoji are passed to "expect" they are mangled, for example "expect -c 'send 😢'" outputs "ð¢".
+			# Therefore, if emoji exist in a password they will not be sent properly to the "profiles" command and the authentication will fail.
+
+			# So, if the password is longer than 128 bytes or contains emoji, creating and escrowing the Bootstrap Token will fail and a Secure Token user will need to be logged in manually via the login window,
+			# or a "profiles install -type bootstraptoken -user <ACCOUNT NAME> -password <PASSWORD>" will need to be run manually after the mkuser process has finished to create and escrow the Bootstrap Token.
+			# But, since passwords being over 128 bytes or containing emoji is very rare and this is more of a nice-to-have type thing and not an critical task to the user itself being created properly,
+			# mkuser will still allow longer passwords as well as emoji in passwords and just leave dealing with the Bootstrap Token up to the end user in that case.
+
+			# Also, if the first Secure Token user has a blank/empty password, this will fail with "Error: Password is required." and a Bootstrap Token will also NOT be created when that user logs in via login window.
+			# Having a non-blank password seems to just be a requirement of being able to create a Bootstrap Token and has nothing to do with how things are being done in mkuser.
+
+			for (( create_boostrap_token_attempt = 1; create_boostrap_token_attempt <= 3; create_boostrap_token_attempt ++ )); do
+				# "expect" has a 10 second timeout by default, which should be more than enough but I've seen other "expect" code have fluke timeouts.
+				# We could set a longer timeout, but instead re-try up to 3 times if the command timed out because
+				# that likely means something went wrong with that execution that a longer timeout wouldn't fix.
+
+				# Pass all variables to "expect" using stdin so that the password is never visible in the process list or written to the filesystem,
+				# AND so that escaping tcl/expect special characters is not an issue (https://datacadamia.com/lang/tcl/special_character) since even
+				# if literal strings are wrapped in "{" and "}" any curly brace within the string itself breaks the rest and risks the password being
+				# printed within an error message and seemingly can't be escaped.
+
+				# Use "printf '%s\n'" to separate the username and password with a line break without incorrectly interpreting any possible literal backslashes in the password.
+				create_bootstrap_token_output="$(printf '%s\n' "${user_account_name}" "${user_password}" | expect -c '
+spawn profiles install -type bootstraptoken
+expect {
+	":$" {
+		# This ":$" pattern will match any line that ends with ":" which will be both the user name and password input lines.
+
+		send -- "[gets stdin]\n"
+		# Each "[gets stdin]" call retrieves one line of stdin at a time, so the first time this is called the user name will be retrieved.
+		# When the input values are passed as stdin NO special tcl/expect characters need to be escaped manually,
+		# but if the value starts with a "-" (as some passwords could) then "send" would incorrectly interpret the value as arguments.
+		# So, using "send --" makes sure that the passed value is never interpreted as arguments by "send".
+
+		exp_continue
+		# "exp_continue" starts this whole "expect" block over again so that this same condition will be matched
+		# for the password input and "[gets stdin]" will retrieve the next line of stdin which will then be the password.
+	}
+	timeout {
+		exit 255
+		# If somehow a timeout happens, use a unique exit code that we can check for to try again.
+	}
+}
+')"
+
+				create_bootstrap_token_exit_code="$?"
+
+				if (( create_bootstrap_token_exit_code == 255 )) || [[ "${create_bootstrap_token_output}" == *$'\nprofiles: Bootstrap Token created\n'* && "${create_bootstrap_token_output}" != *$'\nprofiles: Bootstrap Token escrowed' ]]; then
+					echo "${create_bootstrap_token_output}" | grep '^profiles:\|^Error:' >&2 # If there was an error, show the "profiles" (and error) output lines since they may be informative.
+					>&2 echo "mkuser WARNING: Attempt ${create_boostrap_token_attempt} of 3 to create and escrow Bootstrap Token $( (( create_bootstrap_token_exit_code == 255 )) && echo 'timed out' || echo 'was unable to escrow Bootstrap Token to MDM server, see "profiles" output above this line for more information' )."
+				else
+					break
+				fi
+			done
+
+			if (( create_bootstrap_token_exit_code != 0 )) || [[ "$(profiles status -type bootstraptoken 2>&1)" != $'profiles: Bootstrap Token supported on server: YES\nprofiles: Bootstrap Token escrowed to server: YES' || "$(diskutil apfs listUsers / 2> /dev/null)" != *'Type: MDM Bootstrap Token External Key'* ]]; then
+				echo "${create_bootstrap_token_output}" | grep '^profiles:\|^Error:' >&2 # If there was an error, show the "profiles" (and error) output lines since they may be informative.
+				>&2 echo 'mkuser WARNING: Failed to create or escrow Bootstrap Token, see "profiles" output above this line for more information (CONTINUING ANYWAY, BUT THIS SHOULD NOT NORMALLY HAPPEN, PLEASE REPORT THIS ISSUE).'
+			fi
+		fi
 
 		if ! $suppress_status_messages; then
 			echo "mkuser: Updating Preboot Volume after $($got_first_secure_token && echo 'macOS granted' || echo 'granting') ${user_full_and_account_name_display} user $($got_first_secure_token && echo 'the first' || echo 'a') Secure Token (PLEASE WAIT, THIS MAY TAKE 10 SECONDS OR LONGER)..."
