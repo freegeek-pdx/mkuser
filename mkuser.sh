@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.7.8-1'
+	readonly MKUSER_VERSION='2022.8.3-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -505,7 +505,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--password-hint|--hint|--ph) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ -n "$1" ]]; then # Allow hints to start with "-", which is a bit risky if someone does something wrong like "--hint --home" which will set the hint to "--home" and the parameter for "--home" will become an invalid option and error.
 						if [[ -z "${user_password_hint}" ]]; then
-							printf -v possible_user_password_hint '%b' "$1" # Use "printf '%b'" to interpret any literal backslash-escaped characters in the hint, since "\n" and "\t" are allowed (and others will be rejected below). DO NOT use "echo -e" since any hint starting with a hyphen of only valid echo options (which is incredibly rare) would not be outputted.
+							printf -v possible_user_password_hint '%b' "$1" # Use "printf '%b'" to interpret any literal backslash-escaped characters in the hint, since "\n" and "\t" are allowed (and others will be rejected below). DO NOT use "echo -e" since any hint starting with a hyphen of only valid "echo" options (which is incredibly rare) would not be outputted.
 
 							if [[ -n "${possible_user_password_hint//[[:space:]]/}" && "${possible_user_password_hint//[[:cntrl:]]/}" == "${possible_user_password_hint//[$'\n\t']/}" ]]; then # Make sure that it's not only whitespace and there are no control characters other than tabs or line breaks.
 								user_password_hint="${possible_user_password_hint}" # No password hint will be set if not specified.
@@ -1040,7 +1040,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				if [[ "${latest_version}" == "${MKUSER_VERSION}" ]]; then
 					echo "Up-to-Date${fallback_version_note}"
 				elif [[ "${latest_version}" =~ ^[${DIGITS}][${DIGITS}.-]*$ ]]; then
-					version_comparison_result="$(OSASCRIPT_ENV_LATEST_VERSION="${latest_version}" OSASCRIPT_ENV_CURRENT_VERSION="${MKUSER_VERSION}" osascript -l JavaScript -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_LATEST_VERSION").compareOptions($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_CURRENT_VERSION"), $.NSNumericSearch)' 2> /dev/null)"
+					version_comparison_result="$(OSASCRIPT_ENV_LATEST_VERSION="${latest_version}" OSASCRIPT_ENV_CURRENT_VERSION="${MKUSER_VERSION}" osascript -l 'JavaScript' -e '$.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_LATEST_VERSION").compareOptions($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_CURRENT_VERSION"), $.NSNumericSearch)' 2> /dev/null)"
 
 					if (( version_comparison_result == 1 )); then
 						echo "Version ${latest_version} is Now Available!${fallback_version_note}"
@@ -1680,7 +1680,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     For more information about this Secure Token prevention tag, visit:
       ${ansi_underline}https://support.apple.com/guide/deployment/dep24dbdcf9e${clear_ansi}
     A Secure Token could still be manually granted to this user after specifying
-      this option on macOS 11 Big Sur and newer with ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi}.
+      this option on macOS 11 Big Sur and newer with ${ansi_bold}sysadminctl -secureTokenOn${clear_ansi},
+      or by an MDM Bootstrap Token when logging in graphically via login window.
     This option has no effect on macOS 10.15 Catalina and older, but there is
       useful information below about first Secure Token behavior all the way
       back to macOS 10.13 High Sierra when Secure Tokens were first introduced.
@@ -1689,6 +1690,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     On Apple Silicon Macs, users that do not have a Secure Token cannot
       be Volume Owners, which means they will not be able to approve
       system updates (among other things).
+    For more information about Volume Ownership on Apple Silicon,
+      visit the Apple Platform Deployment link above.
 
     ${ansi_bold}macOS 11 Big Sur AND NEWER FIRST SECURE TOKEN NOTES:${clear_ansi}
     On macOS 11 Big Sur and newer, the first Secure Token is granted to
@@ -1711,6 +1714,15 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     When users are created with this tag in their AuthenticationAuthority,
       the first user that does not have this special tag will get the first
       Secure Token when their password is set (basically, upon creation).
+    An exception to this behavior is when utilizing MDM along with the
+      MDM-created Managed Administrator, which will not be granted the first
+      Secure Token unless it is the first to login or authenticate (similar to
+      the macOS 10.15 Catalina behavior described below) because this user is
+      created with their password pre-hashed and placed directly into their
+      user record rather than the password being set by \"normal\" methods
+      (if you're familiar with ${ansi_bold}pycreateuserpkg${clear_ansi}, it also pre-hashes the passwords
+      resulting in the users it creates also not being granted the first
+      Secure Token unless they are the first to login or authenticate).
     In general, you will want to make sure the the first user being granted
       a Secure Token is also an administrator so that they are allowed to do all
       possible operations on macOS (especially on T2 and Apple Silicon Macs).
@@ -2046,7 +2058,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Even if one of these users has a password set, they CANNOT
       authenticate \"Terminal\" commands like ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}.
     They also CANNOT authenticate graphical prompts, such as unlocking
-      \"System Preferences\" panes if they are in an administrator.
+      \"System Preferences\" panes if they are an administrator.
     But, if these users are an admin, they CAN run AppleScript ${ansi_bold}do shell script${clear_ansi}
       commands ${ansi_bold}with administrator privileges${clear_ansi}.
 
@@ -2314,7 +2326,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			if [[ -z "${user_account_name}" ]]; then
 				# If something went wrong with the Objective-C conversion via JXA and the result is an empty string, fall back to just stripping the illegal characters from the full name and setting it to lowercase in bash (which will just completely remove any characters with diacritics).
 
-				user_account_name="$(printf '%s' "${user_full_name//[^${A_Z}${a_z}${DIGITS}_.-]/}" | tr '[:upper:]' '[:lower:]')" # Must use "printf '%s'" (instead of "echo") to be able to output a full name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+				user_account_name="$(printf '%s' "${user_full_name//[^${A_Z}${a_z}${DIGITS}_.-]/}" | tr '[:upper:]' '[:lower:]')" # Must use "printf '%s'" (instead of "echo") to be able to output a full name that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 			fi
 
 			# ONLY WHEN converting full name into account name, removing any invalid leading characters ("." and "-").
@@ -2366,7 +2378,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 	if [[ -z "${user_full_name}" ]]; then
 		user_full_name="${user_account_name}" # If no full name specified, use the account name (which will always be a valid full name).
-	elif [[ "$(printf '%s' "${user_full_name}" | tr '[:upper:]' '[:lower:]')" == 'guest' ]]; then # Must use "printf '%s'" (instead of "echo") to be able to output a full name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+	elif [[ "$(printf '%s' "${user_full_name}" | tr '[:upper:]' '[:lower:]')" == 'guest' ]]; then # Must use "printf '%s'" (instead of "echo") to be able to output a full name that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Full name \"${user_full_name}\" is a reserved by macOS."
 		return "${error_code}"
 	fi
@@ -2549,7 +2561,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			fi
 		elif [[ "${user_password}" != '*' ]]; then # No need to check asterisk against actual password content policy.
 			# Enforce the following password max length limit regardless of if the password content policy allows them or not (because of reasons listed in NOTES of the "--password" section of the "--help" information).
-			user_password_byte_length="$(printf '%s' "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+			user_password_byte_length="$(printf '%s' "${user_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 			user_password_byte_length="${user_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 			if $set_auto_login && (( user_password_byte_length > 251 )); then
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot set auto-login while specifying a password over 251 bytes. Specified password is ${user_password_byte_length} bytes long. Choose a shorter password or remove the unusable \"--auto-login\" option. See \"--help\" for more information about this limitation."
@@ -2702,7 +2714,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 
 		IFS='/'
 		for this_user_home_path_folder_name in ${user_home_path}; do
-			if (( $(printf '%s' "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a folder name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+			if (( $(printf '%s' "${this_user_home_path_folder_name}" | wc -c) > 255 )); then # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a folder name that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Some folder name in the specified home folder path is over the macOS maximum of 255 bytes."
 				return "${error_code}"
 
@@ -2904,7 +2916,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# Also, a user_shell of 1023 bytes would not be allowed anyway since it would surpass the combined 1010 byte limit that is checked next.
 	fi
 
-	user_full_name_byte_length="$(printf '%s' "${user_full_name}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a full name that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+	user_full_name_byte_length="$(printf '%s' "${user_full_name}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a full name that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 	user_full_name_byte_length="${user_full_name_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 
 	critical_combined_byte_length_difference="$(( (${#user_account_name} + user_full_name_byte_length + user_shell_byte_length + user_home_path_byte_length) - 1010 ))" # Get the difference right away to only need to do math once since it will be used in the error if the limit is hit.
@@ -2953,8 +2965,8 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 
 	if [[ -n "${user_picture_path}" ]]; then
 		if [[ ! -f "${user_picture_path}" ]]; then
-			# Use "find" to allow user_picture_path to be specified by default user picture filename (with or without the file extension) such as "Earth" or "Penguin.tif" instead of only the full path.
-			possible_user_picture_path="$(find "${default_user_pictures_path}" -type f \( -iname "${user_picture_path}.*" -or -iname "${user_picture_path}" \) 2> /dev/null | head -1)" # Only use first match (just in case, but there should only ever be one match with this search criteria and default picture filenames).
+			# Use "find" to allow "user_picture_path" to be specified by default user picture filename (with or without the file extension) such as "Earth" or "Penguin.tif" instead of only the full path. And, if an extension is specified, we will still search for that filename with any extension since it may have been specified wrong or also because they have all changed from "png" or "tif" to "heic" in macOS 13 Ventura.
+			possible_user_picture_path="$(find "${default_user_pictures_path}" -type f \( -iname "${user_picture_path}" -or -iname "${user_picture_path%.*}.*" \) -print -quit 2> /dev/null)" # Specify "-print -quit" to only output the first match (just in case, but there should only ever be one match with this search criteria and default picture filenames).
 
 			if [[ -f "${possible_user_picture_path}" ]]; then
 				user_picture_path="${possible_user_picture_path}"
@@ -3111,7 +3123,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# I found that piped data is NOT created in the filesystem and exists only as a special "PIPE" type and is NOT a regular file with a node number and path in the filesystem.
 		# Since "echo" is a builtin in bash and zsh and not an external binary command, the "echo" command containing the password as an argument is also never visible in the process list.
 		# Therefore, I am considering echoing and piping to be the most secure way to pass senstive data to other processes.
-		# This is done using "printf '%s' "$2" | ...", to be sure backslashes are never interpreted and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+		# This is done using "printf '%s' "$2" | ...", to be sure backslashes are never interpreted and also be able to output a password that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 		# Then, that stdin is retrieved within JXA using Objective-C methods (similar to how the environment variable is retrieved), which also never reveals the password in the process list.
 		# Since the password is retrieved using Objective-C methods (like the environment variable), it is returned as an NSString object which can never be interpreted as code, and no special characters within it need to be escaped.
 
@@ -3180,7 +3192,7 @@ verifyPasswordResult // Just having "verifyPasswordResult" as the last statement
 
 	if $boot_volume_is_apfs || $make_package; then # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
 		if [[ -n "${st_admin_account_name}" ]]; then
-			st_admin_password_byte_length="$(printf '%s' "${st_admin_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+			st_admin_password_byte_length="$(printf '%s' "${st_admin_password}" | wc -c)" # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
 			st_admin_password_byte_length="${st_admin_password_byte_length// /}" # Remove the leading spaces that "wc -c" includes since this number could be printed in a sentence.
 
 			if [[ "${user_password}" == '*' ]]; then
@@ -3310,7 +3322,7 @@ Check \"--help\" for detailed information about each available option."
 	print_mkuser_function = 0
 }
 print_mkuser_function {
-	if ($0 != "" && $1 != "#") {
+	if ($0 != "" && $1 != "#" && $1 != "//") {
 		if (($1 == "readonly") && ($2 == "IS_PACKAGE=false")) {
 			print "\treadonly IS_PACKAGE=true # CODE MODIFIED FOR PACKAGE INSTALLATION"
 		} else {
@@ -3379,7 +3391,7 @@ print_mkuser_function {
 
 PATH='/usr/bin:/bin:/usr/sbin:/sbin'
 
-script_name="\$(basename "\${BASH_SOURCE[0]}" | tr '[:lower:]' '[:upper:]')" # This script header will be used for both "postinstall" and "preinstall" (if it exists).
+script_name="\$(echo "\${BASH_SOURCE[0]##*/}" | tr '[:lower:]' '[:upper:]')" # This script header will be used for both "postinstall" and "preinstall" (if it exists).
 
 if [[ "\$1" != 'check-only-from-preinstall' ]]; then # Do not log "Starting..." if being run from "preinstall" for check only.
 	echo "mkuser \${script_name} PACKAGE: Starting (version ${MKUSER_VERSION} on macOS \$(sw_vers -productVersion) \$(sw_vers -buildVersion))..."
@@ -3508,9 +3520,11 @@ fi
 PACKAGE_PREINSTALL_EOF
 
 			if [[ "${user_picture_path}" == '/Library/User Pictures/'* || "${user_picture_path}" == '/System/Library/Templates/Data/Library/User Pictures/'* ]]; then
-				# If a default user picture is specified, check if it exists on the target system and use it instead of the copy that is included in the package (which will have been extracted if needed as a fallback in case the same default user picture doesn't exist for some reason).
-				printf -v escaped_user_picture_path '%q' "${user_picture_path#/System/Library/Templates/Data}" # If the "Templates" path is specified (which will be used on macOS 10.15 Catalina and newer), trim it to the regular "/Library/User Pictures" path to be able to check for the file in either the regular path or the "Templates" path to be able to find the correct picture file on any version of macOS.
-				escaped_valid_options_for_package+=( '--picture' "\"\$(pkg_user_picture_path=\"\$([[ -d '/System/Library/Templates/Data/Library/User Pictures' ]] && echo '/System/Library/Templates/Data'${escaped_user_picture_path} ||  echo ${escaped_user_picture_path})\"; [[ -f \"\${pkg_user_picture_path}\" && \"\$(file -bI \"\${pkg_user_picture_path}\" 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' \"\${pkg_user_picture_path}\") <= 1000000 )) && echo \"\${pkg_user_picture_path}\" || echo $(printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
+				# If a default user picture is specified, check if it exists on the target system and use it from there instead of the copy that is included in the package (which will have been extracted if needed as a fallback in case the same default user picture doesn't exist on the target system for some reason).
+				user_picture_name="${user_picture_path##*/}" # Instead of checking for the exact specified picture path on the target system, search for the filename in either possible "User Pictures" location with or without the specified extension since it could exist in either location or with a different extension on the target system since those differ between macOS versions.
+				printf -v escaped_user_picture_name '%q' "${user_picture_name}"
+				printf -v escaped_user_picture_name_without_extension '%q' "${user_picture_name%.*}"
+				escaped_valid_options_for_package+=( '--picture' "\"\$(pkg_user_picture_path=\"\$(find \"\$([[ -d '/System/Library/Templates/Data/Library/User Pictures' ]] && echo '/System/Library/Templates/Data/Library/User Pictures' ||  echo '/Library/User Pictures')\" -type f \( -iname ${escaped_user_picture_name} -or -iname ${escaped_user_picture_name_without_extension}'.*' \) -print -quit 2> /dev/null)\"; [[ -f \"\${pkg_user_picture_path}\" && \"\$(file -bI \"\${pkg_user_picture_path}\" 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' \"\${pkg_user_picture_path}\") <= 1000000 )) && echo \"\${pkg_user_picture_path}\" || echo $(printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
 			else
 				escaped_valid_options_for_package+=( '--picture' "$(printf '%q' "${extracted_resources_dir}/mkuser.picture")" )
 			fi
@@ -3819,23 +3833,19 @@ PACKAGE_POSTINSTALL_EOF
 			# This creates a sort of "wrapped" encryption, but since all of the encryption keys are still included in the results, this is still just complex obfuscation.
 
 
-			# In the future, I may be able to do an even more secure method of saving the encrypted password by generating the ShadowHashData and saving that to be passed to dsimport directly:
-			# https://github.com/puppetlabs/puppet/blob/d567575ba8c5b2c903044b80b0adaab176c8da5d/lib/puppet/provider/user/directoryservice.rb#L597 (https://github.com/puppetlabs/puppet/commit/688779d43c770598ca72c83e14b555f342252150)
-			# https://github.com/puppetlabs/puppet/blob/d567575ba8c5b2c903044b80b0adaab176c8da5d/lib/puppet/provider/user/directoryservice.rb#L540 (https://github.com/puppetlabs/puppet/commit/de14d588679b29394ea37e8c55ac9bd071b51b83)
-				# The main problem with this that the tools are not available by default on macOS (that I know of) to be able to generate the ShadowHashData via bash.
-				# To do this I would need to require users download tools such a newer version of openssl, and up to this point my goal has been to have no dependecies.
-				# Also, including ShadowHashData in dsimport has not been tested to see if it works properly with SEP Macs and that it sets up all other
-				# AuthenticationAuthority values, etc. If auto-login is enabled, I would need to pre-process the kcpassword file and save that in the
-				# package as well instead of generating it on-the-fly since the password would no longer be available during user creation.
-				# This would also mean passwords couldn't be verified. Also, I believe including a kcpassword file would be less secure than the
-				# current password obfuscation method since it is relatively common knowledge and easy to extract a password from a kcpassword file.
-				# ALSO, ANY PASSED SECURE TOKEN ADMIN PASSWORD WOULD STILL NEED TO BE OBFUSCATED WITH THE CURRENT TECHNIQUE.
-
-
 			# User creation via package with passwords deobfuscation:
 				# Tested via "startosinstall --installpackage" on 10.13, 10.14, 10.15, 11
 				# Tested via first boot LaunchDaemon using "installer -pkg" on 10.13, 10.14, 10.15, 11
 				# Tested via "Installer" app in full OS on 10.13, 10.14, 10.15, 11, 12
+
+
+			# NOTE: Other tools like "pycreateuserpkg" pre-hash the ShadowHashData and write it directly to the user record. It appears this would even be possible to do using "dsimport", like Puppet does:
+			# https://github.com/puppetlabs/puppet/blob/d567575ba8c5b2c903044b80b0adaab176c8da5d/lib/puppet/provider/user/directoryservice.rb#L597 (https://github.com/puppetlabs/puppet/commit/688779d43c770598ca72c83e14b555f342252150)
+			# https://github.com/puppetlabs/puppet/blob/d567575ba8c5b2c903044b80b0adaab176c8da5d/lib/puppet/provider/user/directoryservice.rb#L540 (https://github.com/puppetlabs/puppet/commit/de14d588679b29394ea37e8c55ac9bd071b51b83)
+			# BUT, other than the fact that there is no easy built-in way to generate the ShadowHashData with command line tools, doing that technique would result in a big loss of functionality for mkuser.
+			# If mkuser were to pre-hash the ShadowHashData for user creation packages, that process would not have access to the plain text password to be able to verify the password got set correctly, setup auto-login, grant the new user a Secure Token (or create and escrow the Bootstrap Token), etc.
+			# Also, creating a user with a pre-hashed password changes the standard first Secure Token behavior on macOS 11 Big Sur and newer and that user would not be granted the first Secure Token when their password is set and would require a manual authentication to get the first Secure Token (which mkuser would not be able to automate since it wouldn't know the password).
+			# Therefore, mkuser will NEVER utilize pre-hashed ShadowHashData and will instead rely on this custom secure obfuscation to protect the password within the package so the process has access to the plain text for these advanced features while still only ever using the password in ways that never reveal it in the process list or write it to the filesystem.
 
 
 			if ! $suppress_status_messages; then
@@ -3930,9 +3940,9 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 
 			mkuser_obfuscate_string() {
 				# From: https://stackoverflow.com/questions/14612235/protecting-an-applescript-script/14616010#14616010
-				# I'm not sure how to shift strings like this using bash. It is possible to get the integer or hex of the
-				# character as is done in the kcpassword code, but if I add such a huge number to that and try to convert
-				# it back to a character, the encoding is wrong and does not get rendered as the proper single character.
+				# I'm not sure how to shift strings like this using bash. It is possible to get the integer or hex of the character,
+				# but if I add such a huge number to that and try to convert it back to a character,
+				# the encoding is wrong and does not get rendered as the proper single character.
 
 				# The "$1" argument is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
 				# The fact that multibyte characters would get mangled when in an environment variable retrieved by AppleScript with "system attribute" should not be an issue since they will never be in these strings.
@@ -4202,7 +4212,7 @@ PACKAGE_PREINSTALL_EOF
 		fi
 
 		if [[ "$(echo "${pkg_path}" | tr '[:upper:]' '[:lower:]')" == *'.pkg' ]]; then
-			package_tmp_output_path="${package_tmp_dir}/$(basename "${pkg_path}")"
+			package_tmp_output_path="${package_tmp_dir}/${pkg_path##*/}"
 		else
 			default_package_name="${pkg_identifier}-${pkg_version}.pkg"
 			if (( ${#default_package_name} > 255 )); then
@@ -4299,8 +4309,11 @@ PACKAGE_PREINSTALL_EOF
 		if $set_no_picture; then
 			pkg_overview_picture_display='\i [NO PICTURE]\i0 ';
 		elif [[ -n "${user_picture_path}" ]]; then
-			# Only show the picture basename since the picture will actually be stored within the package.
-			pkg_overview_picture_display="$(echo $'\nMKUSER RTF\n'"$(basename "${user_picture_path}")" | textutil -convert rtf -stdin -stdout | awk "${awk_commands_to_extract_rtf_string}")";
+			user_picture_display_name="${user_picture_path##*/}" # Only show the picture name since the picture will actually be stored within the package.
+			if [[ "${user_picture_path}" == '/Library/User Pictures/'* || "${user_picture_path}" == '/System/Library/Templates/Data/Library/User Pictures/'* ]]; then
+				user_picture_display_name="${user_picture_display_name%.*}" # Also remove the extension if a default pictures is specified since extensions may be different between macOS versions.
+			fi
+			pkg_overview_picture_display="$(echo $'\nMKUSER RTF\n'"${user_picture_display_name}" | textutil -convert rtf -stdin -stdout | awk "${awk_commands_to_extract_rtf_string}")";
 			pkg_overview_picture_display="${pkg_overview_picture_display:0:${#pkg_overview_picture_display}-1}"
 		fi
 
@@ -4317,6 +4330,17 @@ PACKAGE_PREINSTALL_EOF
 
 		package_distribution_xml_header="$(head -2 "${package_distribution_xml_output_path}")"
 		package_distribution_xml_footer="$(tail +3 "${package_distribution_xml_output_path}")"
+
+		# Make sure this package is marked as Universal (to run without needing Rosetta on Apple Silicon) no matter what version of macOS it's being created on.
+		package_distribution_host_architectures_attribute_before="$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)"
+		if ! [[ "${package_distribution_host_architectures_attribute_before}" =~ arm64[,\"] ]]; then
+			if [[ "${package_distribution_host_architectures_attribute_before}" == *'hostArchitectures='* ]]; then # I'm not sure that it's actually possible for the "hostArchitectures" attribute to be set by any version of macOS when it wouldn't have already added arm64 to it as an option (it just doesn't exist by default on macOS 10.15 Catalina and older), but check for and add to an existing attribute anyways.
+				package_distribution_xml_footer="${package_distribution_xml_footer//hostArchitectures=\"/hostArchitectures=\"arm64,}" # There should only be one "hostArchitectures" arribute, but update them all just in case.
+			else # On macOS 10.15 Catalina and older, the "hostArchitectures" attribute will not be set at all and that will make Apple Silicon Macs think this package needs Rosetta when it really doesn't.
+				# This is adding "hostArchitectures" as the first specified attribute instead of the last (as newer versions of macOS do), but the order of XML attributes within a tag doesn't matter.
+				package_distribution_xml_footer="${package_distribution_xml_footer//<options /<options hostArchitectures=\"x86_64,arm64\" }" # There should only be one "options" tag, but update them all just in case.
+			fi
+		fi
 
 		cat << CUSTOM_DISTRIBUTION_XML_EOF > "${package_distribution_xml_output_path}"
 ${package_distribution_xml_header}
@@ -4404,6 +4428,13 @@ CUSTOM_DISTRIBUTION_XML_EOF
 		# But, definitely not worth including it since it broke installation via "startosinstall --installpackage"!
 		# So, DO NOT use any Installer JS without thorough testing with "startosinstall --installpackage" since I'm not sure if this was an issue with just that macOS version check,
 		# or with all Installer JS (https://developer.apple.com/documentation/installer_js) since I didn't bother doing any more testing once "startosinstall --installpackage" worked after removing that code.
+
+		package_distribution_host_architectures_attribute_after="$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)"
+		if ! [[ "${package_distribution_host_architectures_attribute_after}" =~ arm64[,\"] ]]; then # Make sure the updated "distribution.xml" file is marked as Universal (in case the manual edits above failed somehow).
+			rm -rf "${package_tmp_dir}"
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Failed to mark user creation package as Universal to be able to run on Apple Silicon Macs without requiring Rosetta (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+			return "${error_code}"
+		fi
 
 		rm -f "${pkg_path}"
 
@@ -4657,8 +4688,9 @@ uid: ${this_signed_32_bit_integer}" # Add these missing AD users to the dscacheu
 		if [[ -f "${this_dot_user_plist}" ]]; then
 			mkuser_convert_to_signed_32_bit_integer "$(PlistBuddy -c 'Print :uid:0' "${this_dot_user_plist}" 2> /dev/null)"
 
+			this_dot_user_file_name="${this_dot_user_plist##*/}"
 			dscacheutil_users+="
-name: $(basename "${this_dot_user_plist}" '.plist')
+name: ${this_dot_user_file_name%.*}
 uid: ${this_signed_32_bit_integer}" # Add these missing dot users to the dscacheutil_users output so that the user name can always be displayed when the UID is already taken.
 
 			all_assigned_uids+=$'\n'"${this_signed_32_bit_integer}"
@@ -4785,8 +4817,9 @@ gid: ${this_signed_32_bit_integer}" # Add these missing AD groups to the dscache
 		if [[ -f "${this_dot_group_plist}" ]]; then
 			mkuser_convert_to_signed_32_bit_integer "$(PlistBuddy -c 'Print :gid:0' "${this_dot_group_plist}" 2> /dev/null)"
 
+			this_dot_group_file_name="${this_dot_group_plist##*/}"
 			dscacheutil_groups+="
-name: $(basename "${this_dot_group_plist}" '.plist')
+name: ${this_dot_group_file_name%.*}
 gid: ${this_signed_32_bit_integer}" # Add these missing dot groups to the dscacheutil_groups output so that the group name can always be found in the "--check-only" output.
 
 			all_assigned_gids+=$'\n'"${this_signed_32_bit_integer}"
@@ -4863,6 +4896,13 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 	fi
 
 	if $check_only; then
+		# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
+		check_settings_user_gid_name="$(echo "${dscacheutil_groups}" | AWK_ENV_USER_GID="${user_gid:-20}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "gid" && $2 == ENVIRON["AWK_ENV_USER_GID"]) { print this_name }' | sort -u)"
+		check_settings_user_gid_name="${check_settings_user_gid_name//$'\n'/, }" # If somehow it's taken by multiple users, show them all separated by commas.
+		# DO NOT use "dscl /Search -search /Groups PrimaryGroupID" since those GIDs are not guaranteed to be in the signed 32-bit integer range.
+		# CAN'T use "dscacheutil -q group -a gid" since it doesn't accept negative GIDs as parameters, so must "grep" all of "dscacheutil -q group" output instead.
+		# And, dscacheutil_groups is already loaded above AND any possible missing AD and dot groups are also also added to the output so that this check will be the most accurate and complete possible.
+
 		check_settings_password_display='*PASSWORD HIDDEN*'
 		if [[ "${user_password}" == '*' ]]; then
 			check_settings_password_display='[NO PASSWORD]';
@@ -4870,12 +4910,12 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 			check_settings_password_display='[BLANK/EMPTY PASSWORD]';
 		fi
 
-		# When using bash variables in "awk", set a command specific environment variable and then retrieve it in "awk" using "ENVIRON" array because any other technique would cause "awk" to incorrectly interpret backslash characters instead of treating them literally (even though this particular variable should never have backslashes).
-		check_settings_user_gid_name="$(echo "${dscacheutil_groups}" | AWK_ENV_USER_GID="${user_gid:-20}" awk -F ': ' '($1 == "name") { this_name = $2 } ($1 == "gid" && $2 == ENVIRON["AWK_ENV_USER_GID"]) { print this_name }' | sort -u)"
-		check_settings_user_gid_name="${check_settings_user_gid_name//$'\n'/, }" # If somehow it's taken by multiple users, show them all separated by commas.
-		# DO NOT use "dscl /Search -search /Groups PrimaryGroupID" since those GIDs are not guaranteed to be in the signed 32-bit integer range.
-		# CAN'T use "dscacheutil -q group -a gid" since it doesn't accept negative GIDs as parameters, so must "grep" all of "dscacheutil -q group" output instead.
-		# And, dscacheutil_groups is already loaded above AND any possible missing AD and dot groups are also also added to the output so that this check will be the most accurate and complete possible.
+		check_settings_picture_display='[RANDOM PICTURE ASSIGNED DURING CREATION]'
+		if $set_no_picture; then
+			check_settings_picture_display='[NO PICTURE]';
+		elif [[ -n "${user_picture_path}" ]]; then
+			check_settings_picture_display="${user_picture_path#/System/Library/Templates/Data}"
+		fi
 
 		check_settings_output="
 PRIMARY SETTINGS
@@ -4898,7 +4938,7 @@ Do Not Share Public Folder: ${do_not_share_public_folder}
 Do Not Create Home Folder: ${do_not_create_home_folder}
 
 PICTURE SETTINGS
-Picture: $($set_no_picture && echo '[NO PICTURE]' || echo "${user_picture_path:-[RANDOM PICTURE ASSIGNED DURING CREATION]}")
+Picture: ${check_settings_picture_display}
 Prohibit User Picture Changes: ${set_prohibit_user_picture_changes}
 
 ACCOUNT TYPE SETTINGS
@@ -5004,7 +5044,7 @@ Check \"--help\" for detailed information about each available option."
 	if ! $set_no_picture; then
 		chose_random_user_picture=false
 		if [[ -z "${user_picture_path}" ]]; then # If user_picture_path was not set (and not explicitly set to no picture) then, choose a random picture like "sysadminctl -addUser" and System Preferences does.
-			user_picture_path="$(find "${default_user_pictures_path}" -type f \( -iname '*.tif' -or -iname '*.png' \) | sort -R | head -1)"
+			user_picture_path="$(find "${default_user_pictures_path}" -type f \( -iname '*.tif' -or -iname '*.png' -or -iname '*.heic' \) | sort -R | head -1)" # As of macOS 13 Ventura beta 3 all default user pictures are "heic" instead of "tif" or "png" like on older versions of macOS (so check for all possible extensions).
 			chose_random_user_picture=true
 		fi
 
@@ -5130,7 +5170,7 @@ Check \"--help\" for detailed information about each available option."
 	unset IFS
 
 	dsimport_file_unique_suffix="$(date '+%s')-$(jot -r 1 100000000 999999999)"
-	dsimport_output_plist_path="${TMPDIR:-/private/tmp/}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # TMPDIR is not set when running in "sudo bash". Ensure a unique file name that includes as much of the user_account_name as possible without going over the macOS 255 byte maximum.
+	dsimport_output_plist_path="${TMPDIR:-/private/tmp/}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # TMPDIR is not set when running in "sudo bash". Ensure a unique filename that includes as much of the "user_account_name" as possible without going over the macOS 255 byte maximum.
 	rm -rf "${dsimport_output_plist_path}" # "dsimport" would probably overwrite the file if it already exist, but delete it to be sure.
 
 	# "dsimport" can only load a user record that is an actual file that exists in the filesystem (ie. the record data CANNOT be piped since that only exists in memory).
@@ -5978,105 +6018,128 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			echo "mkuser: Setting ${user_full_and_account_name_display} user to automatically login..."
 		fi
 
-		## THE FOLLOWING KCPASSWORD ENCODING AND DECODING CODE IS BASED ON https://github.com/brunerd/macAdminTools/blob/main/Scripts/setAutoLogin.sh & https://github.com/brunerd/macAdminTools/blob/main/Scripts/getAutoLogin.sh
-		## Copyright (c) 2021 Joel Bruner
-		## Licensed under the MIT License (The full MIT License text can be referenced at the top of the "mkuser" function.)
-
-		# At this point, this kcpassword code is basically an adaptation of https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/ since I found that the "xxd" method used in that code
-		# handles multibyte characters propery while printf's ord/chr equivalents that I was originally using do not (https://unix.stackexchange.com/questions/92447/bash-script-to-get-ascii-values-for-alphabet/92448#92448).
-
-		# I originally wrote a direct port of the Python kcpassword creation code from pycreateuserpkg (which used the flawed printf ord/chr technique): https://github.com/gregneagle/pycreateuserpkg/blob/main/locallibs/kcpassword.py
-		# Which is based on this Python code by Tom Taylor: https://github.com/timsutton/osx-vm-templates/blob/master/scripts/support/set_kcpassword.py
-		# Which is a port of the oldest known kcpassword Perl code by Gavin Brock: https://web.archive.org/web/20180408062145/http://www.brock-family.org/gavin/perl/kcpassword.html
-		# After I wrote my own port, I found another bash port of the original Perl code by Erik Berglund (which also used the flawed printf ord/chr technique): https://github.com/erikberglund/Scripts/blob/master/installer/installerCreateUser/installerCreateUser#L428
-		# And then, even longer after I wrote my own port, Joel Brunerd released this bash code for kcpassword creation which uses a different "xxd" technique instead of printf ord/chr: https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/
-
-		# At first, I started incorporating some useful techniques from Joel Brunerd's code (as well as Erik Berglund's bash port), but stuck to using the printf ord/chr technique for converting Unicode characters.
-		# Then, I discovered that the printf ord/chr technique fails on multibyte characters (such as diacritics or Japanese, for example) and I found that the "xxd" technique for converting multibyte characters to hex and back worked properly.
-		# So, I reworked this code to use the "xxd" technique and that is why I now consider this code to basically be an adaptation of Joel Brunerd's code rather than a port of the Python code I started with.
-		# This code also includes other changes and comments based on my own research.
-
-		declare -a cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special kcpassword repeating cipher hex characters.
+		# Both the "cipher_key" and "cipher_key_length" variable must be set for all versions of macOS since they both are needed to decode and verify the "kcpassword" file contents.
+		declare -a cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special "kcpassword" repeating cipher hex characters.
 		cipher_key_length="${#cipher_key[@]}"
 
-		password_hex_string="$(printf '%s' "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (separated by line breaks via "-c 1"). Must pipe to "xxd" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid echo option chars (which is very unlikely, but still possible).
+		if (( darwin_major_version >= 22 )); then
+			# On macOS 13 Ventura (at least since beta 3, not sure if it was added earlier but it probably was), "sysadminctl" has a new "-autologin" option to be able to easily setup auto-login without having to manually create the "kcpassword" file like it done below.
+			# The way that auto-login is configured on macOS 13 Ventura appears to be idential though with the same exact "kcpassword" obfuscation and setting the "autoLoginUser" key in the "/Library/Preferences/com.apple.loginwindow" preferences.
+			# So, mkuser will still verify the "kcpassword" contents by decoding them and confirm that "autoLoginUser" was set correctly, but we'll let "sysadminctl -autologin set" do the actual setup.
 
-		encoded_password_hex_string=''
-		declare -i this_password_hex_char_index=0
-		IFS=$'\n' # Only loop on line breaks, this is not required since default IFS would work, but I like to be specific.
-		for this_password_hex_char in ${password_hex_string}; do
-			# Do the kcpassword encoding by XORing each password hex character with a cipher hex character (and keep looping through the cipher hex characters in order)
-			# which will return the integer representation from $(( 0x## ^ 0x## )) and then use printf '%02x' to convert the XORed integer to its hex character.
-			encoded_password_hex_string+="$(printf '%02x' "$(( 0x${this_password_hex_char} ^ 0x${cipher_key[this_password_hex_char_index % cipher_key_length]} ))") "
-			this_password_hex_char_index+=1
-			# Using modulo for the cipher_key index will loop through the cipher_key characters, which is more like what is done in this other bash code rather than the Python code:
-			# https://github.com/erikberglund/Scripts/blob/ac60be1e1284dc8cbb6d7a484ee8e3ad9c71b19a/installer/installerCreateUser/installerCreateUser#L436
-			# https://gist.github.com/brunerd/d60343434a8a5121db423bf21025ea66#file-kcpasswordencode-sh-L40
-		done
-		unset IFS
+			# Must use "printf '%s'" (instead of "echo") to be able to output a password that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
+			set_auto_login_output="$(printf '%s' "${user_password}" | sysadminctl -autologin set -userName "${user_account_name}" -password - 2>&1)"
 
-		# Other kcpassword code has padded the encoded password to be even multiples of either 11 (cipher_key_length) or 12 (cipher_key_length + 1) using extra cipher characters as padding,
-		# but through testing on macOS 10.13 High Sierra through macOS 11 Big Sur, I have found that this is not necessary. What *is* necessary is adding a *single* terminating cipher character.
-		# For blank/empty passwords the kcpassword file cannot be empty, but the first cipher character is all that is necessary on macOS 10.13 High Sierra through macOS 11 Big Sur (which are the only versions of macOS I tested).
-		# Other than that, a single terminating cipher character is required for a few other encoded password lengths, and the pattern of when it's required and when it isn't doesn't make perfect sense to me.
-		# I did testing with 0 character (blank/empty), 4 character, 10 character, 11 character, 12 character, and 13 character passwords.
-		# Unless otherwise noted, the encoded passwords (except blank/empty) worked for auto-login with both no terminating cipher padding and any amount of terminating cipher padding.
-		# You'll notice there are no exceptions for macOS 11 Big Sur since all (except blank/empty) encoded passwords worked on there for auto-login with both no terminating cipher padding and any amount of terminating cipher padding.
-		# Here are the exceptions (other than blank/empty passwords needing the first cipher character on all tested versions of macOS):
-			# macOS 10.13 High Sierra: 13 character password with no terminating cipher padding failed to auto-login, adding 1 character of terminating cipher padding made it work.
-			# macOS 10.14 Mojave: 11 and 12 character passwords with no terminating cipher padding failed to auto-login, adding 1 character of terminating cipher padding made them work.
-			# macOS 10.15 Catalina: 4 and 13 character passwords with no terminating cipher padding failed to auto-login, adding 1 character of terminating cipher padding made them work.
-		# I believe the behavior that's described in this issue (https://github.com/gregneagle/pycreateuserpkg/pull/31) on macOS 10.14 Mojave did not actually have to do with the block/chunk size of
-		# the encoded password, but with those lengths not getting at least a single terminating cipher character. The fix worked, but added more terminating cipher padding than was actually necessary.
-		# This research is further described in https://macadmins.slack.com/archives/C07MGJ2SD/p1631232311335200?thread_ts=1630698463.194700&cid=C07MGJ2SD
+			set_auto_login_exit_code="$?"
 
-		# Since a single terminating cipher character is critical in some cases, it will always be added for all password lengths since it does not hurt and auto-login still works on all versions of macOS and appears to be what macOS always does as well.
-		# Always adding a single terminating cipher character also means that we do not need to have any special case for blank/empty passwords (https://github.com/gregneagle/pycreateuserpkg/pull/27)
-		# since a zero length password will still get a single terminating cipher character which will be the first cipher character, which works for blank/empty passwords on all tested versions of macOS.
+			if (( set_auto_login_exit_code != 0 )) || [[ -n "${set_auto_login_output}" || "$(sysadminctl -autologin status 2>&1)" != *"] Automatic login user: ${user_account_name}" ]]; then
+				if [[ -n "${set_auto_login_output}" ]]; then echo "${set_auto_login_output}" | grep -F 'sysadminctl[' >&2; fi # If there was an error, show the "sysadminctl" output lines since they may be informative.
+				sysadminctl -autologin status >&2 # If there was an error, show the auto-login status from "sysadminctl" since it may be informative.
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to setup auto-login using the \"sysadminctl -autologin set\" command."
+				return "${error_code}"
+			fi
+		else # On macOS 12 Monterey and older, we need to obfuscate and encode the password into the "kcpassword" file manually.
+			## THE FOLLOWING KCPASSWORD ENCODING AND DECODING CODE IS BASED ON https://github.com/brunerd/macAdminTools/blob/main/Scripts/setAutoLogin.sh & https://github.com/brunerd/macAdminTools/blob/main/Scripts/getAutoLogin.sh
+			## Copyright (c) 2021 Joel Bruner
+			## Licensed under the MIT License (The full MIT License text can be referenced at the top of the "mkuser" function.)
 
-		encoded_password_hex_string+="${cipher_key[this_password_hex_char_index % cipher_key_length]}" # Add the next cipher character as termination (as described above).
+			# At this point, this "kcpassword" code is basically an adaptation of https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/ since I found that the "xxd" method used in that code
+			# handles multibyte characters propery while printf's ord/chr equivalents that I was originally using do not (https://unix.stackexchange.com/questions/92447/bash-script-to-get-ascii-values-for-alphabet/92448#92448).
 
-		encoded_password="$(echo "${encoded_password_hex_string}" | xxd -r -p)" # Convert the encoded hex string back to Unicode characters. Do not need "echo -n" since whitespace (such as a trailing line break) are ignored when converting hex.
+			# I originally wrote a direct port of the Python "kcpassword" creation code from "pycreateuserpkg" (which used the flawed printf ord/chr technique): https://github.com/gregneagle/pycreateuserpkg/blob/main/locallibs/kcpassword.py
+			# Which is based on this Python code by Tom Taylor: https://github.com/timsutton/osx-vm-templates/blob/master/scripts/support/set_kcpassword.py
+			# Which is a port of the oldest known "kcpassword" Perl code by Gavin Brock: https://web.archive.org/web/20180408062145/http://www.brock-family.org/gavin/perl/kcpassword.html
+			# After I wrote my own port, I found another bash port of the original Perl code by Erik Berglund (which also used the flawed printf ord/chr technique): https://github.com/erikberglund/Scripts/blob/master/installer/installerCreateUser/installerCreateUser#L428
+			# And then, even longer after I wrote my own port, Joel Bruner released this bash code for "kcpassword" creation which uses a different "xxd" technique instead of printf ord/chr: https://www.brunerd.com/blog/2021/08/24/automating-automatic-login-for-macos/
 
-		if [[ -z "${encoded_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to encode password for auto-login."
-			return "${error_code}"
+			# At first, I started incorporating some useful techniques from Joel Bruner's code (as well as Erik Berglund's bash port), but stuck to using the printf ord/chr technique for converting Unicode characters.
+			# Then, I discovered that the printf ord/chr technique fails on multibyte characters (such as diacritics or Japanese, for example) and I found that the "xxd" technique for converting multibyte characters to hex and back worked properly.
+			# So, I reworked this code to use the "xxd" technique and that is why I now consider this code to basically be an adaptation of Joel Bruner's code rather than a port of the Python code I started with.
+			# This code also includes other changes and comments based on my own research.
+
+			password_hex_string="$(printf '%s' "${user_password}" | xxd -c 1 -p)" # Convert each Unicode character of the password to their hex represention (separated by line breaks via "-c 1"). Must pipe to "xxd" with "printf '%s'" to not include a trailing line break character and also be able to output a password that starts with a hyphen and only contains valid "echo" option chars (which is very unlikely, but still possible).
+
+			encoded_password_hex_string=''
+			declare -i this_password_hex_char_index=0
+			IFS=$'\n' # Only loop on line breaks, this is not required since default IFS would work, but I like to be specific.
+			for this_password_hex_char in ${password_hex_string}; do
+				# Do the "kcpassword" encoding by XORing each password hex character with a cipher hex character (and keep looping through the cipher hex characters in order)
+				# which will return the integer representation from $(( 0x## ^ 0x## )) and then use printf '%02x' to convert the XORed integer to its hex character.
+				printf -v this_encoded_password_hex_char '%02x' "$(( 0x${this_password_hex_char} ^ 0x${cipher_key[this_password_hex_char_index % cipher_key_length]} ))"
+				encoded_password_hex_string+="${this_encoded_password_hex_char} "
+				this_password_hex_char_index+=1
+				# Using modulo for the cipher_key index will loop through the cipher_key characters, which is more like what is done in this other bash code rather than the Python code:
+				# https://github.com/erikberglund/Scripts/blob/ac60be1e1284dc8cbb6d7a484ee8e3ad9c71b19a/installer/installerCreateUser/installerCreateUser#L436
+				# https://gist.github.com/brunerd/d60343434a8a5121db423bf21025ea66#file-kcpasswordencode-sh-L40
+			done
+			unset IFS
+
+			# Other "kcpassword" code has padded the encoded password to be even multiples of either 11 (cipher_key_length) or 12 (cipher_key_length + 1) using extra cipher characters as padding,
+			# but through testing on macOS 10.13 High Sierra through macOS 11 Big Sur, I have found that this is not necessary. What *is* necessary is adding a *single* terminating cipher character.
+			# For blank/empty passwords the "kcpassword" file cannot be empty, but the first cipher character is all that is necessary on macOS 10.13 High Sierra through macOS 11 Big Sur (which are the only versions of macOS I tested).
+			# Other than that, a single terminating cipher character is required for a few other encoded password lengths, and the pattern of when it's required and when it isn't doesn't make perfect sense to me.
+			# I did testing with 0 character (blank/empty), 4 character, 10 character, 11 character, 12 character, and 13 character passwords.
+			# Unless otherwise noted, the encoded passwords (except blank/empty) worked for auto-login with both no terminating cipher padding and any amount of terminating cipher padding.
+			# You'll notice there are no exceptions for macOS 11 Big Sur since all (except blank/empty) encoded passwords worked on there for auto-login with both no terminating cipher padding and any amount of terminating cipher padding.
+			# Here are the exceptions (other than blank/empty passwords needing the first cipher character on all tested versions of macOS):
+				# macOS 10.13 High Sierra: 13 character password with no terminating cipher padding failed to auto-login, adding 1 character of terminating cipher padding made it work.
+				# macOS 10.14 Mojave: 11 and 12 character passwords with no terminating cipher padding failed to auto-login, adding 1 character of terminating cipher padding made them work.
+				# macOS 10.15 Catalina: 4 and 13 character passwords with no terminating cipher padding failed to auto-login, adding 1 character of terminating cipher padding made them work.
+			# I believe the behavior that's described in this issue (https://github.com/gregneagle/pycreateuserpkg/pull/31) on macOS 10.14 Mojave did not actually have to do with the block/chunk size of
+			# the encoded password, but with those lengths not getting at least a single terminating cipher character. The fix worked, but added more terminating cipher padding than was actually necessary.
+			# This research is further described in https://macadmins.slack.com/archives/C07MGJ2SD/p1631232311335200?thread_ts=1630698463.194700&cid=C07MGJ2SD
+
+			# Since a single terminating cipher character is critical in some cases, it will always be added for all password lengths since it does not hurt and auto-login still works on all versions of macOS and appears to be what macOS always does as well.
+			# Always adding a single terminating cipher character also means that we do not need to have any special case for blank/empty passwords (https://github.com/gregneagle/pycreateuserpkg/pull/27)
+			# since a zero length password will still get a single terminating cipher character which will be the first cipher character, which works for blank/empty passwords on all tested versions of macOS.
+
+			encoded_password_hex_string+="${cipher_key[this_password_hex_char_index % cipher_key_length]}" # Add the next cipher character as termination (as described above).
+
+			rm -rf '/private/etc/kcpassword'
+
+			touch '/private/etc/kcpassword' # Create "kcpassword" before writing to it to make sure
+			chown 0:0 '/private/etc/kcpassword' # this file is properly owned by root:wheel and set
+			chmod 600 '/private/etc/kcpassword' # permissions for other users to have No Access, like macOS does when it creates this file.
+			# Setting ownership and permissions BEFORE writing the contents is important since the file will contain an easily decipherable version of the password.
+
+			echo "${encoded_password_hex_string}" | xxd -r -p > '/private/etc/kcpassword' # Convert the encoded hex string back to Unicode characters. Do not need "echo -n" since whitespace (such as a trailing line break) are ignored when converting hex.
+			# IMPORTANT: Must write the "xxd" output directly to the "kcpassword" file since it may contain NULL characters and if it's first set to a variable, those NULL characters would be lost by the shell when trying to "echo" or "printf" the actual value:
+			# https://github.com/brunerd/macAdminTools/issues/2 & https://github.com/brunerd/macAdminTools/commit/ddf6df30f30a5a583ef6955e73bd3702a3f7453e
+
+			if [[ ! -f '/private/etc/kcpassword' ]] || ! encoded_password_length="$(wc -c '/private/etc/kcpassword' 2> /dev/null | awk '{ print $1; exit }')" || (( encoded_password_length == 0 )); then  # Use "wc -c" to properly count bytes instead of characters.
+				rm -rf '/private/etc/kcpassword'
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to obfuscate/encode password into the \"kcpassword\" file for auto-login."
+				return "${error_code}"
+			fi
+
+			# Although, when enabling auto-login through System Preferences, the encoded password *is* padded out to multiples of 12 (cipher_key_length + 1) bytes (not characters) *after* always adding a single terminating cipher character.
+			# But, unlike other code that repeats the cipher characters as padding, macOS includes random data as the padding out to multiples of 12 bytes (after including a single terminating cipher character).
+			# If the encoded password is already a multiple of 12 bytes *after* a single terminating cipher character has been added, no random data is needed or added by the following code or by macOS (but that means, for example, that the same 11 character password will always be encoded identically).
+			# This behavior is noted in the earliest known documented decoding of the "kcpassword" file: "Interestingly OS-X writes the file in multiples of 12 bytes. Any excess seems to be random data." (https://web.archive.org/web/20180408062145/http://www.brock-family.org/gavin/perl/kcpassword.html)
+			# Since only a single terminating cipher character is actually required, this random data padding seems to be intentional obfuscation (maybe to hide the actual length of most encoded passwords and maybe also so each encoded password is usually unique even for most identical passwords).
+			# This extra obfuscation isn't required for auto-login to work and doesn't really add any valuable security/obfuscation since it's so easy to decode "kcpassword" contents: https://tinyapps.org/blog/201709070700_kcpassword.html & https://www.brunerd.com/blog/2021/09/16/decoding-macos-automatic-login-details/
+			# But, since the goal is to match the behavior of macOS as closely as possible, add this random data out to multiples of 12 bytes anyway after adding a single terminating cipher character.
+			# I don't think this random data needs to be XORed with the cipher characters since it's just gibberish either way.
+
+			encoded_password_random_data_padding_multiples="$(( cipher_key_length + 1 ))"
+			if (( (encoded_password_length % encoded_password_random_data_padding_multiples) != 0 )); then
+				head -c "$(( encoded_password_random_data_padding_multiples - (encoded_password_length % encoded_password_random_data_padding_multiples) ))" /dev/urandom >> '/private/etc/kcpassword'
+			fi
 		fi
 
-		# Although, when enabling auto-login through System Preferences, the encoded password *is* padded out to multiples of 12 (cipher_key_length + 1) bytes (not characters) *after* always adding a single terminating cipher character.
-		# But, unlike other code that repeats the cipher characters as padding, macOS includes random data as the padding out to multiples of 12 bytes (after including a single terminating cipher character).
-		# If the encoded password is already a multiple of 12 bytes *after* a single terminating cipher character has been added, no random data is needed or added by the following code or by macOS (but that means, for example, that the same 11 character password will always be encoded identically).
-		# This behavior is noted in the earliest known documented decoding of the kcpassword file: "Interestingly OS-X writes the file in multiples of 12 bytes. Any excess seems to be random data." (https://web.archive.org/web/20180408062145/http://www.brock-family.org/gavin/perl/kcpassword.html)
-		# Since only a single terminating cipher character is actually required, this random data padding seems to be intentional obfuscation (maybe to hide the actual length of most encoded passwords and maybe also so each encoded password is usually unique even for most identical passwords).
-		# This extra obfuscation isn't required for auto-login to work and doesn't really add any valuable security/obfuscation since it's so easy to decode kcpassword contents: https://tinyapps.org/blog/201709070700_kcpassword.html & https://www.brunerd.com/blog/2021/09/16/decoding-macos-automatic-login-details/
-		# But, since the goal is to match the behavior of macOS as closely as possible, add this random data out to multiples of 12 bytes anyway after adding a single terminating cipher character.
-		# I don't think this random data needs to be XORed with the cipher characters since it's just gibberish either way.
+		# VERIFY THAT THE KCPASSWORD CONTENTS DECODE CORRECTLY (even if it was set by the new "sysadminctl -autologin set" command in macOS 13 Ventura)
 
-		encoded_password_random_data_padding_multiples="$(( cipher_key_length + 1 ))"
-		until (( ($(printf '%s' "${encoded_password}" | wc -c) % encoded_password_random_data_padding_multiples) == 0 )); do # Use "wc -c" to properly count bytes instead of characters. And must pipe to "wc" with "printf '%s'" to not include a trailing line break character and also be able to output an encoded password that starts with a hyphen and only contains valid echo option chars (which probably isn't actually possible with the encoded characters, but doesn't hurt to use printf anyway).
-			# Adding the random data bytes in a loop even though the following command *should* add them all at once, but it sometimes ends up with 1 too few bytes than specified and I'm not exactly sure why.
-			# Maybe NUL characters or other special characters confuse "head -c"? But, adding the random bytes in a loop until the byte count is correct seems to work reliably.
-			# Doing it this way rather than adding 1 byte at a time in this loop means fewer passes through the loop (usually just 1 loop pass will be needed) and when 1 too few bytes are returned in the first pass, it'll be fixed in the second pass with the same code.
-			encoded_password+="$(head -c "$(( encoded_password_random_data_padding_multiples - ($(printf '%s' "${encoded_password}" | wc -c) % encoded_password_random_data_padding_multiples) ))" /dev/urandom)"
-		done
-
-		rm -rf '/private/etc/kcpassword'
-
-		touch '/private/etc/kcpassword' # Create kcpassword before writing to it to make sure
-		chown 0:0 '/private/etc/kcpassword' # this file is properly owned by root:wheel and set
-		chmod 600 '/private/etc/kcpassword' # permissions for other users to have No Access, like macOS does when it creates this file.
-		# Setting ownership and permissions BEFORE writing the contents is important since the file will contain an easily decipherable version of the password.
-
-		printf '%s' "${encoded_password}" > '/private/etc/kcpassword'
-
-		if [[ ! -f '/private/etc/kcpassword' || "$(cat /private/etc/kcpassword)" != "${encoded_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to create kcpassword file for auto-login."
-			return "${error_code}"
+		if [[ "$(file -b '/private/etc/kcpassword' 2> /dev/null)" == 'ASCII text'* ]]; then
+			# If the "kcpassword" file is encoded as ASCII hex characters instead of binary data as at least macOS 13 Ventura beta 3 (and maybe older, but not beta 4) did,
+			# still support decoding the contents by converting it to binary and then back to hex in the exact format we are expecting.
+			# Doing it this way makes it so that it doesn't matter if the original hex used capitals or lowercase or had each couplet separated by spaces or not, it will all end up as newline separated couplets with only lowercase characters.
+			# Interestingly, even though the "kcpassword" file has always been encoded as binary data (except for on macOS 13 Ventura beta 3 when using the new "sysadminctl -autologin set" command),
+			# auto-login has worked with "kcpassword" files that just contained the ASCII hex characters all the way back to OS X 10.10 Yosemite (but not any older, tested and confirmed by Joel Bruner).
+			encoded_password_hex_string="$(xxd -r -p '/private/etc/kcpassword' | xxd -c 1 -p)"
+		else # For "kcpassword" contents that are binary data, it is possible that "file -b" could interpret them as other things like "Non-ISO extended-ASCII text" or "ISO-8859 text" or "International EBCDIC text" so just treat any other file format as binary data.
+			# Convert each Unicode character of the "kcpassword" contents to their hex character represention (separated by line breaks via "-c 1").
+			encoded_password_hex_string="$(xxd -c 1 -p '/private/etc/kcpassword')"
 		fi
-
-		# VERIFY THAT THE KCPASSWORD CONTENTS DECODE CORRECTLY
-
-		encoded_password_hex_string="$(xxd -c 1 -p /private/etc/kcpassword)" # Convert each Unicode character of the kcpassword contents to their hex represention (separated by line breaks via "-c 1").
 
 		decoded_password_hex_string=''
 		declare -i this_encoded_password_hex_char_index=0
@@ -6087,25 +6150,27 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			if [[ "${this_encoded_password_hex_char}" == "${this_cipher_char}" ]]; then
 				break
 			else
-				# Do the kcpassword DECODING by XORing each encoded password hex character with a cipher hex character (and keep looping through the cipher hex characters in order)
+				# Do the "kcpassword" DECODING by XORing each encoded password hex character with a cipher hex character (and keep looping through the cipher hex characters in order)
 				# which will return the integer representation from $(( 0x## ^ 0x## )) and then use printf '%02x' to convert the XORed integer to its hex character (this is the same as encoding).
-				decoded_password_hex_string+="$(printf '%02x' "$(( 0x${this_encoded_password_hex_char} ^ 0x${this_cipher_char} ))") "
+				printf -v this_decoded_password_hex_char '%02x' "$(( 0x${this_encoded_password_hex_char} ^ 0x${this_cipher_char} ))"
+				decoded_password_hex_string+="${this_decoded_password_hex_char} "
 				this_encoded_password_hex_char_index+=1
 			fi
 		done
 		unset IFS
 
-		decoded_password="$(echo "${decoded_password_hex_string}" | xxd -r -p)" # Convert the decoded hex string back to Unicode characters. Do not need "echo -n" since whitespace (such as a trailing line break) are ignored when converting hex.
-
-		if [[ "${decoded_password}" != "${user_password}" ]]; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to decode kcpassword file for auto-login."
+		if [[ "${user_password}" != "$(echo "${decoded_password_hex_string}" | xxd -r -p)" ]]; then # Convert the decoded hex string back to Unicode characters. Do not need "echo -n" since whitespace (such as a trailing line break) are ignored when converting hex.
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to decode the \"kcpassword\" file for auto-login."
 			return "${error_code}"
 		fi
 	fi
 	error_code+=1
 
 	if $set_auto_login; then
-		defaults write '/Library/Preferences/com.apple.loginwindow' autoLoginUser -string "${user_account_name}"
+		if (( darwin_major_version < 22 )); then
+			# Do not need to set this manually on macOS 13 Ventura since the new "sysadminctl -autologin set" command takes care of it (but still verify it was set correctly with the following check).
+			defaults write '/Library/Preferences/com.apple.loginwindow' autoLoginUser -string "${user_account_name}"
+		fi
 
 		if [[ "$(defaults read '/Library/Preferences/com.apple.loginwindow' autoLoginUser)" != "${user_account_name}" ]]; then # Intentionally letting "defaults" output to stderr for useful user feedback.
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but failed to set autoLoginUser for auto-login."

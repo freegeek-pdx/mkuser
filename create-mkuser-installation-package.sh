@@ -25,7 +25,7 @@
 
 PATH='/usr/bin:/bin:/usr/sbin:/sbin'
 
-SCRIPT_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd -P)"
+SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" &> /dev/null && pwd -P)"
 readonly SCRIPT_DIR
 
 script_name='mkuser'
@@ -88,6 +88,17 @@ fi
 package_distribution_xml_header="$(head -2 "${package_distribution_xml_output_path}")"
 package_distribution_xml_footer="$(tail +3 "${package_distribution_xml_output_path}")"
 
+# Make sure this package is marked as Universal (to run without needing Rosetta on Apple Silicon) no matter what version of macOS it's being created on.
+package_distribution_host_architectures_attribute_before="$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)"
+if ! [[ "${package_distribution_host_architectures_attribute_before}" =~ arm64[,\"] ]]; then
+	if [[ "${package_distribution_host_architectures_attribute_before}" == *'hostArchitectures='* ]]; then # I'm not sure that it's actually possible for the "hostArchitectures" attribute to be set by any version of macOS when it wouldn't have already added arm64 to it as an option (it just doesn't exist by default on macOS 10.15 Catalina and older), but check for and add to an existing attribute anyways.
+		package_distribution_xml_footer="${package_distribution_xml_footer//hostArchitectures=\"/hostArchitectures=\"arm64,}" # There should only be one "hostArchitectures" arribute, but update them all just in case.
+	else # On macOS 10.15 Catalina and older, the "hostArchitectures" attribute will not be set at all and that will make Apple Silicon Macs think this package needs Rosetta when it really doesn't.
+		# This is adding "hostArchitectures" as the first specified attribute instead of the last (as newer versions of macOS do), but the order of XML attributes within a tag doesn't matter.
+		package_distribution_xml_footer="${package_distribution_xml_footer//<options /<options hostArchitectures=\"x86_64,arm64\" }" # There should only be one "options" tag, but update them all just in case.
+	fi
+fi
+
 cat << CUSTOM_DISTRIBUTION_XML_EOF > "${package_distribution_xml_output_path}"
 ${package_distribution_xml_header}
     <title>${script_name} ${script_version}</title>
@@ -119,6 +130,13 @@ ${package_distribution_xml_header}
 ${package_distribution_xml_footer}
 CUSTOM_DISTRIBUTION_XML_EOF
 
+package_distribution_host_architectures_attribute_after="$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)"
+if ! [[ "${package_distribution_host_architectures_attribute_after}" =~ arm64[,\"] ]]; then # Make sure the updated "distribution.xml" file is marked as Universal (in case the manual edits above failed somehow).
+	rm -rf "${package_tmp_dir}"
+	>&2 echo "DISTRIBUTION.XML ERROR OCCURRED: Failed to mark package as Universal to be able to run on Apple Silicon Macs without requiring Rosetta."
+	exit 3
+fi
+
 package_output_filename="${script_name}-${script_version}.pkg"
 # Assets on a GitHub Release cannot contain spaces. If spaces exist, they will be replaced with periods.
 # Instead of separating the name and version with a period, use a hyphen which matches the filename style of the source code downloads on GitHub Releases.
@@ -141,7 +159,7 @@ rm -rf "${package_tmp_dir}"
 
 if (( productbuild_exit_code != 0 )) || [[ ! -f "${package_output_path}" ]]; then
 	>&2 echo "PRODUCTBUILD ERROR OCCURRED CREATING/SIGNING INSTALLATION PACKAGE: EXIT CODE ${productbuild_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
-	exit 3
+	exit 4
 fi
 
 if [[ -d '/Applications/SD Notary.app' ]]; then
@@ -169,7 +187,7 @@ SD_NOTARY_EOF
 
 		if [[ ! -f "${notarized_package_path}" || "${notarized_package_path}" != *" - Notarized/${package_output_filename}" ]]; then
 			>&2 echo "ERROR OCCURRED DURING NOTARIZATION: ${notarized_package_path:-SEE ERROR MESSAGES ABOVE}"
-			exit 4
+			exit 5
 		else
 			echo "Successfully notarized ${script_name} version ${script_version} installation package!"
 			open -R "${notarized_package_path}"

@@ -410,11 +410,12 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > This option is helpful when creating scripted users before going through Setup Assistant that you do not want to be granted the first Secure Token, which would prevent the Setup Assistant user from getting a Secure Token.<br/>
 > This option will add a special tag to the AuthenticationAuthority attribute of the user record to let macOS know not to grant a Secure Token.<br/>
 > For more information about this Secure Token prevention tag, visit: <https://support.apple.com/guide/deployment/dep24dbdcf9e><br/>
-> A Secure Token could still be manually granted to this user after specifying this option on macOS 11 Big Sur and newer with `sysadminctl -secureTokenOn`.<br/>
+> A Secure Token could still be manually granted to this user after specifying this option on macOS 11 Big Sur and newer with `sysadminctl -secureTokenOn`, or by an MDM Bootstrap Token when logging in graphically via login window.<br/>
 > This option has no effect on macOS 10.15 Catalina and older, but there is useful information below about first Secure Token behavior all the way back to macOS 10.13 High Sierra when Secure Tokens were first introduced.
 >
 > **VOLUME OWNER ON APPLE SILICON NOTES:**<br/>
-> On Apple Silicon Macs, users that do not have a Secure Token cannot be Volume Owners, which means they will not be able to approve system updates (among other things).
+> On Apple Silicon Macs, users that do not have a Secure Token cannot be Volume Owners, which means they will not be able to approve system updates (among other things).<br/>
+> For more information about Volume Ownership on Apple Silicon, visit the Apple Platform Deployment link above.
 >
 > **macOS 11 Big Sur AND NEWER FIRST SECURE TOKEN NOTES:**<br/>
 > On macOS 11 Big Sur and newer, the first Secure Token is granted to the first administrator or standard user when their password is set, regardless of their UID.<br/>
@@ -424,6 +425,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > This is done by adding a special tag to the AuthenticationAuthority attribute in the user record before the users password has been set.<br/>
 > While `mkuser` includes this option and takes care of the necessary timing, it's worth noting that when creating users with `sysadminctl -addUser` it's actually impossible to prevent a Secure Token in this way since the password is always set during that user creation process, even if it's just a blank/empty password.<br/>
 > When users are created with this tag in their AuthenticationAuthority, the first user that does not have this special tag will get the first Secure Token when their password is set (basically, upon creation).<br/>
+> An exception to this behavior is when utilizing MDM along with the MDM-created Managed Administrator, which will not be granted the first Secure Token unless it is the first to login or authenticate (similar to the macOS 10.15 Catalina behavior described below) because this user is created with their password pre-hashed and placed directly into their user record rather than the password being set by "normal" methods (if you're familiar with `pycreateuserpkg`, it also pre-hashes the passwords resulting in the users it creates also not being granted the first Secure Token unless they are the first to login or authenticate).<br/>
 > In general, you will want to make sure the the first user being granted a Secure Token is also an administrator so that they are allowed to do all possible operations on macOS (especially on T2 and Apple Silicon Macs).
 >
 > **macOS 10.15 Catalina FIRST SECURE TOKEN NOTES:**<br/>
@@ -584,7 +586,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > Unlike hidden users, these user CANNOT be logged into using text input fields in the non-FileVault login window.
 >
 > Even if one of these users has a password set, they CANNOT authenticate "Terminal" commands like `su`, or `login`.<br/>
-> They also CANNOT authenticate graphical prompts, such as unlocking "System Preferences" panes if they are in an administrator.<br/>
+> They also CANNOT authenticate graphical prompts, such as unlocking "System Preferences" panes if they are an administrator.<br/>
 > But, if these users are an admin, they CAN run AppleScript `do shell script` commands `with administrator privileges`.
 
 <br/>
