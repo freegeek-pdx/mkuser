@@ -130,8 +130,7 @@ ${package_distribution_xml_header}
 ${package_distribution_xml_footer}
 CUSTOM_DISTRIBUTION_XML_EOF
 
-package_distribution_host_architectures_attribute_after="$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)"
-if ! [[ "${package_distribution_host_architectures_attribute_after}" =~ arm64[,\"] ]]; then # Make sure the updated "distribution.xml" file is marked as Universal (in case the manual edits above failed somehow).
+if ! [[ "$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)" =~ arm64[,\"] ]]; then # Make sure the updated "distribution.xml" file is marked as Universal (in case the manual edits above failed somehow).
 	rm -rf "${package_tmp_dir}"
 	>&2 echo "DISTRIBUTION.XML ERROR OCCURRED: Failed to mark package as Universal to be able to run on Apple Silicon Macs without requiring Rosetta."
 	exit 3

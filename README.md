@@ -540,20 +540,6 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 
 <br/>
 
-#### `--fd3-secure-token-admin-password, --fd3-st-admin-pass, --fd3-st-pass` < *no parameter* (fd3) >
-
-> **THIS OPTION IS DEPRECATED AND WILL BE REMOVED IN A FUTURE VERSION!**<br/>
-> THE MORE SECURE `--fd-secure-token-admin-password` SHOULD BE USED INSTEAD.<br/>
-> *THIS IS BECAUSE USING A HERE-STRING MOMENTARILY CREATES A TEMPORARY FILE WHICH CONTAINS THE SPECIFIED PASSWORD WHILE PROCESS SUBSTITUTION DOES NOT.*
->
-> Include this option with no parameter to pass the Secure Token admin password via file descriptor 3 (fd3), using an "fd3" here-string (`3<<<`).<br/>
-> If you haven't used "fd3" here-strings before, it looks like this: `mkuser [OPTIONS] --fd3-secure-token-admin-password [OPTIONS] 3<<< '<PASS>'`<br/>
-> Passing the password via "fd3" instead of directly with the `--secure-token-admin-password` option hides the password from the process list, BUT CREATES A TEMPORARY FILE CONTAINING THE PASSWORD.<br/>
-> The help information for the `--secure-token-admin-password` option above also applies to Secure Token admin passwords passed via "fd3".<br/>
-> This option is ignored on HFS+ volumes since Secure Tokens are APFS-only.
-
-<br/>
-
 #### `--secure-token-admin-password-prompt, --st-admin-pass-prompt, --st-pass-prompt` < *no parameter* >
 
 > Include this option with no parameter to be prompted for the Secure Token admin password on the command line before creating the user or package.<br/>
