@@ -323,7 +323,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > This can also be done manually with `--shell /usr/bin/false --home /dev/null`, or `--no-login --home /dev/null` (see `--no-login` help for more information).<br/>
 > Make sure to specify a password when creating a "Sharing Only" account, or it will have *a blank/empty password*.
 >
-> Also, when running on macOS 11 Big Sur or newer, "Sharing Only" accounts get a special tag added to the AuthenticationAuthority attribute of the user record to let macOS know not to grant a Secure Token.<br/>
+> Also, when running on macOS 11 Big Sur and newer, "Sharing Only" accounts get a special tag added to the AuthenticationAuthority attribute of the user record to let macOS know not to grant a Secure Token.<br/>
 > See `--prevent-secure-token-on-big-sur-and-newer` help for more information about preventing macOS from granting an account the first Secure Token.
 >
 > This is here as a separate option for convenience and information.<br/>
@@ -571,7 +571,7 @@ To NOT be prompted for confirmation (such as when run within a script), you must
 > If FileVault is enabled and one of these users has a password and is granted a Secure Token, they WILL show in the FileVault login window and can decrypt the volume, but then the non-FileVault login will be hit to fully login to macOS with another user account.<br/>
 > Unlike hidden users, these user CANNOT be logged into using text input fields in the non-FileVault login window.
 >
-> Even if one of these users has a password set, they CANNOT authenticate "Terminal" commands like `su`, or `login`.<br/>
+> Even if one of these users has a password set, they CANNOT authenticate "Terminal" commands like `su`, or `login` as well as NOT being able to log in remotely via `ssh`.<br/>
 > They also CANNOT authenticate graphical prompts, such as unlocking "System Preferences" panes if they are an administrator.<br/>
 > But, if these users are an admin, they CAN run AppleScript `do shell script` commands `with administrator privileges`.
 

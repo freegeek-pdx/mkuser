@@ -27,7 +27,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2022.9.2-1'
+	readonly MKUSER_VERSION='2022.9.30-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -115,6 +115,8 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	readonly A_Z='ABCDEFGHIJKLMNOPQRSTUVWXYZ' # Set these "A_Z" and "a_z" variables for use in regex and string manipulation to conveniently specify english letters directly instead of using character ranges like "[A-Za-z]" or classes like "[[:alpha:]]"
 	readonly a_z='abcdefghijklmnopqrstuvwxyz' # so the intended characters are always matched regardless of locale, and without having to set LC_COLLATE=C for the desired behavior. http://teaching.idallen.com/cst8177/13w/notes/000_character_sets.html
 	readonly DIGITS='0123456789' # And do the same with digits since the "[[:digit:]]" character class could also include other characters in some locales (the "[0-9]" character range is probably safe but better to be specific). https://unix.stackexchange.com/questions/414226/difference-between-0-9-digit-and-d/414230#414230
+
+	TMPDIR="$([[ -d "${TMPDIR}" && -w "${TMPDIR}" ]] && echo "${TMPDIR%/}/" || echo '/private/tmp/')" # Make sure "TMPDIR" is always set and that it always has a trailing slash for consistency regardless of the current environment.
 
 
 	# PARSE OPTIONS AND PARAMETERS
@@ -461,7 +463,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 				--stdin-password|--stdin-pass|--sp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ ! -t '0' ]]; then # Make sure stdin file descriptor is in use so that the script doesn't hang forever if "--stdin-password" is specified with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
-							if [[ -f '/dev/stdin' ]]; then
+							if [[ ! -p '/dev/stdin' || -f '/dev/stdin' ]]; then
 								>&2 echo "mkuser WARNING: It is recommended to use a pipe (|) instead of a here-string (<<<) when using \"${this_unaltered_option}\" because a pipe is more secure since a here-string creates a temporary file which contains the specified password while a pipe does not."
 							fi
 
@@ -741,7 +743,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					;;
 				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
 					if [[ "$1" == '/dev/fd/'* ]]; then # Make sure a file descriptor path is specified.
-						if [[ ! -f "$1" ]]; then
+						if [[ -p "$1" && ! -f "$1" ]]; then
 							if [[ -z "${st_admin_password}" ]]; then # Do not overwrite Secure Token admin password if already set with "--secure-token-admin-password" (or multiple "--fd-secure-token-admin-password" options specified).
 								if possible_st_admin_password="$(cat "$1" 2> /dev/null)"; then # Optionally get password from a file descriptor so that the password is never visible in the process list or written in the filesystem.
 									if [[ "${possible_st_admin_password}" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
@@ -1002,7 +1004,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://mkuser.sh\n\nUpdate Check: "
 
 		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
-			latest_version_json="$(curl -m 5 -sL 'https://api.github.com/repos/freegeek-pdx/mkuser/releases/latest' 2> /dev/null)"
+			latest_version_json="$(curl -m 5 -sL 'https://update.mkuser.sh' 2> /dev/null)"
 			if [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
 				latest_version="$(OSASCRIPT_ENV_JSON="${latest_version_json}" osascript -l 'JavaScript' -e 'JSON.parse($.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_JSON").js).tag_name' 2> /dev/null)"
 				# Parsing JSON with JXA: https://paulgalow.com/how-to-work-with-json-api-data-in-macos-shell-scripts
@@ -1516,7 +1518,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Make sure to specify a password when creating a \"Sharing Only\" account,
       or it will have ${ansi_underline}a blank/empty password${clear_ansi}.
 
-    Also, when running on macOS 11 Big Sur or newer, \"Sharing Only\" accounts
+    Also, when running on macOS 11 Big Sur and newer, \"Sharing Only\" accounts
       get a special tag added to the AuthenticationAuthority attribute
       of the user record to let macOS know not to grant a Secure Token.
     See ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi} help for more information
@@ -2013,7 +2015,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       text input fields in the non-FileVault login window.
 
     Even if one of these users has a password set, they CANNOT
-      authenticate \"Terminal\" commands like ${ansi_bold}su${clear_ansi}, or ${ansi_bold}login${clear_ansi}.
+      authenticate \"Terminal\" commands like ${ansi_bold}su${clear_ansi} or ${ansi_bold}login${clear_ansi} as well as
+      NOT being able to log in remotely via ${ansi_bold}ssh${clear_ansi}.
     They also CANNOT authenticate graphical prompts, such as unlocking
       \"System Preferences\" panes if they are an administrator.
     But, if these users are an admin, they CAN run AppleScript ${ansi_bold}do shell script${clear_ansi}
@@ -2422,21 +2425,22 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
 			# shellcheck disable=SC2016
 			check_password_content_result="$(printf '%s' "$1" | osascript -l 'JavaScript' -e '
+"use strict"
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
-let passwordToCheck = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+const passwordToCheck = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
 	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
 	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding)
 
-let odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
-let odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
+const odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+const odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
 
 let checkPasswordContentResult = `Check Password Content (Load Node) ERROR: Unknown error loading OpenDirectory "/Local/Default" node.`
 
 if (!odLocalNode.isNil() && odLocalNode.nodeName.js == "/Local/Default") {
-	let odPasswordContentCheckError = $()
-	let odPasswordContentCheckPassed = odLocalNode.passwordContentCheckForRecordNameError(passwordToCheck, "", odPasswordContentCheckError) // https://developer.apple.com/documentation/opendirectory/odnode/1427933-passwordcontentcheck?language=objc
+	const odPasswordContentCheckError = $()
+	const odPasswordContentCheckPassed = odLocalNode.passwordContentCheckForRecordNameError(passwordToCheck, "", odPasswordContentCheckError) // https://developer.apple.com/documentation/opendirectory/odnode/1427933-passwordcontentcheck?language=objc
 	// Seems that passing an empty string (but not nil) as the record name works to check the global password content policy.
 
 	if (odPasswordContentCheckPassed === true) { // Make sure odPasswordContentCheckPassed is a boolean of true and no other truthy value.
@@ -2444,17 +2448,15 @@ if (!odLocalNode.isNil() && odLocalNode.nodeName.js == "/Local/Default") {
 	} else if (!odPasswordContentCheckError.isNil() && odPasswordContentCheckError.localizedDescription) {
 		checkPasswordContentResult = `Check Password Content ERROR: ${odPasswordContentCheckError.localizedDescription.js.replace(" change failed because password", "")} (Error Code: ${odPasswordContentCheckError.code})` // Remove the part of the standard failure message that makes it sound like a change was attempted when it was not.
 
-		let passwordContentPoliciesArray = ObjC.deepUnwrap(odLocalNode.accountPoliciesAndReturnError($()).objectForKey("policyCategoryPasswordContent")) // https://developer.apple.com/documentation/opendirectory/odnode/1428081-accountpoliciesandreturnerror?language=objc
+		const passwordContentPoliciesArray = ObjC.deepUnwrap(odLocalNode.accountPoliciesAndReturnError($()).objectForKey("policyCategoryPasswordContent")) // https://developer.apple.com/documentation/opendirectory/odnode/1428081-accountpoliciesandreturnerror?language=objc
 		checkPasswordContentResult += "\nPassword Content Polic" // Will be set to singular or plural below.
 
 		if (passwordContentPoliciesArray && passwordContentPoliciesArray.length > 0) {
 			checkPasswordContentResult += ((passwordContentPoliciesArray.length == 1) ? "y:" : "ies:")
-			for (thisPasswordContentPolicyIndex = 0; thisPasswordContentPolicyIndex < passwordContentPoliciesArray.length; thisPasswordContentPolicyIndex ++) {
-				let thisPasswordContentPolicyDict = passwordContentPoliciesArray[thisPasswordContentPolicyIndex]
-
-				let thisPolicyContentDescription
+			for (const thisPasswordContentPolicyDict of passwordContentPoliciesArray) {
+				let thisPolicyContentDescription = undefined
 				if (thisPasswordContentPolicyDict.policyContentDescription) {
-					for (let thisPolicyContentDescriptionLocalizationKey in thisPasswordContentPolicyDict.policyContentDescription) {
+					for (const thisPolicyContentDescriptionLocalizationKey in thisPasswordContentPolicyDict.policyContentDescription) {
 						if (thisPolicyContentDescriptionLocalizationKey == "en" || thisPolicyContentDescriptionLocalizationKey == "English") {
 							// The default password content policy on macOS 10.14 Mojave has a localized description key of "English" instead of "en" like newer versions of macOS have.
 							thisPolicyContentDescription = thisPasswordContentPolicyDict.policyContentDescription[thisPolicyContentDescriptionLocalizationKey]
@@ -2482,7 +2484,7 @@ if (!odLocalNode.isNil() && odLocalNode.nodeName.js == "/Local/Default") {
 
 // DO NOT "console.log()" the result since that will go to stderr which is being redirected to "/dev/null" so that only our result string is ever retrieved via stdout.
 // This is because I have seen an irrelevant error about failing to establish a connection to the WindowServer (on macOS 10.13 High Sierra at least) that could be
-// included in stderr even when password verification was successful which would mess up checking for the exact success string if we were to capture stderr in the output.
+// included in stderr even when password content check was successful which would mess up checking for the exact success string if we were to capture stderr in the output.
 
 checkPasswordContentResult // Just having "checkPasswordContentResult" as the last statement will make JXA send the value to stdout.
 ' 2> /dev/null)"
@@ -3090,28 +3092,29 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
 		# shellcheck disable=SC2016
 		verify_password_result="$(printf '%s' "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
+"use strict"
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password verification methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
-let accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
-let password = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+const accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
+const password = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
 	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
 	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding)
 
 // Code in the open source OpenDirectory "TestApp.m" from Apple contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
 
-let odSearchNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
-let odSearchNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeAuthentication, odSearchNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
+const odSearchNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+const odSearchNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeAuthentication, odSearchNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
 
 let verifyPasswordResult = `Verify Password (Load Node) ERROR: Unknown error loading OpenDirectory "/Search" node.`
 
 if (!odSearchNode.isNil() && odSearchNode.nodeName.js == "/Search") {
-	let odUserRecordError = $()
-	let odUserRecord = odSearchNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, $(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
+	const odUserRecordError = $()
+	const odUserRecord = odSearchNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, $(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
 
 	if (!odUserRecord.isNil() && odUserRecord.recordName.js == accountName.js) {
-		let odVerifyPasswordError = $()
-		let odPasswordVerified = odUserRecord.verifyPasswordError(password, odVerifyPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427894-verifypassword?language=objc
+		const odVerifyPasswordError = $()
+		const odPasswordVerified = odUserRecord.verifyPasswordError(password, odVerifyPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427894-verifypassword?language=objc
 
 		if (odPasswordVerified === true) { // Make sure odPasswordVerified is a boolean of true and no other truthy value.
 			verifyPasswordResult = "VERIFIED"
@@ -3307,8 +3310,8 @@ print_mkuser_function {
 			fi
 		done
 
-		package_unique_id="$(date '+%s')-$(jot -r 1 100000000 999999999)" # The current unix time plus 9 random digits should be pretty universally unique.
-		package_tmp_dir="${TMPDIR:-/private/tmp/}mkuser_pkg+${package_unique_id}"
+		package_unique_id="$(date '+%s')-$(jot -rs '' 9 0 9)" # The current unix time plus 9 random digits should be pretty universally unique.
+		package_tmp_dir="${TMPDIR}mkuser_pkg+${package_unique_id}"
 		package_scripts_dir="${package_tmp_dir}/scripts"
 
 		rm -rf "${package_scripts_dir}"
@@ -3540,9 +3543,6 @@ PACKAGE_POSTINSTALL_EOF
 			# See (last paragraph) of OBFUSCATE PASSWORDS INTO RUN-ONLY APPLESCRIPT comments below for explanation of how the passwords are being (securely) deobfuscated in the following code.
 			# Only attempt to deobfuscate the passwords after checking that the specified user could be created (to not deobfuscate when user creation would fail anyway).
 
-			# The passwords deobfuscation script is also executed via "run script" in code piped to "osascript" so that its path is not even visible in the process list while running,
-			# even though that doesn't hide much since the passwords deobfuscation script path can be seen within the created package "preinstall" and "postinstall" scripts.
-
 			cat << PACKAGE_POSTINSTALL_EOF >> "${package_scripts_dir}/postinstall"
 
 echo 'mkuser POSTINSTALL PACKAGE: Deobfuscating passwords...'
@@ -3560,36 +3560,28 @@ if [[ ! -f "\${passwords_deobfuscation_script_file_path}" ]]; then
 	exit 1
 fi
 
-wrapped_encrypted_passwords_and_key=''
+deobfuscated_passwords=''
 
-max_passwords_deobfuscation_attempts=5
+max_passwords_deobfuscation_attempts=3
 is_last_passwords_deobfuscation_attempt=false
 for (( passwords_deobfuscation_attempt = 1; passwords_deobfuscation_attempt <= max_passwords_deobfuscation_attempts; passwords_deobfuscation_attempt ++ )); do
-	# Do multiple attempts at deobfuscating passwords (waiting progressively longer between each attempt) in case there is some random fluke error or something.
-	# Maybe that's what happened here when the final "pgrep -qafx" check failed? https://macadmins.slack.com/archives/CF6DX18KY/p1649671076493339
-	# But, this user later let me know that the issue was not reproducable and that password deobfuscation has worked properly since encountering that issue.
-
-	# In some later testing, I ran into sporadic occurrences of AppleScript error -600 "Application isn't running" which is basically a non-specific OS error and the documentation states "they are rare, and often there is nothing you can do about them in a script".
+	# Do multiple attempts at deobfuscating passwords (waiting progressively longer between each attempt) in case there is some random fluke error or something, but the first attempt should always work.
+	# This reattempt loop was originally added to workarund rare sporadic occurrences of AppleScript error -600 "Application isn't running" (and there were also more reattempts within the AppleScript code itself which have since been removed)
+	# which is basically a non-specific OS error and the documentation states "they are rare, and often there is nothing you can do about them in a script".
 	# https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/reference/ASLR_error_codes.html#//apple_ref/doc/uid/TP40000983-CH220-SW2
-	# I think that maybe the "-600" error may have actually been what happened to the user when the final "pgrep -qafx" check failed, but I didn't have detailed enough error messages at the time to know what actual error occurred.
-	# This "-600" error is very rare, but I found that I could reproduce/trigger it reliably by installing mutliple users back-to-back while the system is at the login window AND relaunching the login window after each user creation using "killall 'loginwindow'" (to make the newly created user appear in the list).
-	# This was just during some testing though and I decided not to relaunch the login window when mkuser creates a user while the system is at the login window because it disrupted LoginWindow LaunchAgents, and also made the screen flash black each time which made the computer look like it was broken/freaking out when multiple users were being created.
-	# Also, the fact that it caused/exacerbated this possible "-600" error is another reason for mkuser NOT to relaunch login window. But, the login window could still be relaunched once by mkuser to exit the first boot "Setup Assistant" if a user is created when "Setup Assistant" (or "Language Chooser") is running and "--skip-setup-assistant" is specified.
-	# If another user is created right after "Setup Assistant" (or "Language Chooser") is exited by relaunching login window, the "-600" error may likely occur during that password deobfuscation and this re-attempt loop could be very important to get the passwords successfully deobfuscated.
+	# BUT, I later discovered that these rare "-600" errors were actually only happening because of how I chose to previously execute the passwords deobfuscation script via "run script"
+	# in code piped to "osascript" so that its path was not visible in the process list while running, even though that didn't hide much since the passwords deobfuscation script path
+	# can be seen within the created package "preinstall" and "postinstall" scripts. Regardless, I though it was a harmless extra bit of obfuscation to hide the path of the passwords
+	# deobfuscation script from the process list, but apparently it was not at all harmless and was somehow causing these "-600" errors to occur sporadically. I'm not sure why,
+	# but using "run script" in that way seemed to change something internally and cause those "-600" error to sometimes happen when they normally would not if "run script" was not used.
+	# So, now the passwords deobfuscation script is called directly/normally via "osascript /path/to/script.scpt" even though that will reveal it's (non-sensitive) path in the process list.
 
-	# I found that when the "-600" error happens, it will often work properly after another re-attempt.
-	# Moreover, re-attempting within the AppleScript code itself is actually much more successful since when the "-600" error happens, just one more attempt of the same command tends to work.
-	# So, along with this outer loop to attempt the entire password deobfuscation script multiple times, the AppleScript code itself will do multiple attempts when unexpected errors occur within the script.
-	# These errors seem to most frequently happen within the AppleScript deobfuscate_string_func (probably just because it's called so many times), so that function will also do multiple attempts (but often just one more attempt is enough).
-	# Along with doing the multiple re-attempts within the AppleScript code, I also improved return values to include the actual error that occurred along with what point in the code it happend so if all AppleScript re-attempts fail and this outer re-attempt loop is ever hit, the included error code from the AppleScript will be much more informative.
-	# In my final testing with the multiple attempts within the AppleScript code, this outer loop to re-attempt the entire password deobfuscation script was only necessary very few times times and only for a single re-attempt over the course of many tests since the loops within the AppleScript code recovered from nearly all possible "-600" errors.
+	deobfuscated_passwords="\$(/usr/bin/osascript "\${passwords_deobfuscation_script_file_path}" 2> /dev/null)" # Very important to use full path to "osascript" binary since this exact parent command will be verified by the passwords deobfuscation script.
 
-	wrapped_encrypted_passwords_and_key="\$(echo "run script \"\${passwords_deobfuscation_script_file_path}\"" | /usr/bin/osascript 2> /dev/null)" # Very important to use full path to "osascript" binary since that exact parent command path will be verified by the passwords deobfuscation script.
-
-	if [[ "\${wrapped_encrypted_passwords_and_key}" != *$'\n'* ]]; then
+	if [[ "\${deobfuscated_passwords}" != *$'<\n>'* ]]; then # Since capturing the passwords deobfuscation script output via command substitution would trim any trailing line breaks, the passwords will be returned separated by "<\n>" instead of just "\n" in case the admin password is omitted or is an empty string which would return only a one line string if there was nothing at all on the second line (which would be indistinguishable from an error).
 		if (( passwords_deobfuscation_attempt == max_passwords_deobfuscation_attempts )); then is_last_passwords_deobfuscation_attempt=true; fi
 
-		package_error="PACKAGE \$(\$is_last_passwords_deobfuscation_attempt && echo 'ERROR' || echo 'WARNING'): Attempt \${passwords_deobfuscation_attempt} of \${max_passwords_deobfuscation_attempts} failed to deobfuscate encrypted passwords with error code \${wrapped_encrypted_passwords_and_key:-UNKNOWN}\$(\$is_last_passwords_deobfuscation_attempt && echo ' (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)')."
+		package_error="PACKAGE \$(\$is_last_passwords_deobfuscation_attempt && echo 'ERROR' || echo 'WARNING'): Attempt \${passwords_deobfuscation_attempt} of \${max_passwords_deobfuscation_attempts} failed to deobfuscate passwords with error code \${deobfuscated_passwords:-UNKNOWN}\$(\$is_last_passwords_deobfuscation_attempt && echo ' (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)')."
 		>&2 echo "mkuser POSTINSTALL \${package_error}"
 
 		if \$is_last_passwords_deobfuscation_attempt; then
@@ -3611,67 +3603,13 @@ if [[ "\${passwords_deobfuscation_script_file_path}" == '/private/tmp/'* ]]; the
 	rm -f "\${passwords_deobfuscation_script_file_path}"
 fi
 
-if ! encrypted_passwords_and_keys="\$(echo "\${wrapped_encrypted_passwords_and_key%%$'\n'*}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "\${wrapped_encrypted_passwords_and_key##*$'\n'}"))" || [[ "\${encrypted_passwords_and_keys}" != 'EK:'* && "\${encrypted_passwords_and_keys}" != 'EP:'* ]]; then
-	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
-		rm -rf '${extracted_resources_dir}'
-	fi
-
-	package_error="PACKAGE ERROR: Failed to decrypt wrapped passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-	>&2 echo "mkuser POSTINSTALL \${package_error}"
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
-	exit 1
-fi
-
-decrypted_user_password=''
-decrypted_st_admin_password=''
-
-got_decrypted_user_password=false # Must track if actually decrypted passwords rather than checking if the resulting password is not an empty string since an empty string could be a valid decrypted password.
-got_decrypted_st_admin_password=false
-for this_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
-	for that_encrypted_password_or_key in \${encrypted_passwords_and_keys}; do
-		if [[ "\${this_encrypted_password_or_key}" != "\${that_encrypted_password_or_key}" && "\${this_encrypted_password_or_key}" == 'EP:'* && "\${that_encrypted_password_or_key}" == 'EK:'* ]]; then
-			this_encrypted_password="\${this_encrypted_password_or_key:3}"
-			this_encryption_key="\${that_encrypted_password_or_key:3}"
-
-			if ! \$got_decrypted_user_password && possible_decrypted_user_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "${user_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_user_password}" == 'DP:'* ]]; then
-				decrypted_user_password="\${possible_decrypted_user_password:3}"
-				got_decrypted_user_password=true
-			fi
-
-			if ! \$got_decrypted_st_admin_password && possible_decrypted_st_admin_password="\$(echo "\${this_encrypted_password}" | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}\${this_encryption_key}") 2> /dev/null)" && [[ "\${possible_decrypted_st_admin_password}" == 'DP:'* ]]; then
-				decrypted_st_admin_password="\${possible_decrypted_st_admin_password:3}"
-				got_decrypted_st_admin_password=true
-			fi
-
-			if \$got_decrypted_user_password && \$got_decrypted_st_admin_password; then
-				break
-			fi
-		fi
-	done
-
-	if \$got_decrypted_user_password && \$got_decrypted_st_admin_password; then
-		break
-	fi
-done
-
-if ! \$got_decrypted_user_password || ! \$got_decrypted_st_admin_password; then
-	if [[ '${extracted_resources_dir}' == '/private/tmp/'* ]]; then
-		rm -rf '${extracted_resources_dir}'
-	fi
-
-	package_error="PACKAGE ERROR: Failed to decrypt new user or Secure Token admin passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
-	>&2 echo "mkuser POSTINSTALL \${package_error}"
-	mkuser_installer_display_error 'Did Not Attempt' "\${package_error}"
-	exit 1
-fi
-
 # In this situation it is secure to include passwords as parameters since the "mkuser" command is just a local function call whose arguments will not show in the process list (as opposed to being an external command).
-mkuser_options+=( --password "\${decrypted_user_password}" )
+mkuser_options+=( --password "\${deobfuscated_passwords%%$'<\n'*}" )
 PACKAGE_POSTINSTALL_EOF
 
 			if [[ -n "${st_admin_account_name}" ]]; then
 				cat << 'PACKAGE_POSTINSTALL_EOF' >> "${package_scripts_dir}/postinstall"
-mkuser_options+=( --secure-token-admin-password "${decrypted_st_admin_password}" )
+mkuser_options+=( --secure-token-admin-password "${deobfuscated_passwords##*$'\n>'}" )
 PACKAGE_POSTINSTALL_EOF
 			fi
 		fi
@@ -3722,89 +3660,88 @@ PACKAGE_POSTINSTALL_EOF
 
 			# The following information about password obfuscation applies to both the new user password and the existing Secure Token admin password (if present).
 
-			# Even though encryption is being used, this is just *OBFUSCATION* since the encryption key will be *included* within the resulting run-only AppleScript
-			# which will also have all of the strings within it obfuscated (including the encrypted passwords and passwords encryption key). This is not for *true* encryption,
-			# it's just to make sure the passwords are not directly visible within the "postinstall" script or any package resources or ever written to disk or visible in the
-			# process list and to hopefully make it *extremely* tedious and time consuming for someone to try to extract the encrypted passwords and passwords encryption key.
+			# The passwords are obfuscated into a run-only AppleScript using a variety or techniques such as base64 encoding, breaking the base64 encoded strings into chunks and reversing
+			# half of them and then shuffling the chunks in a randomized order so the most senstive base64 strings are are not stored in order, and a random huge caesar shift on the base64 encoded
+			# strings so they are not even visible in the contents of the compiled run-only AppleScript. And, some of these techniques are done multiple times to create a sort of wrapped
+			# obfuscation which would be difficult to reverse to extract passwords from a compiled run-only AppleScript. The exact details of this obfuscation can be seen in the code and comments below.
+			# This passwords obfuscation IS NOT encryption, it's just to make sure the plain text passwords are not directly visible within the "postinstall" script or any package resources and
+			# not ever written to disk and not visible in the process list and to hopefully make it *extremely* tedious and time consuming for someone to try to extract the plain text passwords.
 
-			# This run-only AppleScript (referred to as the "passwords deobfuscation script") will only output the encrypted passwords and passwords encryption key stored within
+			# This run-only AppleScript (referred to as the "passwords deobfuscation script") will only output the plain text passwords which are obfuscated within
 			# it under very specific circumstances (ie. during the package installation) and only when run by a unique "postinstall" script (by matching checksums).
-			# Each time a "postinstall" script is created, it will be unique because it will contains the specific random filename of the passwords deobfuscation script.
+			# Each time a "postinstall" script is created, it will be unique because it will contain the specific random long filename of the passwords deobfuscation script.
 			# One way to think of this is that it is *kind of* encryption, but rather than needing a text password to decrypt it, the "password" is the act of running the script
 			# via the unique "postinstall" during a package installation process. This is just a metaphor, again, I do not consider this to be any kind of true encryption.
-			# I believe this would be very hard if not impossible to spoof (i.e. make the script output the encrypted passwords and passwords encryption key under different circumstances)
-			# because of all of the checks being done, including verifying the checksum of the "postinstall" script which ran the passwords deobfuscation script as well as verifying that
-			# the "postinstall" script is being run during a package installation (by verifying that is is a child process of PackageKit). That means someone could not simply extract
-			# the passwords deobfuscation script and "postinstall" script and try to edit it to output the encrypted passwords and passwords encryption key since the
-			# encrypted passwords and passwords encryption key will not be returned since the checksum will not match the hard-coded checksum when the script was created, etc.
-			# THAT BEING SAID, I GIVE *NO GUARANTEE* THAT SOMEONE COULDN'T FIGURE OUT HOW TO MAKE THE SCRIPT OUTPUT THE PASSWORDS IF THEY TRIED HARD ENOUGH!
+			# I believe this would be very hard if not impossible to spoof (i.e. make the script output the plain text passwords under different circumstances) because of all of
+			# the checks being done, including verifying the checksum of the "postinstall" script which ran the passwords deobfuscation script as well as verifying that the
+			# "postinstall" script is being run during a package installation (by verifying that is is a child process of PackageKit). That means someone could not simply extract
+			# the passwords deobfuscation script and "postinstall" script and try to edit it to output the plain text passwords since that modified script would not be able to
+			# retrieve the plain text passwords since the checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords
+			# deobfuscation script and it would therefore not deobfuscate and return the plain text passwords.
+			# THAT BEING SAID, I GIVE *NO GUARANTEE* THAT SOMEONE COULDN'T FIGURE OUT HOW TO MAKE THE SCRIPT OUTPUT THE PLAIN TEXT PASSWORDS IF THEY TRIED HARD ENOUGH!
 
-			# One way someone may attempt to get the passwords deobfuscation script to output the encrypted passwords and passwords encryption key, or to simply intercept the
-			# decrypted passwords from the "openssl" commands itself would be to attempt some kind of man-in-the-middle (MIMT) type attack to spoof the commands that are used
-			# during the passwords deobfuscation process. For someone to attempt to do this, the system they are running on would first *need to have System Integrity Protection (SIP) DISABLED*
-			# since all of the external binary commands that the passwords deobfuscation process uses are stored within SIP protected locations and cannot the edited or moved while SIP is enabled.
-			# Assuming someone were to disable SIP, they could then attempt to create scripts at the external binary command paths which could then call the actual commands and intercept and log their outputs.
-			# To help avoid this type of MIMT command spoofing attack, as of version 2022.9.2-1, all of the external binary commands that are called during the passwords deobfuscation process have their
-			# Code Signing Requirements (CSReqs) validated using native C functions of the "Security" framework (such as https://developer.apple.com/documentation/security/1395784-secstaticcodecheckvalidity?language=objc)
-			# via JavaScript for Automation (JXA) code within the passwords deobfuscation script. Doing the CSReqs validation with native C functions means that the code cannot be spoofed
-			# since there are no external commands (such as "codesign") being called during the CSReqs validation process. If any of the external binary commands (including "osascript" itself and the
-			# "openssl" command, among others) do not match their expected valid CSReqs, then the passwords deobfuscation script WILL NOT output the encrypted passwords and passwords encryption key.
-			# THAT BEING SAID, I GIVE *NO GUARANTEE* THAT SOMEONE COULDN'T FIGURE OUT HOW TO MAKE THE SCRIPT OUTPUT THE PASSWORDS IF THEY TRIED HARD ENOUGH!
+			# No matter what obfuscation techniques are done, they must be able to be undone by the passwords deobfuscation script which means that when an order is randomized, that order must also be stored in
+			# the code of the passwords deobfuscation script to be able to retrieve the chunks in the correct order, but I try to obfuscate that kind of thing as well by also obfuscating the randomized order string
+			# by the same random huge caesar shift that obfuscates all other strings. But, the amount of the random huge caesar shift itself must also be stored within the code of passwords deobfuscation script
+			# for it to know how to undo the shift to deobfuscate all the strings. Even that random huge caesar shift amount is attempted to be hidden by storing each integer of the huge number individually among
+			# a bunch of other randomly sorted numbers which act as a kind of salt so if someone where trying to decompile the passwords deobfuscation script it would not be immediately obvious which numbers are for the caesar shift.
+			# No matter what I do obfuscate the passwords, it must always be reversable by the code in the passwords deobfuscation script itself. But, I take lots of steps to make sure it is not easy to reverse and so
+			# that the passwords deobfuscation script will not deobfuscate and output the plain text passwords unless it is being run by the specific "postinstall" script during a package installation, as described above.
 
-			# In regards to actually extracting the passwords deobfuscation script from the package, since this will be a "nopayload" package which does not write a pacakge reciept,
+			# One way someone may attempt to get the passwords deobfuscation script to output the plain text passwords, or to simply intercept the plain text passwords from the "osascript"
+			# command running the passwords deobfuscation script itself, would be to attempt some kind of man-in-the-middle (MITM) type attack to spoof the commands that are used during the
+			# passwords deobfuscation process to verify that it's running during a package installation by the specific "postinstall" script, as described above.
+			# For someone to attempt to do this, the system they are running on would first *need to have System Integrity Protection (SIP) DISABLED* since all of the external binary commands
+			# that the passwords deobfuscation process uses are stored within SIP protected locations and cannot be edited or moved while SIP is enabled. And, on macOS 10.15 Catalina and newer,
+			# someone would have to jump through extra hoops to mount the Read-Only or Signed System Volume as a writable volume. Assuming someone were to disable SIP (and make the System Volume writable),
+			# they could then attempt to create scripts at the external binary command paths which could then call the actual commands and intercept and log their outputs or make them return the outputs
+			# that the passwords deobfuscation script is expecting. To help avoid this type of MITM command spoofing attack, as of version 2022.9.2-1, all of the external binary commands that are called
+			# during the passwords deobfuscation process have their Code Signing Requirements (CSReqs) validated using native C functions of the "Security" framework
+			# (such as https://developer.apple.com/documentation/security/1395784-secstaticcodecheckvalidity?language=objc) via JavaScript for Automation (JXA) code within the passwords deobfuscation script.
+			# Doing the CSReqs validation with native C functions means that the code cannot be spoofed since there are no external commands (such as "codesign") being called during the CSReqs validation process.
+			# If any of the external binary commands (including "osascript" itself and the shell being used for external commands, among others) do not match their expected valid CSReqs,
+			# then the passwords deobfuscation script WILL NOT output the plain text passwords.
+			# To learn more about Code Signing Requirements (CSReqs) strings, see: https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements
+			# THAT BEING SAID, I GIVE *NO GUARANTEE* THAT SOMEONE COULDN'T FIGURE OUT HOW TO MAKE THE SCRIPT OUTPUT THE PLAIN TEXT PASSWORDS IF THEY TRIED HARD ENOUGH!
+
+			# NOTE: In mkuser version 2022.9.2-1 and older, encryption was used within the passwords obfuscation process, but it was not really encryption because the decryption keys
+			# were also stored within the passwords deobfuscation script itself, it was just a form of obfuscation which happened to utilize encryption as a way to obfuscate the passwords.
+			# Now, no decryption is used during the passwords deobfuscation process, only base64 decoding with extra manual obfuscation techniques on those base64 strings as described above.
+			# But, even without encryption being used at all, this new process is more secure because it uses native methods to decode the base64 strings while decryption required calling
+			# the external "openssl enc -d" binary command. Even though that was being done as securely as possible, removing it removes an attack surface because using native methods
+			# to decode base64 strings makes it impossible to even attempt a MITM/spoofing attack to intercept the contents during the native base64 decoding process.
+
+			# In regards to actually extracting the passwords deobfuscation script from the package, since this will be a "nopayload" package which does not write a package reciept,
 			# the passwords deobfuscation script is actually stored as encrypted gzip compressed text within a "preinstall" script rather than as easily extractable package resources.
 			# This allows the package to store resources while still being a "nopayload" package. Because of storing the passwords deobfuscation script in this way, it actually adds
-			# another layer of tedium for someone who would be trying to get at the passwords deobfuscation script for the purpose of trying to extract the passwords.
-			# Rather than just storing the passwords deobfuscation script as base64 encoding the gzip compressed text like the picture, it is encrypted using the checksum of the
-			# specific "postinstall" script as the encryption key. Again, this is not for *true* encryption since the checksum of the specific "postinstall" could be
-			# easily retrieved to manually decrypt the passwords deobfuscation script, it was just another layer of obfuscation that is simple for the package code to extract,
-			# but would add more tedium for someone trying to even begin attempting to extract the passwords.
+			# another layer of tedium for someone who would be trying to get at the passwords deobfuscation script for the purpose of trying to extract the plain text passwords.
+			# Rather than just storing the passwords deobfuscation script as base64 encoded gzip compressed text like a user picture is stored, it is encrypted using the checksum
+			# of the specific "postinstall" script as the decryption key. This is not for *true* encryption since the checksum of the specific "postinstall" could be easily retrieved
+			# to manually decrypt the passwords deobfuscation script, it was just another layer of obfuscation that is simple for the package code to extract, but would add more tedium
+			# for someone trying to even begin attempting to extract the plain text passwords.
 
-			# Another way someone may try to get the encrypted passwords and passwords encryption key out of the passwords deobfuscation script would be to try to decompile
-			# and then decypher the contents. Simply opening the run-only script in TextEdit or the like would be useless since every single string is obfuscated
-			# by a random huge caesar shift which pushes all the characters out of the range of regular rendered characters and the number the characters are shifted
-			# by is a random amount each time a package is created. If someone were to use other more sophisticated means to try to decompile and decypher the contents
-			# of this passwords deobfuscation script, I cannot guarantee that they wouldn't be able to do it (but I don't know how to do it). I hope that it would be very
-			# tedious and time consuming and that it would not even be easy to write a script that could extract the encrypted passwords and passwords encryption key from
-			# any and all passwords deobfuscation scripts created this way since they are randomized each time they are created.
+			# Another way someone may try to get the plain text passwords out of the passwords deobfuscation script would be to try to decompile and then decypher the contents.
+			# Simply opening the run-only script in TextEdit or the like would be useless since every single string is obfuscated as described above including a final step of
+			# a random huge caesar shift which pushes all the characters out of the range of regular rendered characters and the number the characters are shifted by is a random
+			# amount each time a package is created. If someone were to use other more sophisticated means to try to decompile and decypher the contents of this passwords deobfuscation script,
+			# I cannot guarantee that they wouldn't be able to do it (but I don't know how to do it). I hope that it would be very tedious and time consuming and that it would not be easy to
+			# write a script that could extract the plain text passwords from any and all passwords deobfuscation scripts created this way since they are randomized each time they are created.
 			# THAT BEING SAID, REGARDLESSS OF HOW COMPLEX IT MAY BE, THIS IS JUST *OBFUSCATION* AND I GIVE *NO GUARANTEE* THAT
-			# SOMEONE COULDN'T FIGURE OUT HOW TO EXTRACT THE ENCRYPTED PASSWORDS AND PASSWORDS ENCRYPTION KEY IF THEY TRIED HARD ENOUGH!
+			# SOMEONE COULDN'T FIGURE OUT HOW TO EXTRACT THE PLAIN TEXT PASSWORDS IF THEY TRIED HARD ENOUGH!
 
-			# The point of all of this is that *hopefully* even when someone knows how this passwords deobfuscation script (which contains the obfuscated encrypted passwords and
-			# passwords encryption key) is created, they could not get it back out since once it is put into a package it is unique and "locked" to that package. I believe
-			# that it would require a high level of skill and knowledge to be able to even begin to know how to go about trying to extract the encrypted passwords and passwords
-			# encryption key from this passwords deobfuscation script. As I have said, I give *no guarantee* that it is not possible to retrieve the encrypted passwords and passwords
-			# encryption key contained within this passwords deobfuscation script one way or another, but I hope that it would not be easy or possible to do by hand and would require
-			# that someone spend a decent amount of time and energy and probably would have to write scripts and/or programs to help extract this sensitive data. This should give some
-			# piece of mind that the encrypted passwords and passwords encryption key are not easily extractable by the novice user. My hope is that someone would need to have a
-			# strong desire as well as decent knowledge of shell scripting, AppleScript, packages, macOS, etc to even attempt to extract the encrypted passwords and passwords
-			# encryption key and even then I hope that it would not be obvious, easy, or straightforward to do.
+			# The point of all of this is that *hopefully* even when someone knows how this passwords deobfuscation script (which contains the obfuscated passwords) is created,
+			# they could not get it back out since once it is put into a package it is unique and "locked" to that package. I believe that it would require a high level of skill
+			# and knowledge to be able to even begin to know how to go about trying to extract the passwords from this passwords deobfuscation script. As I have said,
+			# I give *no guarantee* that it is not possible to retrieve the plain text passwords which are obfuscated within this passwords deobfuscation script one way or another,
+			# but I hope that it would not be easy or possible to do by hand and would require that someone spend a decent amount of time and energy and probably would have to write
+			# scripts and/or programs to help extract this sensitive data. This should give some piece of mind that the plain text passwords are not easily extractable by the novice user.
+			# My hope is that someone would need to have a strong desire as well as decent knowledge of shell scripting, AppleScript, JXA, Objective-C, packages, macOS, etc to even attempt
+			# to extract the plain text passwords and even then I hope that it would not be obvious, easy, or straightforward to do.
 
-			# After the encrypted passwords and passwords encryption key are returned to the "postinstall" script, they are passed to the "openssl" command to retrieve the actual plain text
-			# passwords. The way that this "openssl" command uses "pipes" and "process substitution" instead of passing the encrypted passwords and passwords encryption key as regular parameters means
-			# that the encrypted passwords and passwords encryption key are never visible in the process list. This means that someone could not simply watch for "openssl" commands during the
-			# installation process to be able to retrieve the encrypted passwords and passwords encryption key in plain text. And as I said before, if someone were to try to make a copy of
-			# this script and edit it to output the plain text passwords, that modified script would not be able to retrieve the encrypted passwords and passwords encryption key since the
-			# checksum of the modified "postinstall" script would no longer match the hard-coded checksum within the passwords deobfuscation script and it would therefore not return anything.
-			# It may seem less secure to do the passwords decryption within the "postinstall" script in this way instead of within the passwords deobfuscation script, but that is not actually
-			# the case since if the "openssl" decryption command was run within the passwords deobfuscation script it would be run via "do shell script" which would make the entire uninterpreted
-			# command visible in the process list like "sh -c echo ENCRYPTED-PASSWORDS | openssl enc -d -aes256 -md sha512 -a -A -pass file:<(echo PASSWORDS-ENCRYPTION-KEY)" which clearly renders the ability
-			# of the pipes and process substitution to hide their contents from the process list useless. While they would still not be visible in the "openssl" process, the would be visible in the parent "sh"
-			# process because of how AppleScript executes commands with "do shell script". So, it is actually more secure to run the "openssl" command in the "postinstall" script which
-			# ensures that the encrypted passwords and passwords encryption key only ever exist in a variable within the "postinstall" script and then are passed to "openssl" using
-			# process substitution which are interpreted by bash and are not ever displayed in the process list.
-
-			# As of version 2021.12.22-1, another layer of encryption has been added to each password stored within the encrypted passwords inside the passwords deobfuscation script (but all the info above is still accurate).
-			# Instead of the plain text passwords being retrieved by passing the encrypted passwords and passwords encryption key (returned by the passwords deobfuscation script) to "openssl",
-			# the passwords are each encrypted individually and the actual encryption keys are included along with other fake encrypted strings and fake encryption keys in a random order (as described below).
-			# This set of real and fake encrypted passwords and passwords encryption keys are what will be returned by the initial decryption in the "postinstall" script
-			# and then must be iterated through, attempting decryption with each possible combination to find the correct password for each account name (as described below).
-			# This creates a sort of "wrapped" encryption, but since all of the encryption keys are still included in the results, this is still just complex obfuscation.
-
-			# User creation via package with passwords deobfuscation last tested with version 2022.9.2-1:
-				# Via "startosinstall --installpackage" on 10.13, 10.14, 10.15, 11, 12, 13b6
-				# Via first boot LaunchDaemon using "installer -pkg" on 10.13, 10.14, 10.15, 11, 12, 13b6
-				# Via "Installer" app in full macOS on 10.13, 10.14, 10.15, 11, 12, 13b6
+			# User creation via package with passwords deobfuscation last tested with version 2022.9.30-1:
+				# Via "startosinstall --installpackage" on 10.13.6, 10.14.6, 10.15.7, 11.7, 12.6, 13b9
+				# Via first boot LaunchDaemon using "installer -pkg" on 10.13.6, 10.14.6, 10.15.7, 11.7, 12.6, 13b9
+				# Via "Installer" app in full macOS on 10.13.6, 10.14.6, 10.15.7, 11.7, 12.6, 13b9
 
 
 			# NOTE: Other tools like "pycreateuserpkg" pre-hash the ShadowHashData and write it directly to the user record. It appears this would even be possible to do using "dsimport", like Puppet does:
@@ -3817,48 +3754,73 @@ PACKAGE_POSTINSTALL_EOF
 
 
 			if ! $suppress_status_messages; then
-				echo 'mkuser: Obfuscating passwords for package...'
+				echo 'mkuser: Obfuscating passwords for package (PLEASE WAIT, THIS MAY TAKE 5 SECONDS OR LONGER)...'
 			fi
 
+			# NOTE: It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retrieved as an empty string after deobfuscation.
 
-			# Encrypt each password with a random key between 200 and 300 characters that also has the relevant account name added to the beginning.
-			# These random encryption keys (without the account name at the beginning) will be included in the contents (which will also be encrypted by the random wrapping passwords encryption key)
-			# along with 8 other random encryption keys that are not correct AND 8 other random encrypted "passwords" between 0 and 100 characters.
-			# The encrypted strings will start with "EP:" (Encrypted Password) and the encryption keys will start with "EK:" (Encryption Key) to make the loop faster to not attempt decrypt encryption keys or decrypt passwords using other encrypted passwords.
-			# I don't think this reduces any obfuscation since it'd already be pretty visually clear (by length and salt prefix) which are the keys and which are the encrypted strings anyways.
-			# This means there will be a total of 10 encrypted strings and 10 encryption keys in random order so that it will not be clear what are the actual encrypted passwords and what are the random encrypted string.
-			# Each encrypted string will attempt decrypted by trying all the encryption key lines with the account name at the beginning until one works.
-			# To know the decryption worked, the encrypted passwords will also be prefixed with "DP:" (Decrypted Password) so that we can check for that consistent prefix since failed decryptions can still result in gibberish output.
-			# We will know which account name the password is for by the fact that it was decrypted using that account name at the beginning of the encryption key.
-			# It's fine if either user_password or st_admin_password are empty strings since st_admin_password will only be used when needed even if it's an empty string and if user_password is an empty string it will be properly retrieved as an empty string after decryption.
+			# First, each password will initially be encoded to base64 strings and then those base64 strings will each broken into 4 chunks and then be stored
+			# in a random order along with 8 other chunks of random base64 text (of a random length of 100-200 chars) which acts as a kind of "salt" so that
+			# there are a total of 16 chunks of randomly ordered base64 chunks, and half of these strings will also be stored in reverse order.
+			# Then, that array of those 16 shuffled and half reverse base64 string chunks will itself be encoded into a base64 string (using NSKeyedArchiver).
 
-			# NOTE: See https://github.com/freegeek-pdx/mkuser/issues/2 for information about why "-md sha512" is specified for all "openssl enc" commands.
+			shuffled_passwords_chunks_order="$(seq 0 15 | sort -R | tr '\n' ' ')"
+			shuffled_passwords_chunks_order="${shuffled_passwords_chunks_order% }" # Removing trailing space.
 
-			user_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_user_password="$(echo "DP:${user_password}" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${user_account_name}${user_password_encryption_key}"))"
+			# Suppress ShellCheck warning that expressions don't expand in single quotes since this is intended.
+			# "`" and "${var}" within this JXA code are actually JavaScript syntax and not shell syntax.
+			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
+			# shellcheck disable=SC2016
+			obfuscated_passwords="$(printf '%s\n%s\n%s\n%s' "${user_password}" "${st_admin_password}" "$(openssl rand -base64 "$(jot -r 1 73 150)" | tr -d '[:space:]')" "${shuffled_passwords_chunks_order}" | osascript -l 'JavaScript' -e '
+"use strict"
+const passwordsArray = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
+	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding).js.split("\n")
 
-			st_admin_password_encryption_key="$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')"
-			encrypted_st_admin_password="$(echo "DP:${st_admin_password}" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${st_admin_account_name}${st_admin_password_encryption_key}"))"
+let obfuscatedPasswords = "" // This will be set to the obfuscated passwords base64 string and returned upon successful obfuscation.
 
-			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="EK:${user_password_encryption_key}
-EP:${encrypted_user_password}
-EK:${st_admin_password_encryption_key}
-EP:${encrypted_st_admin_password}"
+if (passwordsArray.length == 4) {
+	const base64userPassword = $((passwordsArray[0] == "") ? "\n" : passwordsArray[0]).dataUsingEncoding($.NSUTF8StringEncoding).base64EncodedStringWithOptions(0).js
+	const base64stAdminPassword = $((passwordsArray[1] == "") ? "\n" : passwordsArray[1]).dataUsingEncoding($.NSUTF8StringEncoding).base64EncodedStringWithOptions(0).js
+	// NOTE: If either password is an empty strings, it will be replaced with a line break instead (which could never exist withinin a password) so that *some* value is always encoded into base64 (which will always be at least 4 characaters long).
+	// And, when deobfuscating the passwords that line break will be replaced back to an empty string. This way, we can also be sure that if there are any errors or issues during deobfuscation that getting back an empty string indicates an error rather than the password actually being an empty string.
 
-			for (( add_fake_encrypted_passwords_and_encryption_keys = 0; add_fake_encrypted_passwords_and_encryption_keys < 8; add_fake_encrypted_passwords_and_encryption_keys ++ )); do
-				real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys+="
-EK:$(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]')
-EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -aes256 -md sha512 -a -A -pass file:<(openssl rand -base64 "$(jot -r 1 150 225)" | tr -d '[:space:]'))"
-			done
+	if (base64userPassword && base64stAdminPassword) { // Make sure both base64 encoded passwords are not undefined or empty strings in case some error occurred during encoding.
+		// See shell comments above about breaking base64 strings into chunks and shuffling them together in a random order.
+		const base64userPasswordChunks = base64userPassword.match(new RegExp(`.{1,${Math.ceil(base64userPassword.length / 4)}}`,"g"))
+		const base64stAdminPasswordChunks = base64stAdminPassword.match(new RegExp(`.{1,${Math.ceil(base64stAdminPassword.length / 4)}}`,"g"))
+		const base64saltChunks = passwordsArray[2].match(new RegExp(`.{1,${Math.ceil(passwordsArray[2].length / 8)}}`,"g"))
 
-			real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | sort -R)"
+		const base64passwordsChunks = base64userPasswordChunks.concat(base64saltChunks).concat(base64stAdminPasswordChunks)
+		const shuffledPasswordsChunksIndexes = passwordsArray[3].split(" ")
+		const shuffledBase64passwordsChunks = []
+		for (const thisOrderedIndex in shuffledPasswordsChunksIndexes) {
+			const thisShuffledIndex = shuffledPasswordsChunksIndexes[thisOrderedIndex]
+			let thisBase64passwordPart = base64passwordsChunks[thisOrderedIndex]
+			if ((+thisOrderedIndex % 2) != 0) thisBase64passwordPart = thisBase64passwordPart.split("").reverse().join("") // Reverse every other part.
+			shuffledBase64passwordsChunks[thisShuffledIndex] = thisBase64passwordPart
+		}
 
-			# Create random wrapping passwords encryption key between 500 and 600 characters (the following numbers are for base64 lengths).
-			wrapping_passwords_encryption_key="$(openssl rand -base64 "$(jot -r 1 375 450)" | tr -d '[:space:]')"
+		if ((shuffledBase64passwordsChunks.length == 16) && !shuffledBase64passwordsChunks.includes(undefined) && !shuffledBase64passwordsChunks.includes(null) && !shuffledBase64passwordsChunks.includes("")) {
+			obfuscatedPasswords = $.NSKeyedArchiver.archivedDataWithRootObjectRequiringSecureCodingError(shuffledBase64passwordsChunks, true, $()).base64EncodedStringWithOptions(0).js
+			if (!obfuscatedPasswords) obfuscatedPasswords = "" // If obfuscatedPasswords is somehow null or undefined (if some error occurred during archiving or encoding), make sure it is instead set to an empty string so that nothing is returned (which will be properly caught as an error).
+		}
+	}
+}
 
-			# Encrypt the encrypted passwords using the random wrapping passwords encryption key.
-			wrapped_encrypted_passwords="$(echo "${real_and_fake_encrypted_passwords_shuffled_with_real_and_fake_encryption_keys}" | openssl enc -aes256 -md sha512 -a -A -pass file:<(echo "${wrapping_passwords_encryption_key}"))"
-			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra.
+// DO NOT "console.log()" the result since that will go to stderr which is being redirected to "/dev/null" so that only our result string is ever retrieved via stdout.
+// This is because I have seen an irrelevant error about failing to establish a connection to the WindowServer (on macOS 10.13 High Sierra at least) that could be
+// included in stderr even when the obfuscation was successful which would mess up capturing the obfuscated string if we were to capture stderr in the output.
+
+obfuscatedPasswords // Just having "obfuscatedPasswords" as the last statement will make JXA send the value to stdout.
+' 2> /dev/null)"
+
+			if [[ -z "${obfuscated_passwords}" ]]; then
+				rm -rf "${package_tmp_dir}"
+
+				>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Failed to obfuscate passwords (THIS SHOULD NOT HAVE HAPPENED, PLEASE REPORT THIS ISSUE)."
+				return "${error_code}"
+			fi
 
 			# Every variable name set within the script will be randomized each time it is created.
 			# Each previously used random variable name will also be kept track of to ensure there are no duplicate random variable names.
@@ -3887,7 +3849,7 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 			declare -a obfuscate_characters_shift_count_jumble=()
 			for (( obfuscate_characters_shift_count_jumble_junk_var_index = 0; obfuscate_characters_shift_count_jumble_junk_var_index < 100; obfuscate_characters_shift_count_jumble_junk_var_index ++ )); do
 				mkuser_set_new_random_variable_name
-				obfuscate_characters_shift_count_jumble+=( "set ${this_random_variable_name} to $(jot -r 1 1 9)" )
+				obfuscate_characters_shift_count_jumble+=( "set ${this_random_variable_name} to $(jot -r 1 0 9)" )
 			done
 
 			# Replace the first 6 of the 100 random variables set to random integers with randomly named variables containing each actual number in the obfuscate_characters_shift_count.
@@ -3907,30 +3869,31 @@ EP:$(openssl rand -base64 "$(jot -r 1 0 75)" | tr -d '[:space:]' | openssl enc -
 			unset IFS
 
 			mkuser_obfuscate_string() {
-				# From: https://stackoverflow.com/questions/14612235/protecting-an-applescript-script/14616010#14616010
+				# Based on: https://stackoverflow.com/questions/14612235/protecting-an-applescript-script/14616010#14616010
+				# But, each string is also base64 encoded BEFORE doing the Caesar shift.
 				# I'm not sure how to shift strings like this using bash. It is possible to get the integer or hex of the character,
 				# but if I add such a huge number to that and try to convert it back to a character,
 				# the encoding is wrong and does not get rendered as the proper single character.
 
-				# The "$1" argument is passed to "osascript" as a command specific environment variable so that escaping any possible quotes or backslashes is not necessary.
-				# The fact that multibyte characters would get mangled when in an environment variable retrieved by AppleScript with "system attribute" should not be an issue since they will never be in these strings.
+				string_to_obfuscate="$1"
+
+				if [[ "$2" == 'stripJScomments' ]]; then # Remove all JavaScript comments in JXA code so that their existance doesn't needlessly make obfuscation and de-obfuscation take longer than needed (since comments account for more than half of the characters).
+					string_to_obfuscate="$(echo "${string_to_obfuscate}" | awk '($0 != "" && $1 != "//") { print }' 2> /dev/null)"
+				fi
+
+				# The "string_to_obfuscate" is base64 encoded in the shell and then that base64 string is placed directly in the source of the AppleScript code. It is being done this way for a couple of reasons, but it all comes down to speed in the end.
+				# Since the obfuscation process involves base64 encoding before doing the Caesar shift, I found it's MUCH faster to do the base64 encoding in the shell rather than passing the raw string to the AppleScript and then doing the base64 encoding via native ObjC methods.
+				# Since that base64 encoding is always being done in advance in the shell anyways, there is no need to worry about any possible quotes or backslashes in those base64 string contents that would need to be escaped since they could never exist in a base64 encoded string.
+				# Also, I found that passing the base64 string as an environment variable (which would be a safer way to do it if the string could possibly contain any quotes or backslashes that would break the AppleScript code if not escaped)
+				# was actually measurably slower than just placing the base64 string directly in the source of the AppleScript code, and there is no risk of that string breaking the AppleScript code in this case since a base64 string will always be safe.
 				# Passing the AppleScript code directly via "-e" option instead of via stdin as a here-doc since a here-doc creates a temporary file and this is called many times.
 				# It's more efficient to just pass this small bit of code directly instead of having the shell make a new temporary file each time it's run.
-				OSASCRIPT_ENV_OBFUSCATE_STRING="$1" osascript -e "
-repeat 5 times -- See comments in the 'passwords_deobfuscation_attempt' about why this functions code is attempted multiple times (it's in case of random '-600' errors).
-	try
-		set stringID to id of (system attribute \"OSASCRIPT_ENV_OBFUSCATE_STRING\") as list
-		repeat with thisCharacter in stringID
-			set contents of thisCharacter to thisCharacter + ${obfuscate_characters_shift_count}
-		end repeat
-		return string id stringID
-	end try
-	try -- Try to wait 1 second between multiple attempts, but even the 'delay' command could cause a '-600' error, so if 'delay' fails just do another attempt immediately.
-		delay 1
-	end try
+				osascript -e "
+set stringIDs to ((id of \"$(printf '%s' "${string_to_obfuscate}" | base64)\") as list)
+repeat with thisCharacterID in stringIDs
+	set (contents of thisCharacterID) to (thisCharacterID + ${obfuscate_characters_shift_count})
 end repeat
-error \"FAILED\"
-OSASCRIPT_OBFUSCATE_STRING_EOF
+return (string id stringIDs)
 " 2> /dev/null
 
 				mkuser_obfuscate_string_exit_code="$?"
@@ -3943,86 +3906,108 @@ OSASCRIPT_OBFUSCATE_STRING_EOF
 				# since that would require a subshell inside the function which is equivalent to just calling the function with a subshell.
 			}
 
-			# This random deobfuscate function name needs to be set before preparing the encrypted passwords chunk variables.
+			# This random deobfuscate function name needs to be set before preparing the obfuscated passwords chunk variables.
 			mkuser_set_new_random_variable_name
 			deobfuscate_string_func="${this_random_variable_name}"
 
-			# Break passwords encryption key into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
-			declare -a wrapping_passwords_encryption_key_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the passwords encryption key within the script.
-			for (( random_variable_name_index = 0; random_variable_name_index < 7; random_variable_name_index ++ )); do
+			# Break obfuscated passwords into 20 chunks with half reversed to be mixed throughout the source in random order to make it harder to identify and extract from decompiled source.
+			declare -a obfuscated_passwords_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the obfuscated passwords chunks within the script.
+			for (( random_variable_name_index = 0; random_variable_name_index < 20; random_variable_name_index ++ )); do
 				mkuser_set_new_random_variable_name
-				wrapping_passwords_encryption_key_chunk_variable_names+=( "${this_random_variable_name}" )
+				obfuscated_passwords_chunk_variable_names+=( "${this_random_variable_name}" )
 			done
 
-			wrapping_passwords_encryption_key_chunk_length="$(( ${#wrapping_passwords_encryption_key} / 7 ))"
+			obfuscated_passwords_chunk_length="$(( ${#obfuscated_passwords} / 20 ))"
 
 			# Since it's not easy to shuffle an array, create a string separated by lines to be able to shuffle with "sort -R" and then set those shuffled lines to an array.
-			declare -a wrapping_passwords_encryption_key_chunk_var_assignments_shuffled=()
-			while IFS='' read -r wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line; do
-				wrapping_passwords_encryption_key_chunk_var_assignments_shuffled+=( "${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled_line}" )
-			done < <(echo "set ${wrapping_passwords_encryption_key_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:0:${wrapping_passwords_encryption_key_chunk_length}}")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:${wrapping_passwords_encryption_key_chunk_length}:${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 2 )):${wrapping_passwords_encryption_key_chunk_length}}")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 3 )):${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 4 )):${wrapping_passwords_encryption_key_chunk_length}}")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 5 )):${wrapping_passwords_encryption_key_chunk_length}}" | rev)")\")
-set ${wrapping_passwords_encryption_key_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapping_passwords_encryption_key:$(( wrapping_passwords_encryption_key_chunk_length * 6 ))}")\")" | sort -R)
-
-			# Break encrypted passwords into 7 chunks with some reversed to be mixed throughout to source in random order to make it harder to identify and extract from decompiled source.
-			declare -a wrapped_encrypted_passwords_chunk_variable_names=() # Since random variable names are used, they must be kept track of to use when concatenating the encrypted passwords key within the script.
-			for (( random_variable_name_index = 0; random_variable_name_index < 7; random_variable_name_index ++ )); do
-				mkuser_set_new_random_variable_name
-				wrapped_encrypted_passwords_chunk_variable_names+=( "${this_random_variable_name}" )
-			done
-
-			wrapped_encrypted_passwords_chunk_length="$(( ${#wrapped_encrypted_passwords} / 7 ))"
-
-			# Since it's not easy to shuffle an array, create a string separated by lines to be able to shuffle with "sort -R" and then set those shuffled lines to an array.
-			declare -a wrapped_encrypted_passwords_chunk_var_assignments_shuffled=()
-			while IFS='' read -r wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line; do
-				wrapped_encrypted_passwords_chunk_var_assignments_shuffled+=( "${wrapped_encrypted_passwords_chunk_var_assignments_shuffled_line}" )
-			done < <(echo "set ${wrapped_encrypted_passwords_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:0:${wrapped_encrypted_passwords_chunk_length}}")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:${wrapped_encrypted_passwords_chunk_length}:${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 2 )):${wrapped_encrypted_passwords_chunk_length}}")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 3 )):${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 4 )):${wrapped_encrypted_passwords_chunk_length}}")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 5 )):${wrapped_encrypted_passwords_chunk_length}}" | rev)")\")
-set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${wrapped_encrypted_passwords:$(( wrapped_encrypted_passwords_chunk_length * 6 ))}")\")" | sort -R)
+			declare -a obfuscated_passwords_chunk_var_assignments_shuffled=()
+			while IFS='' read -r obfuscated_passwords_chunk_var_assignments_shuffled_line; do
+				obfuscated_passwords_chunk_var_assignments_shuffled+=( "${obfuscated_passwords_chunk_var_assignments_shuffled_line}" )
+			done < <(echo "set ${obfuscated_passwords_chunk_variable_names[0]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:0:${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[1]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:${obfuscated_passwords_chunk_length}:${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[2]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 2 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[3]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 3 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[4]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 4 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[5]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 5 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[6]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 6 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[7]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 7 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[8]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 8 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[9]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 9 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[10]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 10 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[11]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 11 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[12]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 12 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[13]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 13 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[14]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 14 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[15]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 15 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[16]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 16 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[17]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 17 )):${obfuscated_passwords_chunk_length}}" | rev)")\")
+set ${obfuscated_passwords_chunk_variable_names[18]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 18 )):${obfuscated_passwords_chunk_length}}")\")
+set ${obfuscated_passwords_chunk_variable_names[19]} to ${deobfuscate_string_func}(\"$(mkuser_obfuscate_string "$(echo "${obfuscated_passwords:$(( obfuscated_passwords_chunk_length * 19 ))}" | rev)")\")" | sort -R)
 
 			# Get checksum of "postinstall" script to be verified within the script.
 			postinstall_checksum="$(openssl dgst -sha512 "${package_scripts_dir}/postinstall" | awk '{ print $NF; exit }')"
 
 			# Create random variable names to be used throughout the script.
 			mkuser_set_new_random_variable_name
-			last_error_var="${this_random_variable_name}"
+			passwords_deobfuscation_obfuscate_characters_shift_count_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			this_error_number="${this_random_variable_name}"
+			passwords_deobfuscation_error_code_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			this_error_number_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
-			csreq_validated_binaries_var="${this_random_variable_name}"
+			javascript_name_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			script_pwd_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
+			extracted_resources_dir_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
 			script_path_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			file_manager_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			csreq_validated_binaries_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			is_catalina_or_newer_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			expected_csreq_validated_binaries_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			ps_p_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			ps_o_command_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			this_ancestor_pid_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			parent_command_path_var="${this_random_variable_name}"
+			parent_script_path_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			intended_parent_command_path_var="${this_random_variable_name}"
+			expected_parent_script_path_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			grandparent_script_path_var="${this_random_variable_name}"
-			mkuser_set_new_random_variable_name
-			intended_grandparent_script_path_var="${this_random_variable_name}"
-			mkuser_set_new_random_variable_name
-			intended_ancestor_process_var="${this_random_variable_name}"
+			expected_ancestor_process_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			actual_ancestor_process_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			ps_o_ppid_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
-			wrapped_encrypted_passwords_var="${this_random_variable_name}"
+			obfuscated_passwords_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
-			wrapping_passwords_encryption_key_var="${this_random_variable_name}"
+			shuffled_base64_passwords_chunks_list_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			number_sixteen_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			shuffled_passwords_chunks_order_list_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			this_ordered_index_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			ordered_base64_passwords_chunks_list_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			this_shuffled_index_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			this_base64_password_part_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			deobfuscated_user_password_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			deobfuscated_st_admin_password_var="${this_random_variable_name}"
 
 			mkuser_set_new_random_variable_name
 			obfuscated_string_var="${this_random_variable_name}"
@@ -4030,26 +4015,71 @@ set ${wrapped_encrypted_passwords_chunk_variable_names[6]} to ${deobfuscate_stri
 			obfuscated_char_ints_var="${this_random_variable_name}"
 			mkuser_set_new_random_variable_name
 			this_obfuscated_char_var="${this_random_variable_name}"
+			mkuser_set_new_random_variable_name
+			deobfuscated_string_var="${this_random_variable_name}"
 
 			# Compile file with ".scpt" extension since "osacompile" uses the extension to determine what type of file to create.
 			# The compiled script will be renamed to passwords_deobfuscation_script_file_random_name with the ".pswd" extension after creation.
 			osacompile -x -o "${package_tmp_dir}/passwords-deobfuscation.scpt" << PACKAGE_PASSWORD_OSACOMPILE_EOF
 use AppleScript version "2.7"
 use scripting additions
-set ${last_error_var} to -1
-repeat 5 times -- See comments in the "passwords_deobfuscation_attempt" about why all of this code is attempted multiple times (it's in case of random "-600" errors).
-	set ${last_error_var} to -1
+use framework "Foundation"
+global ${passwords_deobfuscation_obfuscate_characters_shift_count_var}
+set ${passwords_deobfuscation_error_code_var} to 1
+try
+	${obfuscate_characters_shift_count_jumble_var_lines}
+	set ${passwords_deobfuscation_obfuscate_characters_shift_count_var} to (((${obfuscate_characters_shift_count_actual_variable_names_to_concatenate}) as string) as number)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[0]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${javascript_name_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'JavaScript')")
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[1]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if ((((NSUserName() of current application) as string) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'root')")) or ((run script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ObjC.import('unistd'); $.geteuid()")") in ${javascript_name_var}) is not equal to 0)) then return ${passwords_deobfuscation_error_code_var} -- Both of these native methods of getting the user name and user ID currently running the script work in all contexts, but using the AppleScript "(user ID of (system info))" does not properly return "0" and instead returns the user ID of the currently looged in user when run during an installation after admin authentication.
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[2]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[3]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PATH')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin:/bin:/usr/sbin:/sbin')")) or ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) or ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[4]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${extracted_resources_dir_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}")")
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${script_path_var} to (${extracted_resources_dir_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string "/${passwords_deobfuscation_script_file_random_name}")"))
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[5]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
 	try
-		if ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PATH')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin:/bin:/usr/sbin:/sbin')")) then return 1
-		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[0]}
-		-- For information about the following Code Signing Requirements (CSReqs) validation code search above for "MIMT" to see how this helps prevent possible man-in-the-middle (MIMT) type attacks to get at the output of this script or the deobfuscated passwords themselves.
-		-- The following CSReqs validation is being done in JavaScript for Automation (JXA) code via "run script" (which means it's NOT being run by separate "osascript" process) since it requires working with native C functions of the "Security" framework, which the JXA-ObjC bridge can do while the AppleScript-ObjC bridge cannot.
-		-- This JXA code using native C function is essentially equivalent to "codesign --verify -R='<CODE SIGINING REQUIREMENTS>' /PATH/TO/BINARY" but doing it using the native C function means that it cannot be spoofed with a MIMT attack like the "codesign" binary could be.
-		set ${csreq_validated_binaries_var} to (run script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "
+		((${script_path_var} as POSIX file) as alias)
+	on error number ${this_error_number_var}
+		if (${this_error_number_var} is equal to -1700) then return ${passwords_deobfuscation_error_code_var} -- "-1700" would be the error number if somehow the script_path_var file does not exist (which shouldn't happen).
+		error number ${this_error_number_var} -- If any other error occurred, throw that error number which will be returned along with the current "passwords_deobfuscation_error_code_var" value.
+	end try
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[6]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${file_manager_var} to (defaultManager() of NSFileManager of current application)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (((POSIX path of (path to me)) is not equal to ${script_path_var}) or ((filePosixPermissions() of attributesOfItemAtPath_error_(${extracted_resources_dir_var}, missing value) of ${file_manager_var}) is not equal to 0) or ((filePosixPermissions() of attributesOfItemAtPath_error_(${script_path_var}, missing value) of ${file_manager_var}) is not equal to 0)) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[7]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	-- For information about the following Code Signing Requirements (CSReqs) validation code search above for "MITM" to see how this helps prevent possible man-in-the-middle (MITM) type attacks to get at the output of this script or the deobfuscated passwords themselves.
+	-- The following CSReqs validation is being done in JavaScript for Automation (JXA) code via "run script" (which means it's NOT being run by separate "osascript" process) since it requires working with native C functions of the "Security" framework, which the JXA-ObjC bridge can do while the AppleScript-ObjC bridge cannot (https://forum.latenightsw.com/t/does-asobjc-work-with-core-foundation/323).
+	-- This JXA code using native C function is essentially equivalent to "codesign --verify -R='<CODE SIGINING REQUIREMENTS>' /PATH/TO/BINARY" but doing it using the native C function means that it cannot be spoofed with a MITM attack like the "codesign" binary could be.
+	set ${csreq_validated_binaries_var} to (run script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "
+'use strict'
 ObjC.import('Security')
-ObjC.bindFunction('CFMakeCollectable', ['id', ['void *']]) // https://github.com/JXA-Cookbook/JXA-Cookbook/issues/13#issuecomment-174820487
+
+// NOTE: Each comment within this JXA code is ON ITS OWN LINE so that all comments and empty lines can easily be removed before obfuscation so that all the extra characters taken up by the comments (which are more than half of the characters of this script) do not need to be deobfuscated during the password deobfuscation process.
 
 // The following valid Code Signing Requirements (CSReqs) strings can be retreived using: codesign --display --requirements - /PATH/TO/BINARY
+// To learn more about Code Signing Requirements, see: https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements
 // For some of the following external command paths, multiple possible valid CSReqs strings are allowed and the binary matching any one of them will be enough to pass.
 // This is because the binaries have different CSReqs on different versions of macOS (as noted below).
 // I chose to check for any one of the known valid CSReqs instead of only allowing the exact valid match for the version of macOS that I know it's for since that would have been much more complex,
@@ -4059,167 +4089,224 @@ ObjC.bindFunction('CFMakeCollectable', ['id', ['void *']]) // https://github.com
 // This way, the only thing I forsee needing to confirm is that there are no *new* CSReq strings for any of these commands when new major updates comes out (but that seems somewhat unlikely with the current set that's being matched).
 
 const pathsToBinariesAndValidCSReqs = {
-	'/usr/bin/osascript': ['identifier \"com.apple.osascript\" and anchor apple'], // Even though 'osascript' isn't called by this passwords deobfuscation script, the script itself is being run by 'osascript', so it's still important to make sure it's not being spoofing itself to allow someone to intercept the output from this script (even though a basic MIMT attempt with a script impersonating 'osascript' would already get caught and rejected by the 'intended_grandparent_script_path_var' check below).
-	'/usr/bin/id': ['identifier \"com.apple.whoami\" and anchor apple', 'identifier \"com.apple.id\" and anchor apple', 'identifier \"com.apple.groups\" and anchor apple'], // 10.13.6, 10.14.6, 10.15.7 = whoami & 11.6.8, 13b6 = id & 12.5.1 = groups
-	'/usr/bin/stat': ['identifier \"com.apple.readlink\" and anchor apple', 'identifier \"com.apple.stat\" and anchor apple'], // 10.13.6, 10.15.7, 11.6.8, 13b6 = readlink & 10.14.6, 12.5.1 = stat
+	'/usr/bin/osascript': ['identifier \"com.apple.osascript\" and anchor apple'],
+	// Even though 'osascript' isn't called by this passwords deobfuscation script, the script itself is being run by 'osascript', so it's still important to make sure it's not being spoofing itself to allow someone to intercept the output from this script (even though a basic MITM attempt with a script impersonating 'osascript' would already get caught and rejected by the 'expected_parent_script_path_var' check below).
+
+	'/bin/sh': ['identifier \"com.apple.sh\" and anchor apple'],
+	'/bin/bash': ['identifier \"com.apple.bash\" and anchor apple'],
+	// Since 'do shell script' commands are run by 'sh -c', we must also check that the '/bin/sh' is valid.
+	// And, since '/bin/sh' is actually in turn run by '/bin/bash' in a POSIX shell emulation mode, that must also be validated.
+	// See comments below about how and why '/bin/zsh' and '/bin/dash' will ALSO be validated when running on macOS 10.15 Catalina and newer.
+
 	'/bin/ps': ['identifier \"com.apple.ps\" and anchor apple'],
 	'/usr/bin/openssl': ['identifier \"com.apple.openssl\" and anchor apple'],
-	'/usr/bin/pgrep': ['identifier \"com.apple.pgrep\" and anchor apple', 'identifier \"com.apple.pkill\" and anchor apple'] // 10.13.6, 12.5.1, 13b6 = pgrep & 10.14.6, 10.15.7, 11.6.8 = pkill
+	'/usr/bin/pgrep': ['identifier \"com.apple.pgrep\" and anchor apple', 'identifier \"com.apple.pkill\" and anchor apple'],
+	// pgrep Bundle IDs: 10.13.6, 12.5.1, 13b6 = com.apple.pgrep & 10.14.6, 10.15.7, 11.6.8, 13b9 = com.apple.pkill
+
+	// The following commands ARE NOT used during the passwords deobfuscation process, but the deobfuscated password may be
+	// piped or passed to them during the rest of the user creation process, so validate them as well just to be extra safe.
+	'/usr/bin/wc': ['identifier \"com.apple.wc\" and anchor apple'],
+	'/usr/sbin/sysadminctl': ['identifier \"com.apple.sysadminctl\" and anchor apple'],
+	'/usr/bin/xxd': ['identifier \"com.apple.xxd\" and anchor apple'],
+	'/usr/bin/expect': ['identifier \"com.apple.expect\" and anchor apple'],
+	'/usr/bin/profiles': ['identifier \"com.apple.profiles\" and anchor apple']
 }
 
-let csreqValidatedForBinaries = []
-for (thisBinaryPath in pathsToBinariesAndValidCSReqs) {
-	let thisBinaryPathIsDirectory = Ref()
-	let staticCodeRef = Ref()
-	let validCSReqStringsArray = pathsToBinariesAndValidCSReqs[thisBinaryPath]
-	let validCSReqRef = Ref()
+if ($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0})) {
+	// On macOS 10.14 Mojave and older, '/bin/sh' is ALWAYS run by '/bin/bash', but on macOS 10.15 Catalina and newer '/bin/sh' is still run by '/bin/bash' by default,
+	// BUT a new '/var/select/sh' symbolic link has been added that can be modified so that '/bin/sh' could instead be set to run by '/bin/zsh' or '/bin/dash'.
+	// So, '/bin/zsh' and '/bin/dash' will also be validated when running on macOS 10.15 Catalina and newer.
 
-	for (thisValidCSReqString of validCSReqStringsArray) {
-		// NOTE: Passing Ref contents directly as 'refVar[0]' to C functions WORKS on macOS 10.15 Catalina and newer, but crashes on macOS 10.14 Mojave and older while
-		// passing a converted NS object via 'cfRefToNSObjectIfNeeded(refVar[0])' to the C functions works on all versions of macOS, so that's what we'll always do.
+	pathsToBinariesAndValidCSReqs['/bin/zsh'] = ['identifier \"com.apple.zsh\" and anchor apple']
+	pathsToBinariesAndValidCSReqs['/bin/dash'] = ['identifier \"com.apple.dash\" and anchor apple']
+}
 
-		if ($.NSFileManager.defaultManager.fileExistsAtPathIsDirectory(thisBinaryPath, thisBinaryPathIsDirectory) && !thisBinaryPathIsDirectory[0] &&
-			$.SecStaticCodeCreateWithPath($.NSURL.fileURLWithPath(thisBinaryPath), $.kSecCSDefaultFlags, staticCodeRef) === 0 && !cfRefToNSObjectIfNeeded(staticCodeRef[0]).isNil() &&
-			$.SecRequirementCreateWithString($.CFStringCreateWithCString($.kCFAllocatorDefault, thisValidCSReqString, $.kCFStringEncodingUTF8), $.kSecCSDefaultFlags, validCSReqRef) === 0 && !cfRefToNSObjectIfNeeded(validCSReqRef[0]).isNil() &&
-			$.SecStaticCodeCheckValidity(cfRefToNSObjectIfNeeded(staticCodeRef[0]), $.kSecCSCheckAllArchitectures, cfRefToNSObjectIfNeeded(validCSReqRef[0])) === 0) {
-			// First check that validCSReqRef is NOT nil/NULL to be sure the valid requirement string itself is a proper CSReqs string
-			// (since if not, nil/NULL would be passed to 'SecStaticCodeCheckValidity' which would just verify against the binaries internal requirements).
-
-			// I also tried using '$.SecCodeCheckValidity(cfRefToNSObjectIfNeeded(staticCodeRef[0]), $.kSecCSDefaultFlags, cfRefToNSObjectIfNeeded(validCSReqRef[0]))'
-			// but it always returned error code '-67071' (errSecCSInvalidObjectRef = Invalid API object reference) while
-			// 'SecStaticCodeCheckValidity' seems to properly check the CSReq string and return '0' when sucessfully matched.
-
-			let actualCSReqRef = Ref()
-			let actualCSReqStringRef = Ref()
-			if ($.SecCodeCopyDesignatedRequirement(cfRefToNSObjectIfNeeded(staticCodeRef[0]), $.kSecCSDefaultFlags, actualCSReqRef) === 0 && !cfRefToNSObjectIfNeeded(actualCSReqRef[0]).isNil() &&
-				$.SecRequirementCopyString(cfRefToNSObjectIfNeeded(actualCSReqRef[0]), $.kSecCSDefaultFlags, actualCSReqStringRef) === 0) {
-				let actualCSReqString = cfRefToNSObjectIfNeeded(actualCSReqStringRef[0])
+const csreqValidatedForBinaries = []
+for (const thisBinaryPath in pathsToBinariesAndValidCSReqs) {
+	const thisBinaryPathIsDirectoryRef = Ref()
+	if ($.NSFileManager.defaultManager.fileExistsAtPathIsDirectory(thisBinaryPath, thisBinaryPathIsDirectoryRef) && !thisBinaryPathIsDirectoryRef[0]) {
+		const thisBinaryURL = $.NSURL.fileURLWithPath(thisBinaryPath)
+		const staticCodeRef = \$()
+		const actualCSReqRef = \$()
+		const actualCSReqStringRef = \$()
+		if ($.SecStaticCodeCreateWithPath(thisBinaryURL, $.kSecCSDefaultFlags, staticCodeRef) === 0 && !staticCodeRef.isNil() &&
+			$.SecCodeCopyDesignatedRequirement(staticCodeRef, $.kSecCSDefaultFlags, actualCSReqRef) === 0 && !actualCSReqRef.isNil() &&
+			$.SecRequirementCopyString(actualCSReqRef, $.kSecCSDefaultFlags, actualCSReqStringRef) === 0) {
+			const validCSReqStringsArray = pathsToBinariesAndValidCSReqs[thisBinaryPath]
+			for (const thisValidCSReqString of validCSReqStringsArray) {
+				const actualCSReqString = actualCSReqStringRef
 				if (!actualCSReqString.isNil() && thisValidCSReqString === actualCSReqString.js) {
-					// Retrieving and checking the actual CSReq string is not really necessary since we know it should be correct from the previous 'SecStaticCodeCheckValidity' check,
-					// but retrieve, check, and return the validated binary paths as a way to check for a fully successful return value in the AppleScript code rather than simply returning 'true' or 'false'.
+					// Retrieving and checking the actual CSReq string first is not really necessary since we the 'SecStaticCodeCheckValidity' check that we do next does that and more.
+					// But, since some binaries have multiple possible valid CSReq string possibilities, it's faster to just check the CSReq string directly first to fail quickly before
+					// doing the next longer and fully thorough validation via the 'SecStaticCodeCheckValidity' function.
 
-					csreqValidatedForBinaries.push(thisBinaryPath) // Only return the paths to the validated binaries since including the actualCSReqString would be tedious to check against since that would result are a variety of possible combinations of successful return values while this way there is just a single successful return value.
-					break
+					const validCSReqRef = \$()
+					if ($.SecRequirementCreateWithString($.CFStringCreateWithCString($.kCFAllocatorDefault, thisValidCSReqString, $.kCFStringEncodingUTF8), $.kSecCSDefaultFlags, validCSReqRef) === 0 && !validCSReqRef.isNil() &&
+						$.SecStaticCodeCheckValidity(staticCodeRef, $.kSecCSCheckAllArchitectures, validCSReqRef) === 0) {
+						// First check that validCSReqRef is NOT nil/NULL to be sure the valid requirement string itself is a proper CSReqs string
+						// (since if not, nil/NULL would be passed to 'SecStaticCodeCheckValidity' which would just verify against the binaries internal requirements).
+
+						// I also tried using '$.SecCodeCheckValidity(staticCodeRef, $.kSecCSDefaultFlags, validCSReqRef)'
+						// but it always returned error code '-67071' (errSecCSInvalidObjectRef = Invalid API object reference) while
+						// 'SecStaticCodeCheckValidity' seems to properly check the CSReq string and return '0' when sucessfully matched.
+
+						// Return the validated binary paths as a way to check for a fully successful return value in the AppleScript code rather than simply returning 'true' or 'false'.
+						// But, do not also include the 'actualCSReqString' since that would be more tedious to check against since that would result in more possible combinations of successful return values.
+						csreqValidatedForBinaries.push(thisBinaryPath)
+						break
+					}
 				}
 			}
 		}
 	}
 }
 
-function cfRefToNSObjectIfNeeded(cfRefToConvert) {
-	// Some automatic CF-NS bridging broke in JXA in Mojave and then more broke in Catalina.
-	// This 'CFMakeCollectable' workaround solves the issue to convert the CF references to NS objects,
-	// but cannot be used indiscriminately on older versions of macOS that don't need the workaround as it
-	// will return an empty NS object unless the input is an actual CF reference that needs to be converted.
-	// So, this function will check that the input object needs to be converted and only convert it if so.
-	// This way, this function can be called with any objects that may or may not need to be converted
-	// on any version of macOS and will only convert the CF references to NS objects when needed.
-	// If an plain Ref() is passed, it will have an 'undefined' type and does not need to be converted.
-	// If a reference is for an NSObject pointer, its type will be '@' which doesn't need to be converted.
-	// I am uncertain if there are more Ref types that do not need to be converted, but if they come up
-	// they should be easy to add to the following condition to ignore as needed.
-	return (((cfRefToConvert instanceof Ref) && (cfRefToConvert.type !== undefined) && (cfRefToConvert.type != '@')) ? $.CFMakeCollectable(cfRefToConvert) : cfRefToConvert)
-}
-
-csreqValidatedForBinaries.join(', ') // The last statement will make JXA return the value.
-")") in ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'JavaScript')"))
-		if (${csreq_validated_binaries_var} is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/osascript, /usr/bin/id, /usr/bin/stat, /bin/ps, /usr/bin/openssl, /usr/bin/pgrep')")) then return 2
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[0]}
-		if ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/id -u')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) then return 3
-		set ${script_pwd_var} to (system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PWD')"))
-		if (((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'SCRIPT_NAME')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'postinstall')")) or ((system attribute ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'INSTALL_PKG_SESSION_ID')")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'PKInstallSandbox')")) or (${script_pwd_var} does not contain ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${pkg_identifier}")"))) then return 4
-		set ${script_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${extracted_resources_dir}/${passwords_deobfuscation_script_file_random_name}")")
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[1]}
-		try
-			((${script_path_var} as POSIX file) as alias)
-		on error number ${this_error_number}
-			if (${this_error_number} is equal to -1700) then return 5 -- "-1700" would be the error number if somehow the script_path_var file does not exist (which shouldn't happen).
-			set ${last_error_var} to ("5/" & ${this_error_number}) -- Error and include actual error number in last_error_var if any other error occurred.
-			error number ${this_error_number}
-		end try
-		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[1]}
-		if (((POSIX path of (path to me)) is not equal to ${script_path_var}) or ((do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "/usr/bin/stat -f %A '${extracted_resources_dir}'")")) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')")) or ((do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/stat -f %A ')") & (quoted form of ${script_path_var}))) is not equal to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '0')"))) then return 6
-		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[2]}
-		set ${parent_command_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "/bin/ps -p \$PPID -o command=")")))
-		set ${intended_parent_command_path_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/osascript')")
-		if (${intended_parent_command_path_var} is not equal to ${parent_command_path_var}) then return 7
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[2]}
-		set ${this_ancestor_pid_var} to (do shell script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "/bin/ps -p \$PPID -o ppid=")"))
-		set ${grandparent_script_path_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "/bin/ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command= | cut -d ' ' -f 2")")))
-		set ${intended_grandparent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
-		if ((${intended_grandparent_script_path_var} is not equal to ${grandparent_script_path_var}) and (${intended_grandparent_script_path_var} is not equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${grandparent_script_path_var}))) then return 8 -- grandparent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
-		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[3]}
-		if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is not equal to ((last word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/openssl dgst -sha512 ')") & (quoted form of ${grandparent_script_path_var})))) as text)) then return 9
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[3]}
-		set ${intended_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[4]}
-		considering numeric strings
-			if ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')")) then
-				set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
-			else
-				set ${intended_ancestor_process_var} to (${intended_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
-			end if
-		end considering
-		${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[4]}
-		set ${actual_ancestor_process_var} to ""
-		try
-			repeat until (${actual_ancestor_process_var} is equal to ${intended_ancestor_process_var}) -- Traverse up the whole process tree searching for the intended ancestor process since if this package is being installed from within another package the intended ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
-				set ${this_ancestor_pid_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "/bin/ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")))
-				set ${actual_ancestor_process_var} to (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string "/bin/ps -p ")") & ${this_ancestor_pid_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")))
-			end repeat
-		on error number ${this_error_number}
-			if (${this_error_number} is equal to 1) then return 10 -- "1" would be the error if the intended ancestor process was not running and loop got all the way to PID 0 and errored when trying to output it's parent command.
-			set ${last_error_var} to ("10/" & ${this_error_number}) -- Error and include actual error number in last_error_var if any other error occurred.
-			error number ${this_error_number}
-		end try
-		if (${intended_ancestor_process_var} is not equal to ${actual_ancestor_process_var}) then return 11
-		${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[5]}
-		try
-			do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/pgrep -qfx ')") & (quoted form of ${intended_ancestor_process_var})) -- Make sure there are not any instances of intended_ancestor_process_var that ARE NOT an ancestor of this process.
-			return 12
-		on error number ${this_error_number}
-			if (${this_error_number} is not equal to 1) then -- Error and include actual error number in last_error_var if the caught error wasn't the expected and intended "pgrep -qfx" failure.
-				set ${last_error_var} to ("12/" & ${this_error_number})
-				error number ${this_error_number}
-			else
-				try
-					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[5]}
-					do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/pgrep -qafx ')") & (quoted form of ${intended_ancestor_process_var})) -- Confirm intended_ancestor_process_var IS an ancestor of this process (this check is actually redundant because it's already been manually confirmed in the actual_ancestor_process_var loop, but doesn't hurt to double check).
-					${wrapped_encrypted_passwords_chunk_var_assignments_shuffled[6]}
-					set ${wrapped_encrypted_passwords_var} to (${wrapped_encrypted_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[1]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[3]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${wrapped_encrypted_passwords_chunk_variable_names[5]})) as text) & ${wrapped_encrypted_passwords_chunk_variable_names[6]})
-					${wrapping_passwords_encryption_key_chunk_var_assignments_shuffled[6]}
-					set ${wrapping_passwords_encryption_key_var} to (${wrapping_passwords_encryption_key_chunk_variable_names[0]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[1]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[2]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[3]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[4]} & ((reverse of (characters of ${wrapping_passwords_encryption_key_chunk_variable_names[5]})) as text) & ${wrapping_passwords_encryption_key_chunk_variable_names[6]})
-					return (${wrapped_encrypted_passwords_var} & "\n" & ${wrapping_passwords_encryption_key_var})
-				on error number ${this_error_number}
-					if (${this_error_number} is equal to 1) then return 13 -- "1" would be the error number if somehow the "pgrep -qafx" command failed (which it shouldn't).
-					set ${last_error_var} to ("13/" & ${this_error_number}) -- Error and include actual error number in last_error_var if any other error occurred.
-					error number ${this_error_number}
-				end try
-			end if
-		end try
-	on error number ${this_error_number}
-		if (${last_error_var} is equal to -1) then set ${last_error_var} to ("-1/" & ${this_error_number}) -- If some specific last_error_var was set before getting here, that will be used instead.
-		try -- Try to wait 1 second between multiple attempts, but even the "delay" command could cause a "-600" error, so if "delay" fails just do another attempt immediately.
-			delay 1
-		end try
+// The last statement will make JXA return the value.
+csreqValidatedForBinaries.join(', ')
+" 'stripJScomments')") in ${javascript_name_var})
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	considering numeric strings
+		set ${is_catalina_or_newer_var} to ((system version of (system info)) >= ${deobfuscate_string_func}("$(mkuser_obfuscate_string '10.15')"))
+	end considering
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${expected_csreq_validated_binaries_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/osascript, /bin/sh, /bin/bash, /bin/ps, /usr/bin/openssl, /usr/bin/pgrep, /usr/bin/wc, /usr/sbin/sysadminctl, /usr/bin/xxd, /usr/bin/expect, /usr/bin/profiles')")
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${is_catalina_or_newer_var}) then set ${expected_csreq_validated_binaries_var} to (${expected_csreq_validated_binaries_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string ', /bin/zsh, /bin/dash')")) -- zsh and dash will only be validated when running on macOS 10.15 Catalina and newer, as described in the comments within the CSReq code above.
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${expected_csreq_validated_binaries_var} is not equal to ${csreq_validated_binaries_var}) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[8]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${ps_p_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string "/bin/ps -p ")")
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${ps_o_command_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o command=")")
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if ((${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/osascript ')") & ${script_path_var}) is not equal to (do shell script (${ps_p_var} & (run script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ObjC.import('unistd'); $.getpid()")") in ${javascript_name_var}) & ${ps_o_command_var}))) then return ${passwords_deobfuscation_error_code_var} -- Make sure command of the PID of this script is the exact expected osascript command. Also get the PID of this script using native function via JXA using "run script" so that it is un-spoofable.
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[9]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${this_ancestor_pid_var} to (run script ${deobfuscate_string_func}("$(mkuser_obfuscate_string "ObjC.import('unistd'); $.getppid()")") in ${javascript_name_var}) -- Use native function via JXA using "run script" to get this scripts parent PID so that it is un-spoofable.
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[10]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${parent_script_path_var} to (do shell script (${ps_p_var} & ${this_ancestor_pid_var} & ${ps_o_command_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string " | cut -d ' ' -f 2")")))
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[11]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${expected_parent_script_path_var} to (${script_pwd_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/postinstall')"))
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[12]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if ((${expected_parent_script_path_var} is not equal to ${parent_script_path_var}) and (${expected_parent_script_path_var} is not equal to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/private')") & ${parent_script_path_var}))) then return ${passwords_deobfuscation_error_code_var} -- parent_script_path_var may start with "/tmp/" symlink instead of "/private/tmp/".
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[13]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscate_string_func}("$(mkuser_obfuscate_string "${postinstall_checksum}")") is not equal to ((last word of (do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/openssl dgst -sha512 ')") & (quoted form of ${parent_script_path_var})))) as string)) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[14]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${expected_ancestor_process_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string '/System/Library/PrivateFrameworks/PackageKit.framework/')")
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${is_catalina_or_newer_var}) then
+		set ${expected_ancestor_process_var} to (${expected_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Versions/A/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service')"))
+	else
+		set ${expected_ancestor_process_var} to (${expected_ancestor_process_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string 'Resources/installd')"))
+	end if
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[15]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${actual_ancestor_process_var} to ""
+	try
+		set ${ps_o_ppid_var} to ${deobfuscate_string_func}("$(mkuser_obfuscate_string " -o ppid=")")
+		repeat until (${actual_ancestor_process_var} is equal to ${expected_ancestor_process_var}) -- Traverse up the whole process tree searching for the expected ancestor process since if this package is being installed from within another package the expected ancestor process would be more steps up the process tree vs if the package is just being installed normally, but either case should be allowed.
+			set ${this_ancestor_pid_var} to (do shell script (${ps_p_var} & ${this_ancestor_pid_var} & ${ps_o_ppid_var}))
+			set ${actual_ancestor_process_var} to (do shell script (${ps_p_var} & ${this_ancestor_pid_var} & ${ps_o_command_var}))
+		end repeat
+	on error number ${this_error_number_var}
+		if (${this_error_number_var} is equal to 1) then return ${passwords_deobfuscation_error_code_var} -- "1" would be the error if the expected ancestor process was not running and loop got all the way to PID 0 and errored when trying to output it's parent command.
+		error number ${this_error_number_var} -- If any other error occurred, throw that error number which will be returned along with the current "passwords_deobfuscation_error_code_var" value.
 	end try
-end repeat
-return ${last_error_var} -- If all 5 attempts failed, return the last_error_var.
-on ${deobfuscate_string_func}(${obfuscated_string_var})
-	repeat 5 times -- See comments in the "passwords_deobfuscation_attempt" about why this functions code is attempted multiple times (it's in case of random "-600" errors).
-		try
-			${obfuscate_characters_shift_count_jumble_var_lines}
-			set ${obfuscated_char_ints_var} to id of ${obfuscated_string_var} as list
-			repeat with ${this_obfuscated_char_var} in ${obfuscated_char_ints_var}
-				set contents of ${this_obfuscated_char_var} to ${this_obfuscated_char_var} - (((${obfuscate_characters_shift_count_actual_variable_names_to_concatenate}) as text) as number)
-			end repeat
-			return string id ${obfuscated_char_ints_var}
-		end try
-		try -- Try to wait 1 second between multiple attempts, but even the "delay" command could cause a "-600" error, so if "delay" fails just do another attempt immediately.
-			delay 1
-		end try
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[16]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${expected_ancestor_process_var} is not equal to ${actual_ancestor_process_var}) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[17]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	try
+		do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/pgrep -qfx ')") & (quoted form of ${expected_ancestor_process_var})) -- Make sure there are not any instances of expected_ancestor_process_var that ARE NOT an ancestor of this process.
+		return ${passwords_deobfuscation_error_code_var}
+	on error number ${this_error_number_var}
+		if (${this_error_number_var} is not equal to 1) then error number ${this_error_number_var} -- If any error other than the expected and intended "pgrep -qfx" failure occurred, throw that error number which will be returned along with the current "passwords_deobfuscation_error_code_var" value.
+	end try
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[18]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	try
+		do shell script (${deobfuscate_string_func}("$(mkuser_obfuscate_string '/usr/bin/pgrep -qafx ')") & (quoted form of ${expected_ancestor_process_var})) -- Confirm "expected_ancestor_process_var" IS an ancestor of this process (this check is actually redundant because it's already been manually confirmed in the actual_ancestor_process_var loop, but doesn't hurt to double check).
+	on error number ${this_error_number_var}
+		if (${this_error_number_var} is equal to 1) then return ${passwords_deobfuscation_error_code_var} -- "1" would be the error number if somehow the "pgrep -qafx" command failed (which it shouldn't).
+		error number ${this_error_number_var} -- If any other error occurred, throw that error number which will be returned along with the current "passwords_deobfuscation_error_code_var" value.
+	end try
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	${obfuscated_passwords_chunk_var_assignments_shuffled[19]}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${obfuscated_passwords_var} to (${obfuscated_passwords_chunk_variable_names[0]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[1]})) as string) & ${obfuscated_passwords_chunk_variable_names[2]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[3]})) as string) & ${obfuscated_passwords_chunk_variable_names[4]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[5]})) as string) & ${obfuscated_passwords_chunk_variable_names[6]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[7]})) as string) & ${obfuscated_passwords_chunk_variable_names[8]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[9]})) as string) & ${obfuscated_passwords_chunk_variable_names[10]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[11]})) as string) & ${obfuscated_passwords_chunk_variable_names[12]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[13]})) as string) & ${obfuscated_passwords_chunk_variable_names[14]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[15]})) as string) & ${obfuscated_passwords_chunk_variable_names[16]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[17]})) as string) & ${obfuscated_passwords_chunk_variable_names[18]} & ((reverse of (characters of ${obfuscated_passwords_chunk_variable_names[19]})) as string))
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${shuffled_base64_passwords_chunks_list_var} to ((unarchivedObjectOfClass_fromData_error_((NSArray of current application), (initWithBase64EncodedString_options_(${obfuscated_passwords_var}, 0) of alloc of NSData of current application), missing value) of NSKeyedUnarchiver of current application) as list)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${number_sixteen_var} to (${deobfuscate_string_func}("$(mkuser_obfuscate_string '16')") as number)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if ((length of ${shuffled_base64_passwords_chunks_list_var}) is not equal to ${number_sixteen_var}) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${shuffled_passwords_chunks_order_list_var} to (words of ${deobfuscate_string_func}("$(mkuser_obfuscate_string "${shuffled_passwords_chunks_order}")"))
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if ((length of ${shuffled_passwords_chunks_order_list_var}) is not equal to ${number_sixteen_var}) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${this_ordered_index_var} to 1
+	set ${ordered_base64_passwords_chunks_list_var} to {}
+	repeat with ${this_shuffled_index_var} in ${shuffled_passwords_chunks_order_list_var}
+		set ${this_base64_password_part_var} to (text item ((${this_shuffled_index_var} as integer) + 1) of ${shuffled_base64_passwords_chunks_list_var})
+		if ((${this_ordered_index_var} mod 2) is equal to 0) then set ${this_base64_password_part_var} to ((reverse of (characters of ${this_base64_password_part_var})) as string)
+		set (end of ${ordered_base64_passwords_chunks_list_var}) to ${this_base64_password_part_var}
+		set ${this_ordered_index_var} to (${this_ordered_index_var} + 1)
 	end repeat
-	return ${obfuscated_string_var} -- If every attempt failed, return the obfuscated_string_var back so that each returned value is unique so that equality checks will not incorrectly pass (which could happen in some cases if an empty string was returned).
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${deobfuscated_user_password_var} to (initWithData_encoding_((initWithBase64EncodedString_options_(((text items (${deobfuscate_string_func}("$(mkuser_obfuscate_string '1')") as number) thru (${deobfuscate_string_func}("$(mkuser_obfuscate_string '4')") as number) of ${ordered_base64_passwords_chunks_list_var}) as string), (NSDataBase64DecodingIgnoreUnknownCharacters of current application)) of alloc of NSData of current application), (NSUTF8StringEncoding of current application)) of alloc of NSString of current application)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscated_user_password_var} is equal to missing value) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${deobfuscated_user_password_var} to (${deobfuscated_user_password_var} as Unicode text)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscated_user_password_var} is equal to "") then return ${passwords_deobfuscation_error_code_var} -- The value returned after decoding the base64 string via native methods will NEVER be an empty string, so if it is that indicates an error and we must exit.
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscated_user_password_var} is equal to linefeed) then set ${deobfuscated_user_password_var} to "" -- If the actual password was an empty string, it will have been repaced with a single line break instead (as described in the passwords obfuscation code above), so in this case set the password back to an empty string as intended.
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${deobfuscated_st_admin_password_var} to (initWithData_encoding_((initWithBase64EncodedString_options_(((text items (${deobfuscate_string_func}("$(mkuser_obfuscate_string '13')") as number) thru ${number_sixteen_var} of ${ordered_base64_passwords_chunks_list_var}) as string), (NSDataBase64DecodingIgnoreUnknownCharacters of current application)) of alloc of NSData of current application), (NSUTF8StringEncoding of current application)) of alloc of NSString of current application)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscated_st_admin_password_var} is equal to missing value) then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	set ${deobfuscated_st_admin_password_var} to (${deobfuscated_st_admin_password_var} as Unicode text)
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscated_st_admin_password_var} is equal to "") then return ${passwords_deobfuscation_error_code_var}
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	if (${deobfuscated_st_admin_password_var} is equal to linefeed) then set ${deobfuscated_st_admin_password_var} to ""
+	set ${passwords_deobfuscation_error_code_var} to (${passwords_deobfuscation_error_code_var} + 1)
+	return (${deobfuscated_user_password_var} & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '<')") & linefeed & ${deobfuscate_string_func}("$(mkuser_obfuscate_string '>')") & ${deobfuscated_st_admin_password_var}) -- Since the output of this passwords deobfuscation script will be captured via command substitution which trims any trailing line breaks, the passwords will be returned separated by "<\n>" instead of just "\n" in case the admin password is omitted or an empty string which would return only a one line string if there was nothing at all on the second line (which would be indistinguishable from an error).
+on error number ${this_error_number_var}
+	return ((${passwords_deobfuscation_error_code_var} & "/" & ${this_error_number_var}) as string) -- If any error occurred, return that that error number along with the "passwords_deobfuscation_error_code_var" to know when in the process the error occurred.
+end try
+return -1 -- It should never be possible to get here, but return something unique if we do somehow.
+on ${deobfuscate_string_func}(${obfuscated_string_var}) -- DO NOT put the code in this function in a TRY block so that any errors that may occur within it are caught by the main try block and returned along with the "passwords_deobfuscation_error_code_var" to know when in the process the error occurred.
+	set ${obfuscated_char_ints_var} to ((id of ${obfuscated_string_var}) as list)
+	repeat with ${this_obfuscated_char_var} in ${obfuscated_char_ints_var}
+		set (contents of ${this_obfuscated_char_var}) to (${this_obfuscated_char_var} - ${passwords_deobfuscation_obfuscate_characters_shift_count_var})
+	end repeat
+	set ${deobfuscated_string_var} to (initWithData_encoding_((initWithBase64EncodedString_options_((string id ${obfuscated_char_ints_var}), (NSDataBase64DecodingIgnoreUnknownCharacters of current application)) of alloc of NSData of current application), (NSUTF8StringEncoding of current application)) of alloc of NSString of current application)
+	if (${deobfuscated_string_var} is equal to missing value) then error number 45261 -- If decoding the base64 string errored, the output will be "nil" which is represented as "missing value" in AppleScript, so throw a unique error to indicate the issue.
+	set ${deobfuscated_string_var} to (${deobfuscated_string_var} as string)
+	if (${deobfuscated_string_var} is equal to "") then error number 45262 -- It's also possible for some invalid base64 strings to be "successfully" decoded into empty strings without erroring otherwise, so also detect that and throw a different unique error to indicate the issue.
+	return ${deobfuscated_string_var}
 end ${deobfuscate_string_func}
 PACKAGE_PASSWORD_OSACOMPILE_EOF
 
@@ -4240,6 +4327,7 @@ PACKAGE_PASSWORD_OSACOMPILE_EOF
 			# Save the passwords deobfuscation script as encrypted gzip compressed text inside of the "preinstall" script to be extracted to a file manually in "extracted_resources_dir" since this package will be a "nopayload" package and we do not want to include any actual package resources.
 			# Instead just base64 encoding the gzip compressed text like the picture, the passwords deobfuscation script is also encrypted using the checksum of the specific "postinstall" script as the encryption key.
 			# This does not really add any specific security, but it makes things a bit more annoying for anyone trying to even begin attempting to extract the passwords (which, as described above, would still be incredibly difficult even after getting the "scpt" file decrypted and saved into a file).
+			# NOTE: Do not need to bother including "-salt" option with "openssl enc" since salt is enabled by default since at least macOS 10.13 High Sierra. See https://github.com/freegeek-pdx/mkuser/issues/2 for information about why "-md sha512" is specified for "openssl enc" commands.
 			cat << PACKAGE_PREINSTALL_EOF >> "${package_scripts_dir}/preinstall"
 
 echo 'mkuser PREINSTALL PACKAGE: Extracting passwords deobfuscation script...'
@@ -5227,8 +5315,8 @@ Check \"--help\" for detailed information about each available option."
 	dsimport_record+="${dsimport_record_values[*]}"
 	unset IFS
 
-	dsimport_file_unique_suffix="$(date '+%s')-$(jot -r 1 100000000 999999999)"
-	dsimport_output_plist_path="${TMPDIR:-/private/tmp/}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # TMPDIR is not set when running in "sudo bash". Ensure a unique filename that includes as much of the "user_account_name" as possible without going over the macOS 255 byte maximum.
+	dsimport_file_unique_suffix="$(date '+%s')-$(jot -rs '' 9 0 9)"
+	dsimport_output_plist_path="${TMPDIR}mkuser+${user_account_name:0:255-${#dsimport_file_unique_suffix}-21}+${dsimport_file_unique_suffix}+output.plist" # Ensure a unique filename that includes as much of the "user_account_name" as possible without going over the macOS 255 byte maximum.
 	rm -rf "${dsimport_output_plist_path}" # "dsimport" would probably overwrite the file if it already exist, but delete it to be sure.
 
 	# "dsimport" can only load a user record that is an actual file that exists in the filesystem (ie. the record data CANNOT be piped since that only exists in memory).
@@ -5435,9 +5523,9 @@ Check \"--help\" for detailed information about each available option."
 
 			if ! $boot_volume_is_apfs || (( darwin_major_version >= 19 || user_uid < 500 )) || [[ "$(diskutil apfs listUsers / 2> /dev/null)" == *'+-- '* ]]; then
 				# If boot volume is not APFS, Secure Tokens don't exist.
-				# If on macOS 11 Big Sur or newer, any unintended Secure Token would have been granted during account creation when the password was set, so checking the password won't make a difference.
-				# If on macOS 10.15 Catalina, the first Secure Token would only be granted to the first *administrator* to authenticate, which this user will not be (yet).
-				# If on macOS 10.14 Mojave or older, the first Secure Token would only be granted to the first user with a UID of 500 or greater to authenticate, so if the UID is below 500 a Secure Token would never be granted.
+				# On macOS 11 Big Sur and newer, any unintended Secure Token would have been granted during account creation when the password was set, so checking the password won't make a difference.
+				# On macOS 10.15 Catalina, the first Secure Token would only be granted to the first *administrator* to authenticate, which this user will not be (yet).
+				# On macOS 10.14 Mojave and older, the first Secure Token would only be granted to the first user with a UID of 500 or greater to authenticate, so if the UID is below 500 a Secure Token would never be granted.
 				# If the first Secure Token has already been granted, another will not be granted automatically upon authentication (and won't make a difference if that Secure Token is one that already got unintentionally granted to this account).
 
 				if verify_user_password_result="$(mkuser_verify_password "${user_account_name}" "${user_password}" 2>&1)" && [[ "${verify_user_password_result}" == 'VERIFIED' ]]; then
@@ -5445,7 +5533,7 @@ Check \"--help\" for detailed information about each available option."
 				fi
 			elif check_asterisk_password_content_result="$(mkuser_check_password_content '*' 'bypassFallback' 2>&1)" && [[ "${check_asterisk_password_content_result}" == 'PASSED' ]]; then
 				# If verifying the password could possibly grant this account the first Secure Token, instead check if the system password content policy allows an asterisk as a valid password (bypassing the "mkuser_check_password_content" functions fallback to use the default requirements when no password content policy is set to check what the system actually allows and not get a false negative).
-				# Not being able to safely check the password would only happen on macOS 10.14 Mojave or older when this users UID is 500 or greater and no Secure Token has been granted yet.
+				# Not being able to safely check the password would only happen on macOS 10.14 Mojave and older when this users UID is 500 or greater and no Secure Token has been granted yet.
 				# But since this is most likely to occur on macOS 10.13 High Sierra where no password content policy is set by default, this is an important case to check for.
 
 				password_unintentionally_got_set_to_asterisk=true
@@ -5516,28 +5604,29 @@ Check \"--help\" for detailed information about each available option."
 			# No shell variables (or command substitution) are used in this JXA code, so it is single quoted.
 			# shellcheck disable=SC2016
 			set_password_result="$(printf '%s' "$2" | OSASCRIPT_ENV_ACCOUNT_NAME="$1" osascript -l 'JavaScript' -e '
+"use strict"
 ObjC.import("OpenDirectory") // "Foundation" framework is available in JXA by default, but need to import "OpenDirectory" framework manually (for the required password change methods):
 // https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW18
 
-let accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
-let newPassword = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
+const accountName = $.NSProcessInfo.processInfo.environment.objectForKey("OSASCRIPT_ENV_ACCOUNT_NAME")
+const newPassword = $.NSString.alloc.initWithDataEncoding(($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0}) ?
 	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFileAndReturnError($()) :
 	$.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile), $.NSUTF8StringEncoding)
 
 // Code in the open source OpenDirectory "TestApp.m" from Apple contains useful examples for the following OpenDirectory methods used: https://opensource.apple.com/source/OpenDirectory/OpenDirectory-146/Tests/TestApp.m.auto.html
 
-let odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
-let odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
+const odLocalNodeError = $() // Create a "nil" object which will be set to any NSError: https://developer.apple.com/library/archive/releasenotes/InterapplicationCommunication/RN-JavaScriptForAutomation/Articles/OSX10-10.html#//apple_ref/doc/uid/TP40014508-CH109-SW27
+const odLocalNode = $.ODNode.nodeWithSessionTypeError($.ODSession.defaultSession, $.kODNodeTypeLocalNodes, odLocalNodeError) // https://developer.apple.com/documentation/opendirectory/odnode/1569410-nodewithsession?language=objc
 
 let setPasswordResult = `Set Password (Load Node) ERROR: Unknown error loading OpenDirectory "/Local/Default" node.`
 
 if (!odLocalNode.isNil() && odLocalNode.nodeName.js == "/Local/Default") {
-	let odUserRecordError = $()
-	let odUserRecord = odLocalNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, $(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
+	const odUserRecordError = $()
+	const odUserRecord = odLocalNode.recordWithRecordTypeNameAttributesError($.kODRecordTypeUsers, accountName, $(), odUserRecordError) // https://developer.apple.com/documentation/opendirectory/odnode/1428065-recordwithrecordtype?language=objc
 
 	if (!odUserRecord.isNil() && odUserRecord.recordName.js == accountName.js) {
-		let odSetPasswordError = $()
-		let odPasswordSet = odUserRecord.changePasswordToPasswordError($(), newPassword, odSetPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427145-changepassword?language=objc
+		const odSetPasswordError = $()
+		const odPasswordSet = odUserRecord.changePasswordToPasswordError($(), newPassword, odSetPasswordError) // https://developer.apple.com/documentation/opendirectory/odrecord/1427145-changepassword?language=objc
 
 		if (odPasswordSet === true) { // Make sure odPasswordSet is a boolean of true and no other truthy value.
 			setPasswordResult = "SET"
@@ -5671,7 +5760,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 				if ! this_share_point_name="$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeStandard\:RecordName:0" "${dscl_share_points_plist_path}" 2> /dev/null)" || [[ -z "${this_share_point_name}" ]]; then
 					break # Must check if RecordName is empty which will indicate there are no more SharePoint indexes and we need to break this infinite loop.
 				elif [[ "$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeNative\:directory_path:0" "${dscl_share_points_plist_path}" 2> /dev/null)" == "${user_home_path}/Public" ]]; then
-					# Along with confirming this SharePoint is for this new users Public folder, also make sure this SharePoints "com_apple_sharing_uuid" attribute (which will only be set on macOS 10.15 Catalina or newer) is not associated with any existing users GUID (if the attribute exists).
+					# Along with confirming this SharePoint is for this new users Public folder, also make sure this SharePoints "com_apple_sharing_uuid" attribute (which will only be set on macOS 10.15 Catalina and newer) is not associated with any existing users GUID (if the attribute exists).
 					# This means there is a (very rare) case where a duplicate existing SharePoint for this new users Public folder could be NOT deleted (when it somehow is still assocated with an existing users GUID) which would cause the Public folder to NOT be shared by mkuser, which will make mkuser output a warning, but still complete successfully.
 					this_share_point_user_guid="$(PlistBuddy -c "Print :${this_share_point_index}:dsAttrTypeNative\:com_apple_sharing_uuid:0" "${dscl_share_points_plist_path}" 2> /dev/null)"
 
@@ -5957,7 +6046,7 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 
 				if ! dscl . -read "/Groups/${user_share_point_group_name}" RecordName &> /dev/null; then
 					# While "mkuser" does not officially support older than macOS 10.13 High Sierra, I did do one test on OS X 10.11 El Capitan and was surprised to see that "sharing -a" actually created the SharePoint Group, unlike newer versions of macOS.
-					# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra or newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
+					# So, I added in this simple check to see if the SharePoint Group has already been created (even though it shouldn't be on macOS 10.13 High Sierra and newer) so that the user creation process could complete properly on OS X 10.11 El Capitan (but no more thorough testing was done).
 					# This check should make this one thing simpler if official support for older versions of macOS is ever needed, or if things change in a future version of macOS.
 
 					# Create the SharePoint Group (com.apple.sharepoint.group.#) and include the "everyone" group as a member (which will add it to NestedGroups), like "sysadminctl -addUser" and System Preferences does.
@@ -6076,6 +6165,8 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			echo "mkuser: Setting ${user_full_and_account_name_display} user to automatically login..."
 		fi
 
+		# RELATED: Here is an interesting deep dive into what processes in macOS normally set up auto-login: https://www.offensive-security.com/offsec/in-the-hunt-for-the-auto-login-setup-process/
+
 		# Both the "cipher_key" and "cipher_key_length" variable must be set for all versions of macOS since they both are needed to decode and verify the "kcpassword" file contents.
 		declare -a cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special "kcpassword" repeating cipher hex characters.
 		cipher_key_length="${#cipher_key[@]}"
@@ -6090,10 +6181,12 @@ setPasswordResult // Just having "setPasswordResult" as the last statement will 
 			if set_auto_login_output="$(printf '%s' "${user_password}" | sysadminctl -autologin set -userName "${user_account_name}" -password - 2>&1)" && [[ -z "${set_auto_login_output}" && "$(sysadminctl -autologin status 2>&1)" == *"] Automatic login user: ${user_account_name}" ]]; then
 				did_set_autologin_via_sysadminctl=true
 			else
-				# On at least macOS 13 Ventura beta 4 and beta 5, "sysadminctl -autologin set" (and "sysadminctl -autologin off") fail with error "SACSetAutoLoginPassword error:22"
+				# As of macOS 13 Ventura beta 9 (and earlier), "sysadminctl -autologin set" (and "sysadminctl -autologin off") fail with error "SACSetAutoLoginPassword error:22"
 				# WHEN IT IS RUN EARLY ON BOOT BEFORE A USER IS LOGGED IN YET (such as by a LaunchDaemon or as a "startosinstall" package).
 				# It ALSO seems to fail with the same error when it is run by a LaunchDaemon even if a user is currently logged in.
 				# Therefore, there are not uncommon cases where it is important to fallback to the previous code to encode the "kcpassword" and setup auto-login manually.
+				# Looking into the past system logs (using "log show --last 1h") after a failure when running early on boot via LaunchDaemon, it looks like the preceding errors are about failing to connect to a session,
+				# with errors like "Attempting to access a non-existant sessionID: 100001, no session creation" and "Unable to get the SessionAgent endpoint, endpoint is nil".
 				# TODO: NEED TO KEEP AN EYE ON THIS IN FUTURE BETAS AND FINAL RELEASE.
 
 				if [[ -n "${set_auto_login_output}" ]]; then echo "${set_auto_login_output}" | grep -F 'sysadminctl[' >&2; fi # If there was an error, show the "sysadminctl" output lines since they may be informative.

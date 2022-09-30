@@ -20,18 +20,24 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 
-# NOTICE: This script IS NOT for user creation packages. The mkuser script is used for that.
-# This script creates the package to install the mkuser script itself into "/usr/local/bin".
+# NOTICE: This script IS NOT for user creation packages. The mkuser script itself is used for that.
+# This script IS AN INTERNAL DEVELOPMENT TOOL which is used when new mkuser versions are released
+# to create the package to install the mkuser script into "/usr/local/bin".
 
 PATH='/usr/bin:/bin:/usr/sbin:/sbin'
 
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" &> /dev/null && pwd -P)"
 readonly SCRIPT_DIR
 
-script_name='mkuser'
-package_id="org.freegeek.${script_name}"
+TMPDIR="$([[ -d "${TMPDIR}" && -w "${TMPDIR}" ]] && echo "${TMPDIR%/}/" || echo '/private/tmp/')" # Make sure "TMPDIR" is always set and that it always has a trailing slash for consistency regardless of the current environment.
 
-payload_tmp_dir="${TMPDIR:-/private/tmp/}${script_name}_installation_payload"
+id_prefix='org.freegeek'
+script_name='mkuser'
+
+script_id="${id_prefix}.${script_name}"
+package_id="${id_prefix}.pkg.${script_name}"
+
+payload_tmp_dir="${TMPDIR}${script_name}_installation_payload"
 
 rm -rf "${payload_tmp_dir}"
 mkdir -p "${payload_tmp_dir}"
@@ -39,12 +45,23 @@ mkdir -p "${payload_tmp_dir}"
 cat "${SCRIPT_DIR}/${script_name}.sh" > "${payload_tmp_dir}/${script_name}" # Instead of copying the file, write the *contents* to a new file to be sure that no xattrs are ever included in the distributed script (such as "com.apple.macl" which is SIP protected).
 chmod +x "${payload_tmp_dir}/${script_name}"
 
-codesign -s 'Developer ID Application' -f "${payload_tmp_dir}/${script_name}"
-
 script_version="$(awk -F "'" '/VERSION=/ { print $(NF-1); exit }' "${payload_tmp_dir}/${script_name}")"
 if [[ -z "${script_version}" ]]; then script_version="$(date '+%Y.%-m.%-d')"; fi # https://strftime.org
 
-package_tmp_dir="${TMPDIR:-/private/tmp/}${script_name}_installation_package"
+echo -e "\nCode signing ${script_name} version ${script_version} script for package..."
+codesign -s 'Developer ID Application' --identifier "${script_id}" --strict "${payload_tmp_dir}/${script_name}" # Set a proper identifier since just the filename would be used if none is specified.
+
+codesign_exit_code="$?"
+
+spctl --assess -vvv --type execute "${payload_tmp_dir}/${script_name}" # This should "fail" with "rejected (the code is valid but does not seem to be an app)"
+
+if (( codesign_exit_code != 0 )); then
+	rm -rf "${payload_tmp_dir}"
+	>&2 echo -e "\nCODESIGN ERROR OCCURRED: EXIT CODE ${codesign_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+	exit 1
+fi
+
+package_tmp_dir="${TMPDIR}${script_name}_installation_package"
 
 rm -rf "${package_tmp_dir}"
 mkdir -p "${package_tmp_dir}"
@@ -53,6 +70,7 @@ rm -f "${payload_tmp_dir}/.DS_Store"
 
 package_tmp_output_path="${package_tmp_dir}/${script_name}.pkg"
 
+echo -e "\nCreating ${script_name} version ${script_version} installation package..."
 pkgbuild \
 	--install-location '/usr/local/bin' \
 	--root "${payload_tmp_dir}" \
@@ -66,7 +84,7 @@ rm -rf "${payload_tmp_dir}"
 
 if (( pkgbuild_exit_code != 0 )) || [[ ! -f "${package_tmp_output_path}" ]]; then
 	rm -rf "${package_tmp_dir}"
-	>&2 echo "PKGBUILD ERROR OCCURRED CREATING INITIAL PACKAGE: EXIT CODE ${pkgbuild_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+	>&2 echo -e "\nPKGBUILD ERROR OCCURRED CREATING INITIAL PACKAGE: EXIT CODE ${pkgbuild_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
 	exit 1
 fi
 
@@ -81,7 +99,7 @@ productbuild_synthesize_exit_code="$?"
 
 if (( productbuild_synthesize_exit_code != 0 )) || [[ ! -f "${package_distribution_xml_output_path}" ]]; then
 	rm -rf "${package_tmp_dir}"
-	>&2 echo "PRODUCTBUILD SYNTHESIZE ERROR OCCURRED CREATING DISTRIBUTION XML: EXIT CODE ${productbuild_synthesize_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+	>&2 echo -e "\nPRODUCTBUILD SYNTHESIZE ERROR OCCURRED CREATING DISTRIBUTION XML: EXIT CODE ${productbuild_synthesize_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
 	exit 2
 fi
 
@@ -132,7 +150,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 
 if ! [[ "$(xmllint --xpath '//options/@hostArchitectures' "${package_distribution_xml_output_path}" 2> /dev/null)" =~ arm64[,\"] ]]; then # Make sure the updated "distribution.xml" file is marked as Universal (in case the manual edits above failed somehow).
 	rm -rf "${package_tmp_dir}"
-	>&2 echo "DISTRIBUTION.XML ERROR OCCURRED: Failed to mark package as Universal to be able to run on Apple Silicon Macs without requiring Rosetta."
+	>&2 echo -e "\nDISTRIBUTION.XML ERROR OCCURRED: Failed to mark package as Universal to be able to run on Apple Silicon Macs without requiring Rosetta."
 	exit 3
 fi
 
@@ -157,7 +175,7 @@ productbuild_exit_code="$?"
 rm -rf "${package_tmp_dir}"
 
 if (( productbuild_exit_code != 0 )) || [[ ! -f "${package_output_path}" ]]; then
-	>&2 echo "PRODUCTBUILD ERROR OCCURRED CREATING/SIGNING INSTALLATION PACKAGE: EXIT CODE ${productbuild_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+	>&2 echo -e "\nPRODUCTBUILD ERROR OCCURRED CREATING/SIGNING INSTALLATION PACKAGE: EXIT CODE ${productbuild_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
 	exit 4
 fi
 
@@ -166,36 +184,52 @@ if [[ -d '/Applications/SD Notary.app' ]]; then
 	read -r confirm_notarization
 
 	if [[ "${confirm_notarization}" =~ ^[Yy] ]]; then
-		echo -e "\nNotarizing ${script_name} version ${script_version} installation package with SD Notary (THIS MAY TAKE A FEW MINUTES)..."
+		# Setting up "notarytool": https://scriptingosx.com/2021/07/notarize-a-command-line-tool-with-notarytool/ & https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/customizing_the_notarization_workflow
 
-		rm -rf "${SCRIPT_DIR}/${script_name} ${script_version} - "*
+		notarization_submission_log_path="${TMPDIR}${script_name}_package_notarization_submission.log"
+		rm -rf "${notarization_submission_log_path}"
 
-		# Could potentially use "notarytool" to script notarization pretty easily (https://scriptingosx.com/2021/07/notarize-a-command-line-tool-with-notarytool/),
-		# but I use SD Notary in other projects and it's nice and simple and gets the job done for now.
-		# All SD Notary properties are set to "false" because we don't want any of them enabled and app default settings could be different.
-		notarized_package_path="$(OSASCRIPT_ENV_PKG_OUTPUT_PATH="${package_output_path}" osascript << 'SD_NOTARY_EOF'
-set notarizedPackagePath to "UNKNOWN ERROR"
-with timeout of 900 seconds
-	tell application "SD Notary" to set notarizedPackagePath to (POSIX path of (submit app (make new document with properties ¬
-		{skip enclosures:false, allow events:false, allow calendar access:false, allow audio access:false, allow camera access:false, allow location access:false, allow Photos access:false, allow address access:false, allow library loading:false, allow JIT:false, allow unsigned executable memory:false, allow DYLD env variables:false, allow disabled protection:false, allow debugging:false}) ¬
-		at (system attribute "OSASCRIPT_ENV_PKG_OUTPUT_PATH")))
-end timeout
-notarizedPackagePath
-SD_NOTARY_EOF
-)"
+		echo -e "\nNotarizing ${script_name} version ${script_version} installation package..."
+		xcrun notarytool submit "${package_output_path}" --keychain-profile 'notarytool App Specific Password' --wait | tee "${notarization_submission_log_path}" # Show live log since it may take a moment AND save to file to extract submission ID from to be able to load full notarization log.
+		notarytool_exit_code="$?"
 
-		if [[ ! -f "${notarized_package_path}" || "${notarized_package_path}" != *" - Notarized/${package_output_filename}" ]]; then
-			>&2 echo "ERROR OCCURRED DURING NOTARIZATION: ${notarized_package_path:-SEE ERROR MESSAGES ABOVE}"
-			exit 5
-		else
-			echo "Successfully notarized ${script_name} version ${script_version} installation package!"
-			open -R "${notarized_package_path}"
+		notraization_submission_id="$(awk '($1 == "id:") { print $NF; exit }' "${notarization_submission_log_path}")"
+		rm -f "${notarization_submission_log_path}"
+
+		echo 'Notarization Log:'
+		xcrun notarytool log "${notraization_submission_id}" --keychain-profile 'notarytool App Specific Password' # Always load and show full notarization log regardless of success or failure (since documentation states there could be warnings).
+
+		if (( notarytool_exit_code != 0 )); then
+			>&2 echo -e "\nNOTARIZATION ERROR OCCURRED: EXIT CODE ${notarytool_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+		 	exit 5
 		fi
+
+		echo -e "\nStapling notarization ticket to ${script_name} version ${script_version} installation package..."
+		xcrun stapler staple "${package_output_path}"
+		stapler_exit_code="$?"
+
+		if (( stapler_exit_code != 0 )); then
+			>&2 echo -e "\nSTAPLING ERROR OCCURRED: EXIT CODE ${stapler_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+		 	exit 6
+		fi
+
+		echo -e "\nAssessing notarized ${script_name} version ${script_version} installation package..."
+		spctl_assess_output="$(spctl --assess -vvv --type install "${package_output_path}" 2>&1)"
+		spctl_assess_exit_code="$?"
+
+		echo "${spctl_assess_output}"
+
+		if (( spctl_assess_exit_code != 0 )) || [[ "${spctl_assess_output}" != *$'\nsource=Notarized Developer ID\n'* ]]; then # Double-check that the package got assessed to signed with "Notarized Developer ID".
+			>&2 echo -e "\nASSESSMENT ERROR OCCURRED: EXIT CODE ${spctl_assess_exit_code} (ALSO SEE ERROR MESSAGES ABOVE)"
+		 	exit 7
+		fi
+
+		echo -e "\nSuccessfully notarized ${script_name} version ${script_version} installation package!"
 	else
 		echo -e "\nChose NOT to notarize the ${script_name} version ${script_version} installation package."
-		open -R "${package_output_path}"
 	fi
 else
 	echo -e "\nInstall SD Notary to be able to notarize the ${script_name} version ${script_version} installation package: https://latenightsw.com/sd-notary-notarizing-made-easy/"
-	open -R "${package_output_path}"
 fi
+
+open -R "${package_output_path}"
