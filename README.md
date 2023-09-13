@@ -45,7 +45,7 @@ One other catch (that is similar to why `--fd-secure-token-admin-password` canno
 To install `mkuser` into `/usr/local/bin`:
 
 - Manually download and install the latest notarized installation package from the *Assets* of the [latest release](https://github.com/freegeek-pdx/mkuser/releases/latest) in this GitHub repository.
-- Run **`curl mkuser.sh | sh`** in your Terminal (or script).
+- Or, run **`curl mkuser.sh | sh`** in your Terminal (or script) to download, verify, and install the latest notarized installation package for you.
 
 To download and run `mkuser` from a temporary location without fully installing it:
 

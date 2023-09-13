@@ -28,7 +28,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2023.3.15-1'
+	readonly MKUSER_VERSION='2023.9.12-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -148,10 +148,10 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 		# This function is inspired by and based on https://scriptingosx.com/2020/08/running-a-command-as-another-user/ but with the added
 		# ability to be called whether or not the script is running as root and only run the command as the logged in user when needed.
 
-		local logged_in_user_id
-		logged_in_user_id="$(get_logged_in_user_id)"
-
 		if (( ${EUID:-$(id -u)} == 0 )); then
+			local logged_in_user_id
+			logged_in_user_id="$(get_logged_in_user_id)"
+
 			if [[ -z "${logged_in_user_id}" ]]; then
 				>&2 echo "ERROR: CANNOT RUN FOLLOWING COMMAND AS LOGGED IN USER SINCE RUNNING AS ROOT AND NO USER IS LOGGED IN: $*"
 				return 255
@@ -1072,7 +1072,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 	if $show_version; then
-		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek\nhttps://mkuser.sh\n\nUpdate Check: "
+		echo -en "mkuser: Version ${MKUSER_VERSION}\nCopyright (c) $(date '+%Y') Free Geek - MIT License\nhttps://mkuser.sh\n\nUpdate Check: "
 
 		if [[ "${MKUSER_VERSION}" != *'-0' ]]; then
 			if latest_version_json="$(curl -m 5 -sfL 'https://update.mkuser.sh' 2> /dev/null)" && [[ "${latest_version_json}" == *'"tag_name"'* ]]; then
@@ -2294,7 +2294,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 
 		# Strip ANSI styles to check each displayed line length string length.
 		# From: https://superuser.com/questions/380772/removing-ansi-color-codes-from-text-stream#comment2323889_380778
-		if echo -e "${help_information}" | sed $'s/\x1B\[[0-9;]*m//g' | grep -q '^.\{81\}'; then
+		if echo -e "${help_information}" | sed $'s/\033\[[0-9;]*m//g' | grep -q '^.\{81\}'; then
 			>&2 echo -e "\nmkuser HELP ERROR: Some help information line is over 80 characters.\n"
 		fi
 
@@ -2595,7 +2595,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 
 	osascript_password_dialog_icon_for_applescript=''
 	osascript_password_dialog_icon_path='/System/Library/CoreServices/loginwindow.app/Contents/Resources/LogOut.tiff'
-	if [[ -f "${osascript_password_dialog_icon_path}" && "$(file -bI "${osascript_password_dialog_icon_path}" 2> /dev/null)" == 'image/'* ]]; then
+	if [[ -f "${osascript_password_dialog_icon_path}" && "$(file -b --mime-type "${osascript_password_dialog_icon_path}" 2> /dev/null)" == 'image/'* ]]; then
 		osascript_password_dialog_icon_for_applescript=" with icon (\"${osascript_password_dialog_icon_path}\" as POSIX file)"
 	fi
 
@@ -3157,7 +3157,7 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			# This check was inspired by code shared by Simon Andersen: https://macadmins.slack.com/archives/C07MGJ2SD/p1621271235165000?thread_ts=1621186749.143600&cid=C07MGJ2SD
 			# But, much larger pictures DIDN'T appear to have any obvious issues during some *very minimal* testing (tested with up to 138 MB heic desktop pictures).
 			# Still, limiting the user picture to a reasonable 1 MB seems to be a wise practice as all the default user pictures are under 1 MB (the largest being 850 KB).
-		elif ! user_picture_file_type="$(file -bI "${user_picture_path}" 2> /dev/null | cut -d ';' -f 1)" || [[ "${user_picture_file_type}" != 'image/'* ]]; then
+		elif ! user_picture_file_type="$(file -b --mime-type "${user_picture_path}" 2> /dev/null | cut -d ';' -f 1)" || [[ "${user_picture_file_type}" != 'image/'* ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified picture file \"${user_picture_path}\" is not an image (file type is \"${user_picture_file_type:-UNKNOWN}\")."
 			return "${error_code}"
 		fi
@@ -3375,7 +3375,7 @@ function run(argv) {
 		else
 			osascript_st_admin_password_dialog_icon_for_applescript="${osascript_password_dialog_icon_for_applescript}"
 			osascript_st_admin_password_dialog_icon_path='/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FileVaultIcon.icns'
-			if [[ -f "${osascript_st_admin_password_dialog_icon_path}" && "$(file -bI "${osascript_st_admin_password_dialog_icon_path}" 2> /dev/null)" == 'image/'* ]]; then
+			if [[ -f "${osascript_st_admin_password_dialog_icon_path}" && "$(file -b --mime-type "${osascript_st_admin_password_dialog_icon_path}" 2> /dev/null)" == 'image/'* ]]; then
 				osascript_st_admin_password_dialog_icon_for_applescript=" with icon (\"${osascript_st_admin_password_dialog_icon_path}\" as POSIX file)"
 			fi
 
@@ -3383,8 +3383,6 @@ function run(argv) {
 				if $prompt_for_st_admin_password_cli; then
 					echo -en "\nSpecify Password for Secure Token Admin ${st_admin_full_and_account_name_display_truncated}: "
 					IFS='' read -rs prompted_st_admin_password # Must set "IFS=''" to not lose leading/trailing whitespace which could technically be part of a valid password.
-
-					echo -e '\n'
 				else
 					if ! $suppress_status_messages; then
 						echo -e "\nmkuser: GUI Prompting to Specify Password for Secure Token Admin ${st_admin_full_and_account_name_display_truncated}..."
@@ -3400,13 +3398,15 @@ function run(argv) {
 					fi
 
 					prompted_st_admin_password="${prompted_st_admin_password% }" # As explained in the notes above, strip off a single trailing space character which was added to the value captured by command substitution to be able to preserve any trailing newlines.
-
-					if ! $suppress_status_messages; then
-						echo ''
-					fi
 				fi
 
 				if [[ "${prompted_st_admin_password}" == *[[:cntrl:]]* ]]; then # Make sure there are no control characters (even though I'm not sure any could actually be entered in a "read" prompt, but they CAN be entered in the GUI prompt).
+					if $prompt_for_st_admin_password_cli; then
+						echo -e '\n'
+					elif ! $suppress_status_messages; then
+						echo ''
+					fi
+
 					>&2 echo "mkuser Secure Token Admin Password Content ERROR: Secure Token admin password cannot contain any control characters such as line breaks or tabs. Try again or press $($prompt_for_st_admin_password_cli && echo 'Control-C' || echo '"Cancel" button in GUI prompt') to exit."
 
 					if $prompt_for_st_admin_password_gui && ! run_as_logged_in_user_if_needed osascript -e $'display dialog "\xE2\x9A\xA0\xEF\xB8\x8F Secure Token admin password cannot contain any control characters such as line breaks or tabs.\n\nTry again or press \\"Cancel\\" button to exit." with title "mkuser Secure Token Admin Password Content ERROR" buttons {"Cancel", "Try Again"} cancel button 1 default button 2'"${osascript_st_admin_password_dialog_icon_for_applescript}" &> /dev/null; then
@@ -3418,9 +3418,71 @@ function run(argv) {
 					verify_specified_secure_token_admin_password_return_code="$?"
 
 					if (( verify_specified_secure_token_admin_password_return_code == 0 )); then
-						st_admin_password="${prompted_st_admin_password}"
-						break
+						if ! $make_package; then
+							if $prompt_for_st_admin_password_cli; then
+								echo -e '\n'
+							elif ! $suppress_status_messages; then
+								echo ''
+							fi
+
+							st_admin_password="${prompted_st_admin_password}"
+							break
+						else
+							if $prompt_for_st_admin_password_cli; then
+								if [[ -t 0 ]]; then # Only confirm Secure Token admin password inputted via CLI password prompt if is an interactive Terminal since there is no benefit or need to confirm if the Secure Token admin password was actually piped to the initial CLI prompt via stdin.
+									echo -en "\nConfirm Password for Secure Token Admin ${st_admin_full_and_account_name_display_truncated}: "
+									IFS='' read -rs confirmed_prompted_st_admin_password # Must set "IFS=''" to not lose leading/trailing whitespace which could technically be part of a valid password.
+
+									echo -e '\n'
+								else
+									echo -e '\n'
+
+									if ! $suppress_status_messages; then
+										echo 'mkuser NOTICE: NOT CLI prompting to confirm Secure Token admin password since NOT running interactively (Secure Token admin password was likely piped to the initial CLI Secure Token admin password prompt via stdin).'
+									fi
+
+									confirmed_prompted_st_admin_password="${prompted_st_admin_password}"
+								fi
+							else
+								if ! $suppress_status_messages; then
+									echo "mkuser: GUI Prompting to Confirm Password for Secure Token Admin ${st_admin_full_and_account_name_display_truncated}..."
+								fi
+
+								# NOTE: Since command substitution always strips trailing newlines (\n) always add a trailing space which will not be stripped by command substituion to preserve any newlines entered in the prompt.
+								# The variable containing the command sustitution captured output will then have the trailing space stripped which will result in the value being exactly what was entered including any trailing newlines.
+								# This command substitution behavior and similar workaround is explained in https://mywiki.wooledge.org/CommandSubstitution.
+								# Even though newlines are not allowed in passwords, we want to be able to properly error when they are entered rather than them being stripped off and a password being allowed that is not actually the exact texts that was entered.
+								if ! confirmed_prompted_st_admin_password="$(run_as_logged_in_user_if_needed osascript -e 'on run {stAdminFullAndAccountNameDisplayTruncated}' -e $'return (text returned of (display dialog ("\xF0\x9F\x94\x90 Confirm Password for Secure Token Admin:\n\n" & stAdminFullAndAccountNameDisplayTruncated) with title "mkuser Confirm Secure Token Admin Password Prompt" default answer "" with hidden answer'"${osascript_st_admin_password_dialog_icon_for_applescript}"') & space)' -e 'end run' -- "${st_admin_full_and_account_name_display_truncated}" 2> /dev/null)"; then
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Canceled GUI Secure Token admin password confirmation prompt."
+									return "${error_code}"
+								fi
+
+								confirmed_prompted_st_admin_password="${confirmed_prompted_st_admin_password% }" # As explained in the notes above, strip off a single trailing space character which was added to the value captured by command substitution to be able to preserve any trailing newlines.
+
+								if ! $suppress_status_messages; then
+									echo ''
+								fi
+							fi
+
+							if [[ "${prompted_st_admin_password}" == "${confirmed_prompted_st_admin_password}" ]]; then
+								st_admin_password="${prompted_st_admin_password}"
+								break
+							else
+								>&2 echo "mkuser Confirm Secure Token Admin Password ERROR: Specified Secure Token admin passwords did not match. Try again or press $($prompt_for_st_admin_password_cli && echo 'Control-C' || echo '"Cancel" button in GUI prompt') to exit."
+
+								if $prompt_for_st_admin_password_gui && ! run_as_logged_in_user_if_needed osascript -e $'display dialog "\xE2\x9A\xA0\xEF\xB8\x8F Specified Secure Token admin passwords did not match.\n\nTry again or press \\"Cancel\\" button to exit." with title "mkuser Confirm Secure Token Admin Password ERROR" buttons {"Cancel", "Try Again"} cancel button 1 default button 2'"${osascript_st_admin_password_dialog_icon_for_applescript}" &> /dev/null; then
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Canceled GUI Secure Token admin passwords did not match error."
+									return "${error_code}"
+								fi
+							fi
+						fi
 					else
+						if $prompt_for_st_admin_password_cli; then
+							echo -e '\n'
+						elif ! $suppress_status_messages; then
+							echo ''
+						fi
+
 						>&2 echo -e "${verify_specified_secure_token_admin_password_output}\nTry again or press $($prompt_for_st_admin_password_cli && echo 'Control-C' || echo '"Cancel" button in GUI prompt') to exit."
 
 						verify_specified_secure_token_admin_password_output_for_dialog="${verify_specified_secure_token_admin_password_output/mkuser Verify Password ERROR: /}"
@@ -3753,7 +3815,7 @@ PACKAGE_PREINSTALL_EOF
 				user_picture_name="${user_picture_path##*/}" # Instead of checking for the exact specified picture path on the target system, search for the filename in either possible "User Pictures" location with or without the specified extension since it could exist in either location or with a different extension on the target system since those differ between macOS versions.
 				escaped_user_picture_name="$(LC_CTYPE=C; printf '%q' "${user_picture_name}")" # NOTE: MUST set "LC_CTYPE=C" to properly escape multi-byte characters into their UTF-8 octal-byte escaped notation instead of into other multi-byte characters in some other encoding that may not render properly. (And since it is only set within a command substitution subshell is only affects this single "printf '%q'" statement.)
 				escaped_user_picture_name_without_extension="$(LC_CTYPE=C; printf '%q' "${user_picture_name%.*}")"
-				escaped_valid_options_for_package+=( '--picture' "\"\$(pkg_user_picture_path=\"\$(find \"\$([[ -d '/System/Library/Templates/Data/Library/User Pictures' ]] && echo '/System/Library/Templates/Data/Library/User Pictures' || echo '/Library/User Pictures')\" -type f \( -iname ${escaped_user_picture_name} -or -iname ${escaped_user_picture_name_without_extension}'.*' \) -print -quit 2> /dev/null)\"; [[ -f \"\${pkg_user_picture_path}\" && \"\$(file -bI \"\${pkg_user_picture_path}\" 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' \"\${pkg_user_picture_path}\") <= 1000000 )) && echo \"\${pkg_user_picture_path}\" || echo $(LC_CTYPE=C; printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
+				escaped_valid_options_for_package+=( '--picture' "\"\$(pkg_user_picture_path=\"\$(find \"\$([[ -d '/System/Library/Templates/Data/Library/User Pictures' ]] && echo '/System/Library/Templates/Data/Library/User Pictures' || echo '/Library/User Pictures')\" -type f \( -iname ${escaped_user_picture_name} -or -iname ${escaped_user_picture_name_without_extension}'.*' \) -print -quit 2> /dev/null)\"; [[ -f \"\${pkg_user_picture_path}\" && \"\$(file -b --mime-type \"\${pkg_user_picture_path}\" 2> /dev/null)\" == 'image/'* ]] && (( \$(stat -f '%z' \"\${pkg_user_picture_path}\") <= 1000000 )) && echo \"\${pkg_user_picture_path}\" || echo $(LC_CTYPE=C; printf '%q' "${extracted_resources_dir}/mkuser.picture"))\"" )
 			else
 				escaped_valid_options_for_package+=( '--picture' "$(LC_CTYPE=C; printf '%q' "${extracted_resources_dir}/mkuser.picture")" )
 			fi
@@ -4342,7 +4404,7 @@ ObjC.import('Security')
 
 // NOTE: Each comment within this JXA code is ON ITS OWN LINE so that all comments and empty lines can easily be removed before obfuscation so that all the extra characters taken up by the comments (which are more than half of the characters of this script) do not need to be deobfuscated during the password deobfuscation process.
 
-// The following valid Code Signing Requirements (CSReqs) strings can be retreived using: codesign --display --requirements - /PATH/TO/BINARY
+// The following valid Code Signing Requirements (CSReqs) strings can be retrieved using: codesign --display --requirements - /PATH/TO/BINARY
 // To learn more about Code Signing Requirements, see: https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements
 
 // For some of the following external command paths, multiple possible valid Bundle IDs are allowed using 'or' conditions in the CSReqs and the binary matching any one of them will be enough to pass.
@@ -5439,7 +5501,7 @@ Check \"--help\" for detailed information about each available option."
 			chose_random_user_picture=true
 		fi
 
-		if [[ -f "${user_picture_path}" && "$(file -bI "${user_picture_path}" 2> /dev/null)" == 'image/'* ]] && (( $(stat -f '%z' "${user_picture_path}") <= 1000000 )); then # Still check that we got a picture path in case something went wrong with random picture selection (if something changes in macOS).
+		if [[ -f "${user_picture_path}" && "$(file -b --mime-type "${user_picture_path}" 2> /dev/null)" == 'image/'* ]] && (( $(stat -f '%z' "${user_picture_path}") <= 1000000 )); then # Still check that we got a picture path in case something went wrong with random picture selection (if something changes in macOS).
 			# Add JPEGPhoto using "dsimport" reference: https://apple.stackexchange.com/questions/117530/setting-account-picture-jpegphoto-with-dscl-in-terminal/367667#367667
 
 			dsimport_record_attributes+=( 'externalbinary:JPEGPhoto' )

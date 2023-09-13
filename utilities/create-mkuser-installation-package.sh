@@ -371,7 +371,7 @@ if [[ "${confirm_notarization}" =~ ^[Yy] ]]; then
 		exit 10
 	fi
 
-	echo -e "\nSuccessfully Notarized ${script_name} Version ${script_version} Installation Package!"
+	echo -e "\nSuccessfully notarized ${script_name} version ${script_version} installation package!"
 
 	pkg_checksum="$(openssl dgst -sha512 "${package_output_path}" | awk '{ print $NF; exit }')"
 else

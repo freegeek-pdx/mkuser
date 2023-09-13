@@ -219,4 +219,4 @@ if [[ -d "${install_location_folder}" ]]; then
 fi
 
 exit "${mkuser_exit_code}" # Always exit with mkusers exit code instead of always being successful after deleting the temporary installation.
-' -s "$@"
+' -- "$@"
