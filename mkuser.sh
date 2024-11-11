@@ -6462,7 +6462,7 @@ function run(argv) {
 			echo "mkuser: Setting ${user_full_and_account_name_display} user to automatically login..."
 		fi
 
-		# RELATED: Here is an interesting deep dive into what processes in macOS normally set up auto-login: https://www.offensive-security.com/offsec/in-the-hunt-for-the-auto-login-setup-process/
+		# RELATED: Here is an interesting deep dive into what processes in macOS normally set up auto-login: https://www.offsec.com/blog/in-the-hunt-for-the-macos-autologin-setup-process/
 
 		# Both the "cipher_key" and "cipher_key_length" variable must be set for all versions of macOS since they both are needed to decode and verify the "kcpassword" file contents.
 		declare -a cipher_key=( '7d' '89' '52' '23' 'd2' 'bc' 'dd' 'ea' 'a3' 'b9' '1f' ) # These are the special "kcpassword" repeating cipher hex characters.
