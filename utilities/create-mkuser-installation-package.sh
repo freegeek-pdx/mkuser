@@ -37,7 +37,7 @@ script_name='mkuser'
 
 script_path="${SCRIPT_DIR}/${script_name}.sh"
 
-if [[ ! -f "${script_path}" || ! -x "${script_path}" ]]; then
+if [[ ! -f "${script_path}" ]]; then
 	>&2 echo -e "\nSOURCE SCRIPT NOT FOUND AT PATH: ${script_path}"
 	exit 1
 fi

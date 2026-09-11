@@ -28,7 +28,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	# All of the variables (and functions) within a subshell function only exist within the scope of the subshell function (like a regular subshell).
 	# This means that every variable does NOT need to be declared as "local" and even altering "PATH" only affects the scope of this subshell function.
 
-	readonly MKUSER_VERSION='2025.9.3-1'
+	readonly MKUSER_VERSION='2026.9.11-1'
 
 	PATH='/usr/bin:/bin:/usr/sbin:/sbin:/usr/libexec' # Add "/usr/libexec" to PATH for easy access to PlistBuddy. ("export" is not required since PATH is already exported in the environment, therefore modifying it modifies the already exported variable.)
 
@@ -88,7 +88,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	set_sharing_only_account=false
 	set_role_account=false
 	set_service_account=false
-	set_prevent_secure_token_on_big_sur_and_newer=false
+	set_prevent_first_secure_token=false
 
 	st_admin_account_name=''
 	st_admin_password=''
@@ -109,6 +109,8 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 	do_not_confirm=false
 	suppress_status_messages=false
+	reboot_after_success=false
+	reboot_after_success_delay=0
 	check_only=false
 
 	# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
@@ -170,25 +172,30 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 	declare -a valid_options_for_package=() # Need to collect valid user creation options to use within package if making a package.
 
 	declare -a all_options_for_help=()
+	this_case_option_line=''
 	all_options_as_list=''
 	all_options_as_list_requiring_parameter=''
 	if [[ -f "${BASH_SOURCE[0]}" ]]; then
 		while read -ra this_source_line_array; do
-			if [[ "${this_source_line_array[0]}" == '-'* && "${this_source_line_array[2]}" == '<MKUSER-VALID-OPTIONS>' ]]; then # Also check for the "<MKUSER-VALID-OPTIONS>" to never include other case statement options if this function is included in a larger script that takes arguments, etc.
+			if [[ "${this_source_line_array[0]}" == '-'* ]]; then
 				this_case_option_line="${this_source_line_array[0]%)}"
-
-				if [[ "${this_source_line_array[3]}" != '<MKUSER-UNDOCUMENTED-OPTION>' ]]; then # This tag allows options to exist that intentionally aren't listed in the "--help" info without an error being displayed at the end of the help info about the option not being documented.
+			elif [[ -n "${this_case_option_line}" && "${this_source_line_array[0]}" == '#' && "${this_source_line_array[1]}" == '<MKUSER-VALID-OPTIONS>' ]]; then # Also check for "<MKUSER-VALID-OPTIONS>" comment on the following line to never include other case statement options if this function is included in a larger script that takes arguments, etc.
+				if [[ "${this_source_line_array[2]}" != '<MKUSER-UNDOCUMENTED-OPTION>' ]]; then # This tag allows options to exist that intentionally aren't listed in the "--help" info without an error being displayed at the end of the help info about the option not being documented.
 					all_options_for_help+=( "${this_case_option_line//|/, }" ) # This array will be used in "--help" information to confirm all options have help info.
 				fi
 
 				this_case_option_line_as_list="${this_case_option_line//|/$'\n'}"
 				all_options_as_list+="${this_case_option_line_as_list}"$'\n'
 
-				if [[ "${this_source_line_array[3]}" == '<MKUSER-OPTION-REQUIRES-PARAMETER>' ]]; then # Options with required parameters will be checked specially to make sure their parameters are retrieved when combined when the short option without a delimiter.
+				if [[ "${this_source_line_array[2]}" == '<MKUSER-OPTION-REQUIRES-PARAMETER>' ]]; then # Options with required parameters will be checked specially to make sure their parameters are retrieved when combined when the short option without a delimiter.
 					all_options_as_list_requiring_parameter+="${this_case_option_line_as_list}"$'\n'
 				fi
+
+				this_case_option_line=''
 			elif [[ "${this_source_line_array[0]}" == 'esac' ]]; then
 				break
+			else
+				this_case_option_line=''
 			fi
 		done < "${BASH_SOURCE[0]}"
 
@@ -304,7 +311,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 			is_last_option_in_group="$( (( this_option_group_count == ( this_option_group_index + 1 ) )) && echo 'true' || echo 'false' )"
 
 			case "${this_option}" in
-				--account-name|--record-name|--short-name|--username|--user|--name|-n) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--account-name|--record-name|--short-name|--username|--user|--name|-n)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then # See comments below about not allowing account names starting with "-".
 							if [[ -z "${user_account_name}" ]]; then
@@ -342,7 +351,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--full-name|--real-name|-f) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--full-name|--real-name|-f)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then # Allow full names to start with "-" as System Preferences/Settings does, which is a bit risky if someone does something wrong like "--full-name --uid" which will set the full name to "--uid" and the parameter for "--uid" will become an invalid option and error.
 						if [[ -z "${user_full_name}" ]]; then
 							# DO NOT interpret any literal backslash-escaped characters since that would only make it easier to include invalid line breaks or other control characters.
@@ -364,7 +375,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--only-check-locally-for-conflicting-names) # <MKUSER-VALID-OPTIONS> <MKUSER-UNDOCUMENTED-OPTION> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--only-check-locally-for-conflicting-names)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-UNDOCUMENTED-OPTION> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					# NOTE: This option is intentionally marked with the "<MKUSER-UNDOCUMENTED-OPTION>" tag so that an error isn't show at the end of the help info about the option not having any help info written for it.
 					# This option is intentionally undocumented without any help info because it is not a normal thing to need to do and was only added upon request for very specific circumstances.
 					# For more information, see https://github.com/freegeek-pdx/mkuser/issues/7 and search for "only_check_locally_for_conflicting_names" throughout this script.
@@ -374,14 +387,16 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--unique-id|--user-id|--uid|-u) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--unique-id|--user-id|--uid|-u)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then # Allow UIDs to be negative (start with "-").
 						if [[ -z "${user_uid}" ]]; then
 							if [[ "$1" =~ ^\-?[${DIGITS}]+$ ]]; then # Only allow numbers except for a leading minus (-) for negative numbers.
 								user_uid="$1" # Next available UID starting from "501" (or "200" for Role/Service Accounts) will be assigned if not specified.
 
 								if [[ "${user_uid}" =~ ^\-?0+ ]]; then # Remove leading zeros so it isn't interpreted as an octal number in arithmetic/match contexts.
-									# NOTE: DO NOT use the base 10 trick shown here https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale since that would cause the value to be rolled over if the number is outside the 64 bit range and then we would not be able to check later if the original number is outside the 64 bit range to reject it.
+									# NOTE: DO NOT use the base 10 trick shown here https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale since that would cause the value to be rolled over if the number is outside the 64-bit range and then we would not be able to check later if the original number is outside the 64-bit range to reject it.
 									user_uid="$([[ "$1" == '-'* ]] && printf '-')${user_uid#"${user_uid%%[^-0]*}"}" # Remove any leading minus sign and zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
 									if [[ -z "${user_uid}" || "${user_uid}" == '-' ]]; then user_uid=0; fi # Catch if the number was all zeros with or without a minus sign.
 								fi
@@ -402,7 +417,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--generated-uid|--guid|--uuid|-G) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--generated-uid|--guid|--uuid|-G)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${user_guid}" ]]; then
@@ -433,14 +450,16 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--primary-group-id|--group-id|--group|--gid|-g) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--primary-group-id|--group-id|--group|--gid|-g)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then # Allow GIDs to be negative (start with "-").
 						if [[ -z "${user_gid}" ]]; then
 							if [[ "$1" =~ ^\-?[${DIGITS}]+$ ]]; then # Only allow numbers except for a leading minus (-) for negative numbers.
 								user_gid="$1" # Will be validated against existing Group IDs and will be set to default of "20" (or "-2" for Service Accounts) if not specified.
 
 								if [[ "${user_gid}" =~ ^\-?0+ ]]; then # Need to remove leading zeros so it isn't interpreted as an octal number in arithmetic/match contexts.
-									# NOTE: DO NOT use the base 10 trick shown here https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale since that would cause the value to be rolled over if the number is outside the 64 bit range and then we would not be able to check later if the original number is outside the 64 bit range to reject it.
+									# NOTE: DO NOT use the base 10 trick shown here https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale since that would cause the value to be rolled over if the number is outside the 64-bit range and then we would not be able to check later if the original number is outside the 64-bit range to reject it.
 									user_gid="$([[ "$1" == '-'* ]] && printf '-')${user_gid#"${user_gid%%[^-0]*}"}" # Remove any leading minus sign and zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
 									if [[ -z "${user_gid}" || "${user_gid}" == '-' ]]; then user_gid=0; fi # Catch if the number was all zeros with or without a minus sign.
 								fi
@@ -461,7 +480,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--login-shell|--user-shell|--shell|-s) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--login-shell|--user-shell|--shell|-s)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${user_shell}" ]]; then
@@ -482,7 +503,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--password|--pass|-p) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--password|--pass|-p)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--stdin-password" (or multiple "--password" options specified).
 							if [[ "$1" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs). System Preferences/Settings absurdly allows line breaks in passwords (by typing Control+Return), but they cannot be entered in loginwindow and also cannot be entered on the command line.
@@ -500,7 +523,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						shift
 					fi # Allow explicity blank/empty value since passwords can be blank/empty.
 					;;
-				--stdin-password|--stdin-pass|--sp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--stdin-password|--stdin-pass|--sp)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ ! -t 0 ]]; then # Make sure stdin file descriptor is NOT associated with a terminal so that the script doesn't hang forever if "--stdin-password" is specified with no stdin via pipe, here-string, etc.
 						if [[ -z "${user_password}" ]]; then # Do not overwrite password if already set with "--no-password" or "--password" (or multiple "--stdin-password" options specified).
 							if [[ ! -p '/dev/stdin' || -f '/dev/stdin' ]]; then
@@ -530,7 +555,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 					# Allow explicity blank/empty value since passwords can be blank/empty.
 					;;
-				--password-prompt|--pass-prompt|--pp) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--password-prompt|--pass-prompt|--pp)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					this_optional_password_prompt_parameter=''
 
 					if [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
@@ -557,10 +584,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 
 					if [[ -n "${this_optional_password_prompt_parameter}" ]]; then
-						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+						shift # Only shift off "$1" if it did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
 					fi
 					;;
-				--no-password|--no-pass|--np) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--no-password|--no-pass|--np)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					# This is just a convenience option to set user_password to "*".
 
 					if [[ -z "${user_password}" ]]; then
@@ -571,7 +600,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--password-hint|--hint|--ph) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--password-hint|--hint|--ph)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then # Allow hints to start with "-", which is a bit risky if someone does something wrong like "--hint --home" which will set the hint to "--home" and the parameter for "--home" will become an invalid option and error.
 						if [[ -z "${user_password_hint}" ]]; then
 							printf -v possible_user_password_hint '%b' "$1" # Use "printf '%b'" to interpret any literal backslash-escaped characters in the hint, since "\n" and "\t" are allowed (and others will be rejected below). DO NOT use "echo -e" since any hint starting with a hyphen of only valid "echo" options (which is incredibly rare) would not be outputted.
@@ -593,7 +624,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						shift
 					fi # Allow explicity blank/empty value since hints can be blank/empty.
 					;;
-				--prohibit-user-password-changes) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--prohibit-user-password-changes)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					# This prohibits the user from modifying their own password without admin authentication.
 					# The password can always be modified with admin authentication.
 
@@ -602,7 +635,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--home-folder|--home-path|--home|-H) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--home-folder|--home-path|--home|-H)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${user_home_path}" ]]; then
@@ -623,19 +658,25 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--do-not-share-public-folder|--dont-share-public) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--do-not-share-public-folder|--dont-share-public)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $do_not_share_public_folder; then
 						do_not_share_public_folder=true
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--do-not-create-home-folder|--dont-create-home) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--do-not-create-home-folder|--dont-create-home)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $do_not_create_home_folder; then
 						do_not_create_home_folder=true
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--picture|--photo|--pic|-P) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--picture|--photo|--pic|-P)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if ! $set_no_picture && [[ -z "${user_picture_path}" ]]; then
@@ -656,7 +697,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--no-picture|--no-photo|--no-pic) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--no-picture|--no-photo|--no-pic)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $set_no_picture; then
 						if [[ -z "${user_picture_path}" ]]; then
 							set_no_picture=true
@@ -667,7 +710,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						fi
 					fi
 					;;
-				--prohibit-user-picture-changes) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--prohibit-user-picture-changes)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					# This prohibits the user from modifying their own picture without admin authentication.
 					# The picture can always be modified with admin authentication.
 
@@ -676,13 +721,17 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--administrator|--admin|-a) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--administrator|--admin|-a)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $set_admin; then
 						set_admin=true
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--hidden|--hide) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--hidden|--hide)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					this_optional_hide_parameter=''
 
 					if [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
@@ -705,10 +754,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 
 					if [[ -n "${this_optional_hide_parameter}" ]]; then
-						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+						shift # Only shift off "$1" if it did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
 					fi
 					;;
-				--sharing-only-account|--sharing-account|--sharing-only|--sharing|--soa) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--sharing-only-account|--sharing-account|--sharing-only|--sharing|--soa)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $set_sharing_only_account; then
 						if ! $set_role_account && ! $set_service_account; then
 							set_sharing_only_account=true
@@ -719,7 +770,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						fi
 					fi
 					;;
-				--role-account|--role|-r) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--role-account|--role|-r)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $set_role_account; then
 						if ! $set_sharing_only_account && ! $set_service_account; then
 							set_role_account=true
@@ -730,7 +783,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						fi
 					fi
 					;;
-				--service-account|--service|--sa) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--service-account|--service|--sa)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $set_service_account; then
 						if ! $set_sharing_only_account && ! $set_role_account; then
 							set_service_account=true
@@ -741,17 +796,32 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						fi
 					fi
 					;;
-				--prevent-secure-token-on-big-sur-and-newer|--prevent-secure-token|--no-st) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--prevent-first-secure-token|--prevent-secure-token|--no-st)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					# Must always set this option here even if not currently running on macOS 11 Big Sur and newer
 					# since it could be used for a package which will run on macOS 11 Big Sur and newer.
 					# The macOS version check will be done during validation before user creation starts.
 
-					if ! $set_prevent_secure_token_on_big_sur_and_newer; then
-						set_prevent_secure_token_on_big_sur_and_newer=true
+					if ! $set_prevent_first_secure_token; then
+						set_prevent_first_secure_token=true
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--secure-token-admin-account-name|--st-admin-name|--st-admin-user|--st-name) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--prevent-secure-token-on-big-sur-and-newer)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-UNDOCUMENTED-OPTION> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
+					# As of version 2026.9.11-1, this option has been renamed to "--prevent-first-secure-token" (see above),
+					# but allow the old option name to continue to work as an undocumented option for backwards compatibility with existing scripts.
+
+					if ! $set_prevent_first_secure_token; then
+						set_prevent_first_secure_token=true
+						valid_options_for_package+=( '--prevent-first-secure-token' )
+					fi
+					;;
+				--secure-token-admin-account-name|--st-admin-name|--st-admin-user|--st-name)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then # See comments below about not allowing account names starting with "-".
 							if [[ -z "${st_admin_account_name}" ]]; then
@@ -780,7 +850,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--secure-token-admin-password|--st-admin-pass|--st-pass) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--secure-token-admin-password|--st-admin-pass|--st-pass)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then # Allow passwords to start with "-", which is a bit risky if someone does something wrong like "--secure-token-admin-password --hint" which will set the password to "--hint" and the parameter for "--hint" will become an invalid option and error.
 						if [[ -z "${st_admin_password}" ]]; then # Do not overwrite password if already set with "--fd-secure-token-admin-password" (or multiple "--secure-token-admin-password" options specified).
 							if [[ "$1" != *[[:cntrl:]]* ]]; then # Make sure there are no control characters (such as line breaks or tabs).
@@ -798,7 +870,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						shift
 					fi # Allow explicity blank/empty value since a Secure Token admins passwords can be blank/empty. The password will be verified before usage though.
 					;;
-				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--fd-secure-token-admin-password|--fd-st-admin-pass|--fd-st-pass)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ "$1" == '/dev/fd/'* ]]; then # Make sure a file descriptor path is specified.
 						if [[ -f "$1" ]]; then
 							>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid option \"${this_unaltered_option}\" because file descriptor \"$1\" path exists in the filesystem. You must use PROCESS SUBSTITUTION, like \"${this_unaltered_option} <(echo [PASSWORD])\"."
@@ -829,7 +903,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 
 					# Allow explicity blank/empty value since a Secure Token admins passwords can be blank/empty. The password will be verified before usage though.
 					;;
-				--secure-token-admin-password-prompt|--st-admin-pass-prompt|--st-pass-prompt) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--secure-token-admin-password-prompt|--st-admin-pass-prompt|--st-pass-prompt)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					this_optional_st_admin_password_prompt_parameter=''
 
 					if [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
@@ -856,16 +932,20 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 
 					if [[ -n "${this_optional_st_admin_password_prompt_parameter}" ]]; then
-						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+						shift # Only shift off "$1" if it did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
 					fi
 					;;
-				--automatic-login|--auto-login|-A) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--automatic-login|--auto-login|-A)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if ! $set_auto_login; then
 						set_auto_login=true
 						valid_options_for_package+=( "${this_option}" )
 					fi
 					;;
-				--prevent-login|--no-login|--nl) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--prevent-login|--no-login|--nl)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					# This is just a convenience option to set user_shell to "/usr/bin/false".
 
 					if [[ -z "${user_shell}" ]]; then
@@ -876,7 +956,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--skip-setup-assistant|--skip-setup|-S) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--skip-setup-assistant|--skip-setup|-S)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					this_optional_skip_setup_assistant_parameter=''
 
 					if $is_last_option_in_group && [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
@@ -902,14 +984,16 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 
 					if [[ -n "${this_optional_skip_setup_assistant_parameter}" ]]; then
-						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+						shift # Only shift off "$1" if it did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
 					fi
 					;;
 				# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-				--package-path|--pkg-path|--package|--pkg) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--package-path|--pkg-path|--package|--pkg)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					make_package=true
 
-					if [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an invalid error since this option can have a parameter or not and "$1" could just be the next option.
+					if [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
 						if [[ -z "${pkg_path}" ]]; then
 							pkg_path="$1" # If a package path is not specified, it will be saved to the current working directory.
 						else
@@ -920,7 +1004,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						shift
 					fi
 					;;
-				--package-identifier|--pkg-identifier|--package-id|--pkg-id) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--package-identifier|--pkg-identifier|--package-id|--pkg-id)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${pkg_identifier}" ]]; then
@@ -946,7 +1032,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--package-version|--pkg-version|--pkg-v) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--package-version|--pkg-version|--pkg-v)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${pkg_version}" ]]; then
@@ -972,7 +1060,9 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 						has_invalid_options=true
 					fi
 					;;
-				--package-signing-identity|--package-sign|--pkg-sign) # <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--package-signing-identity|--package-sign|--pkg-sign)
+					# <MKUSER-VALID-OPTIONS> <MKUSER-OPTION-REQUIRES-PARAMETER> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					if [[ -n "$1" ]]; then
 						if [[ "$1" != '-'* ]]; then
 							if [[ -z "${pkg_sign}" ]]; then
@@ -993,18 +1083,66 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 					;;
 				# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-				--do-not-confirm|--no-confirm|--force|-F) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--do-not-confirm|--no-confirm|--force|-F)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					do_not_confirm=true
 					;;
-				--suppress-status-messages|--quiet|-q) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--suppress-status-messages|--quiet|-q)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					do_not_confirm=true
 					suppress_status_messages=true
 					;;
-				--check-only|--dry-run|--check|-c) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--reboot-after-success|--reboot|-R)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
+					if ! $reboot_after_success; then
+						if $is_last_option_in_group && [[ -n "$1" && "$1" != '-'* ]]; then # "$1" starting with "-" should not be shifted or cause an "invalid parameter" error since this option can have a parameter or not and "$1" could just be the next valid option.
+							# Allow "-R" to be included in a group of options, but only check for a parameter if it's at the end of the group.
+							# Unlike other grouped options which REQUIRE a parameter, do not error if "-R" is not at the end of a group since its parameter is OPTIONAL.
+
+							this_optional_reboot_parameter="$1"
+							shift
+
+							if [[ "${this_optional_reboot_parameter}" =~ ^[${DIGITS}]+$ ]]; then # Only allow positive numbers.
+								reboot_after_success_delay="${this_optional_reboot_parameter}"
+
+								if [[ "${reboot_after_success_delay}" == '0'* ]]; then
+									reboot_after_success_delay="$(( 10#${reboot_after_success_delay} ))" # Remove any leading zeros (https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale).
+								fi
+
+								if (( reboot_after_success_delay >= 1 && reboot_after_success_delay <= 3600 )); then # An integer outside of the signed 64-bit range (which bash arithmetic cannot handle) would get rolled over to a negative number (either within this condition, or in the the base 10 trick used above to remove leading zeros).
+									reboot_after_success=true
+									valid_options_for_package+=( "${this_option}" "${reboot_after_success_delay}" )
+								else
+									reboot_after_success_delay=0
+
+									>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"${this_optional_reboot_parameter}\" for option \"${this_unaltered_option}\", it must be a number of seconds between 1 and 3600 (or nothing)."
+									has_invalid_options=true
+								fi
+							else
+								>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid parameter \"${this_optional_reboot_parameter}\" for option \"${this_unaltered_option}\", it must be a number of seconds between 1 and 3600 (or nothing)."
+								has_invalid_options=true
+							fi
+						else
+							reboot_after_success=true
+							valid_options_for_package+=( "${this_option}" )
+						fi
+					else
+						>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Invalid duplicate \"${this_unaltered_option}\" option."
+						has_invalid_options=true
+					fi
+					;;
+				--check-only|--dry-run|--check|-c)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					check_only=true
 					;;
 				# <MKUSER-BEGIN-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
-				--version|-v) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--version|-v)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					show_version=true
 
 					this_optional_version_parameter=''
@@ -1024,10 +1162,12 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 
 					if [[ -n "${this_optional_version_parameter}" ]]; then
-						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+						shift # Only shift off "$1" if it did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
 					fi
 					;;
-				--help|-h) # <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+				--help|-h)
+					# <MKUSER-VALID-OPTIONS> !!! DO NOT REMOVE THIS COMMENT, IT EXISTING ON THE SAME LINE AFTER EACH OPTIONS CASE STATEMENT IS CRITICAL FOR OPTION PARSING !!!
+
 					show_help=true
 
 					this_optional_help_parameter=''
@@ -1049,7 +1189,7 @@ mkuser() ( # Notice "(" instead of "{" for this function, see THIS IS A SUBSHELL
 					fi
 
 					if [[ -n "${this_optional_help_parameter}" ]]; then
-						shift # Only shift off "$1" if is did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
+						shift # Only shift off "$1" if it did not start with "-" after all checks in case we want to display the unaltered parameter in an error.
 					fi
 					;;
 				# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
@@ -1440,9 +1580,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     If you choose to start a user out with no password for some reason,
       you can always set their password later with ${ansi_bold}dscl . -passwd${clear_ansi}.
 
-    If you include the ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi} option
-      with this option, that would create an AuthenticationAuthority attribute
-      with the special tag to prevent a Secure Token from being granted.
+    If you include the ${ansi_bold}--prevent-first-secure-token${clear_ansi} option with this option,
+      that would create an AuthenticationAuthority attribute with the
+      special tag to prevent the first Secure Token from being granted.
     Since that user would no longer have BOTH no AuthenticationAuthority AND
       the \"*\" password, they would show in the users list in \"Users & Groups\"
       section of ${system_preferences_or_settings_app_name} as well as the login window list
@@ -1605,8 +1745,8 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     Also, when running on macOS 11 Big Sur and newer, \"Sharing Only\" accounts
       get a special tag added to the AuthenticationAuthority attribute
       of the user record to let macOS know not to grant a Secure Token.
-    See ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi} help for more information
-      about preventing macOS from granting an account the first Secure Token.
+    See ${ansi_bold}--prevent-first-secure-token${clear_ansi} help for more information about
+      preventing macOS from granting an account the first Secure Token.
 
     This is here as a separate option for convenience and information.
     When using this option, you CANNOT also specify ${ansi_bold}--administrator${clear_ansi},
@@ -1728,7 +1868,7 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       its Primary Group ID set to the Group ID.
 
 
-  ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer, --prevent-secure-token, --no-st${clear_ansi}
+  ${ansi_bold}--prevent-first-secure-token, --prevent-secure-token, --no-st${clear_ansi}
     < ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to prevent the user from being
@@ -1748,6 +1888,10 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     This option has no effect on macOS 10.15 Catalina and older, but there is
       useful information below about first Secure Token behavior all the way
       back to macOS 10.13 High Sierra when Secure Tokens were first introduced.
+    ${ansi_bold}NOTICE:${clear_ansi} As of version 2026.9.11-1, the primary name for this option
+      has been changed from ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi}
+      to ${ansi_bold}--prevent-first-secure-token${clear_ansi}, but the old option name still
+      works for backwards compatibility with existing scripts.
 
     ${ansi_bold}VOLUME OWNER ON APPLE SILICON NOTES:${clear_ansi}
     On Apple Silicon Macs, users that do not have a Secure Token cannot
@@ -1984,9 +2128,9 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
       will not grant that user a Secure Token.
     Otherwise, there is ${ansi_underline}NO WAY${clear_ansi} to prevent the Bootstrap Token from granting an
       account a Secure Token when logging in graphically, not even when
-      this ${ansi_bold}--prevent-secure-token-on-big-sur-and-newer${clear_ansi} option is specified
-      as that only applies to macOS granting the ${ansi_underline}first${clear_ansi} Secure Token,
-      not to subsequent Secure Tokens granted by the Bootstrap Token.
+      this ${ansi_bold}--prevent-first-secure-token${clear_ansi} option is specified as that only
+      applies to macOS granting the ${ansi_underline}first${clear_ansi} Secure Token, not to subsequent
+      Secure Tokens granted by the Bootstrap Token.
 
 
   ${ansi_bold}--secure-token-admin-account-name, --st-admin-name, --st-admin-user, --st-name${clear_ansi}
@@ -2213,6 +2357,14 @@ ${ansi_underline}https://mkuser.sh${clear_ansi}
     ${ansi_bold}NOTICE:${clear_ansi} Specifying ${ansi_bold}--suppress-status-messages${clear_ansi} also ENABLES ${ansi_bold}--do-not-confirm${clear_ansi}.
 
 
+  ${ansi_bold}--reboot-after-success, --reboot, -R${clear_ansi}  < ${ansi_underline}integer${clear_ansi} || ${ansi_underline}no parameter${clear_ansi} >
+
+    Include this option with no parameter to reboot the computer immediately
+      after the new user has been successfully created.
+
+    Specify a number of seconds between 1 and 3600 to reboot after a delay.
+
+
   ${ansi_bold}--check-only, --dry-run, --check, -c${clear_ansi}  < ${ansi_underline}no parameter${clear_ansi} >
 
     Include this option with no parameter to check if the other specified
@@ -2312,7 +2464,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 	fi
 	# <MKUSER-END-CODE-TO-REMOVE-FROM-PACKAGE-SCRIPT> !!! DO NOT MOVE OR REMOVE THIS COMMENT, IT EXISTING AND BEING ON ITS OWN LINE IS NECESSARY FOR PACKAGE CREATION !!!
 
-	darwin_major_version="$(uname -r | cut -d '.' -f 1)" # 18 = 10.14, 19 = 10.15, 20 = 11.0, 21 = 12.0, 22 = 13.0, 23 = 14.0, etc.
+	darwin_major_version="$(uname -r | cut -d '.' -f 1)" # 19 = 10.15 Catalina, 20 = 11 Big Sur, 21 = 12 Monterey, 22 = 13 Ventura, 23 = 14 Sonoma, 24 = 15 Sequoia, 25 = 26 Tahoe, 26 = SKIPPED, 27 = 27 Golden Gate, etc.
 
 	if (( darwin_major_version < 17 )); then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: This tool has only been tested to work on macOS 10.13 High Sierra and newer."
@@ -2436,7 +2588,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
 		# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: User ID is outside of the allowed range, it must be a number between -2147483648 and 2147483647 (signed 32-bit integer range)."
 		return "${error_code}"
 	fi
 	error_code+=1
@@ -2445,7 +2597,7 @@ ${ansi_bold}UNDOCUMENTED OPTIONS:${clear_ansi}"
 		# bash arithmetic cannot handle numbers outside of the signed 64-bit range, they just rollover.
 		# We can detect this rollover by seeing if the arithmetic value is not equal to the string value.
 
-		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Group ID is outside of the allowed range, it must be between between -2147483648 and 2147483647 (signed 32-bit integer range)."
+		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Group ID is outside of the allowed range, it must be a number between -2147483648 and 2147483647 (signed 32-bit integer range)."
 		return "${error_code}"
 	fi
 	error_code+=1
@@ -2919,12 +3071,12 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 			return "${error_code}"
 		fi
 
-		if $set_prevent_secure_token_on_big_sur_and_newer; then # Sharing Only Accounts will always have Secure Token prevented on macOS 11 Big Sur and newer, but do not allow that to be set explicitly to avoid confusion that it could get a Secure Token if that's not set.
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Sharing Only Accounts will always have Secure Token prevented on macOS 11 Big Sur and newer. Remove the unnecessary \"--prevent-secure-token-on-big-sur-and-newer\" option."
+		if $set_prevent_first_secure_token; then # Sharing Only Accounts will always prevent first Secure Token on macOS 11 Big Sur and newer, but do not allow that to be set explicitly to avoid confusion that it could get a Secure Token if that's not set.
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Sharing Only Accounts will always prevent first Secure Token on macOS 11 Big Sur and newer. Remove the unnecessary \"--prevent-first-secure-token\" option."
 			return "${error_code}"
 		fi
 
-		set_prevent_secure_token_on_big_sur_and_newer=true
+		set_prevent_first_secure_token=true
 	elif $set_role_account; then
 		if [[ "${user_account_name}" != '_'* ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Role Accounts must have an account name that starts with an underscore (_)."
@@ -3200,8 +3352,8 @@ checkPasswordContentResult // Just having "checkPasswordContentResult" as the la
 		if ! $boot_volume_is_apfs && ! $make_package; then # Secure Token can only be granted if boot volume is APFS (but still check if making a package since it could be run on another system).
 			>&2 echo 'mkuser WARNING: IGNORING "--secure-token-admin-account-name" since Secure Tokens are an APFS feature and the boot volume is not formatted as APFS.'
 			st_admin_account_name='' # Clear specified st_admin_account_name so that Secure Token granting code during user creation will never be run.
-		elif $set_prevent_secure_token_on_big_sur_and_newer; then
-			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--prevent-secure-token-on-big-sur-and-newer\". Remove one or the other of these options."
+		elif $set_prevent_first_secure_token; then
+			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Cannot specify \"--secure-token-admin-account-name\" to grant the new user a Secure Token while specifying \"--prevent-first-secure-token\". Remove one or the other of these options."
 			return "${error_code}"
 		elif [[ "${st_admin_account_name}" == "${user_account_name}" ]]; then
 			>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Specified Secure Token admin \"${st_admin_account_name}\" cannot be same as the new user \"--account-name\"."
@@ -3549,7 +3701,7 @@ function run(argv) {
 	fi
 	error_code+=1
 
-	if ! $set_sharing_only_account && $user_shell_is_false && $user_home_is_dev_null && ! $set_admin && { $set_prevent_secure_token_on_big_sur_and_newer || (( darwin_major_version < 20 )); }; then
+	if ! $set_sharing_only_account && $user_shell_is_false && $user_home_is_dev_null && ! $set_admin && { $set_prevent_first_secure_token || (( darwin_major_version < 20 )); }; then
 		set_sharing_only_account=true
 
 		# Make set_sharing_only_account "true" if it wasn't set explicitly but all other explicitly set criteria match a Sharing Only Accounts so that the creating_user_type display is correct.
@@ -3642,7 +3794,7 @@ Check \"--help\" for detailed information about each available option."
 	print_mkuser_function = 0
 }
 print_mkuser_function {
-	if ($0 != "" && $1 != "#" && $1 != "//") {
+	if (($0 != "" && $1 != "//") && ($1 != "#" || $2 == "<MKUSER-VALID-OPTIONS>")) {
 		if (($1 == "readonly") && ($2 == "IS_PACKAGE=false")) {
 			print "\treadonly IS_PACKAGE=true # CODE MODIFIED FOR PACKAGE INSTALLATION"
 		} else {
@@ -4444,7 +4596,8 @@ const pathsToBinariesAndValidCSReqs = {
 	'/usr/sbin/sysadminctl': 'identifier \"com.apple.sysadminctl\" and anchor apple',
 	'/usr/bin/xxd': 'identifier \"com.apple.xxd\" and anchor apple',
 	'/usr/bin/expect': 'identifier \"com.apple.expect\" and anchor apple',
-	'/usr/bin/profiles': 'identifier \"com.apple.profiles\" and anchor apple'
+	'/usr/bin/profiles': '(identifier \"com.apple.profiles\" or identifier \"com.apple.ManagedClient.profiles\") and anchor apple'
+	// 'profiles' Bundle ID changed from 'com.apple.profiles' on macOS 26 Tahoe and older to 'com.apple.ManagedClient.profiles' on macOS 27 Golden Gate.
 }
 
 if ($.NSProcessInfo.processInfo.isOperatingSystemAtLeastVersion({majorVersion: 10, minorVersion: 15, patchVersion: 0})) {
@@ -4843,14 +4996,17 @@ ${package_distribution_xml_header}
 \b Sharing Only Account:\b0  \i ${set_sharing_only_account}\i0 \line
 \b Role Account:\b0  \i ${set_role_account}\i0 \line
 \b Service Account:\b0  \i ${set_service_account}\i0 \line
-\b Prevent Secure Token on Big Sur and Newer:\b0  \i ${set_prevent_secure_token_on_big_sur_and_newer}\i0 \line
+\b Prevent First Secure Token:\b0  \i ${set_prevent_first_secure_token}\i0 \line
 \b Grant Secure Token from Existing Admin:\b0  \i $([[ -n "${st_admin_account_name}" ]] && echo "true\i0  (from \"${st_admin_account_name}\")" || echo 'false\i0 ')\line
 \line
 \uc0\u55357 \u57002  \ul Login Settings\ul0 \line
 \b Automatic Login:\b0  \i ${set_auto_login}\i0 $($set_auto_login && echo ' (if FileVault is not enabled)')\line
 \b Prevent Login:\b0  \i $($user_shell_is_false && echo 'true\i0  (because login shell is "/usr/bin/false")' || echo 'false\i0 ')\line
 \b Skip Setup Assistant on First Boot:\b0  \i ${skip_setup_assistant_on_first_boot}\i0 \line
-\b Skip Setup Assistant on First Login:\b0  \i ${skip_setup_assistant_on_first_login}\i0
+\b Skip Setup Assistant on First Login:\b0  \i ${skip_setup_assistant_on_first_login}\i0 \line
+\line
+\uc0\u9881 \u65039  \ul mkuser Settings\ul0 \line
+\b Reboot After Success:\b0  \i $($reboot_after_success && echo "true\i0  ($([[ "${reboot_after_success_delay:-0}" == '0' ]] && echo 'immediately' || echo "after ${reboot_after_success_delay} seconds"))" || echo 'false\i0 ')
 }]]></welcome>
     <conclusion language="en" mime-type="text/rtf"><![CDATA[{\rtf1\ansi
 \fs36 \pard\qc \line
@@ -5074,7 +5230,7 @@ CUSTOM_DISTRIBUTION_XML_EOF
 			fi
 
 			if [[ "${this_signed_32_bit_integer}" =~ ^\-?0+ ]]; then
-				# NOTE: DO NOT use the base 10 trick shown here https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale since that would cause the value to be rolled over if the number is outside the 64 bit range and then we would not be able to check later if the original number is outside the 64 bit range to reject it.
+				# NOTE: DO NOT use the base 10 trick shown here https://mywiki.wooledge.org/ArithmeticExpression#Pitfall:_Base_prefix_with_signed_numbers & https://github.com/koalaman/shellcheck/wiki/SC2004#rationale since that would cause the value to be rolled over if the number is outside the 64-bit range and then we would not be able to check later if the original number is outside the 64-bit range to reject it.
 				this_signed_32_bit_integer="$($original_integer_was_negative && printf '-')${this_signed_32_bit_integer#"${this_signed_32_bit_integer%%[^-0]*}"}" # Remove any leading minus sign and zeros and add back any minus sign (using "printf '-'" since "echo '-'" doesn't output anything in zsh).
 				if [[ -z "${this_signed_32_bit_integer}" || "${this_signed_32_bit_integer}" == '-' ]]; then this_signed_32_bit_integer=0; fi # Catch if the number was all zeros with or without a minus sign.
 			fi
@@ -5337,12 +5493,12 @@ gid: ${user_gid}" # Add this missing AD group to the dscacheutil_groups output s
 	fi
 	error_code+=1
 
-	if $set_prevent_secure_token_on_big_sur_and_newer && (( darwin_major_version < 20 )); then
-		# Disable set_prevent_secure_token_on_big_sur_and_newer if not running on macOS 11 Big Sur and newer.
+	if $set_prevent_first_secure_token && (( darwin_major_version < 20 )); then
+		# Disable set_prevent_first_secure_token if not running on macOS 11 Big Sur and newer.
 		# This version check is done after package creation so that the option will always get included when
 		# creating a package which could run on different versions of macOS but only enabled when appropriate.
 
-		set_prevent_secure_token_on_big_sur_and_newer=false
+		set_prevent_first_secure_token=false
 	fi
 
 	if $set_auto_login && [[ "$(fdesetup isactive)" == 'true' ]]; then
@@ -5405,7 +5561,7 @@ Hide User: $(! $set_hidden_user && [[ "${user_password}" == '*' ]] && echo 'true
 Sharing Only Account: ${set_sharing_only_account}
 Role Account: ${set_role_account}
 Service Account: ${set_service_account}
-Prevent Secure Token on Big Sur and Newer: ${set_prevent_secure_token_on_big_sur_and_newer}
+Prevent First Secure Token: ${set_prevent_first_secure_token}
 Grant Secure Token from Existing Admin: $([[ -n "${st_admin_account_name}" ]] && echo "true (from \"${st_admin_account_name}\")" || echo 'false')
 
 LOGIN SETTINGS
@@ -5413,6 +5569,9 @@ Automatic Login: ${set_auto_login}
 Prevent Login: $($user_shell_is_false && echo 'true (because login shell is "/usr/bin/false")' || echo 'false')
 Skip Setup Assistant on First Boot: ${skip_setup_assistant_on_first_boot}
 Skip Setup Assistant on First Login: ${skip_setup_assistant_on_first_login}
+
+MKUSER SETTINGS
+Reboot After Success: $($reboot_after_success && echo "true ($([[ "${reboot_after_success_delay:-0}" == '0' ]] && echo 'immediately' || echo "after ${reboot_after_success_delay} seconds"))" || echo 'false')
 "
 
 		if ! $has_invalid_options; then
@@ -5465,7 +5624,7 @@ Check \"--help\" for detailed information about each available option."
 	# - A user must be created with "dsimport" (or "dscl . -create") when preventing Secure Token on macOS 11 Big Sur and newer since that tag must be set
 	#   upon user creation or before setting the password, which cannot be done with "sysadminctl -addUser". "dscl . -create" can work for this case since the password
 	#   can be set with "dscl . -passwd" after setting the tag, but could not be used in all possible cases because of the last reason mentioned below.
-	#   See "set_prevent_secure_token_on_big_sur_and_newer" section below for more information about the tag to prevent Secure Tokens on macOS 11 Big Sur and newer.
+	#   See "set_prevent_first_secure_token" section below for more information about the tag to prevent first Secure Token on macOS 11 Big Sur and newer.
 	# - A user must be created with "dsimport" (or "dscl . -create") when specifying a "GeneratedUID" since "sysadminctl -addUser" assigns a "GeneratedUID" upon creation
 	#   and has no options available to set a desired "GeneratedUID", while "dsimport" and "dscl . -create" can create a user with a specified "GeneratedUID".
 	#   To do this with "dscl . -create" the "GeneratedUID" attribute can be added to the initial user creation command: "dscl . -create /Users/[name] GeneratedUID [SOME-GUID]".
@@ -5579,7 +5738,7 @@ Check \"--help\" for detailed information about each available option."
 		fi
 	fi
 
-	if $set_prevent_secure_token_on_big_sur_and_newer; then
+	if $set_prevent_first_secure_token; then
 		# The following information is from: https://support.apple.com/guide/deployment/use-secure-and-bootstrap-tokens-dep24dbdcf9e
 		# In macOS 11 or later, setting the initial password for the very first user on the Mac results in that user being granted a secure Token.
 		# In some workflows, that may not be the desired behavior, as previously, granting the first secure token would have required the user account to log in.
@@ -5828,7 +5987,7 @@ Check \"--help\" for detailed information about each available option."
 			echo "mkuser: Verifying NO password for ${user_full_and_account_name_display} user..."
 		fi
 
-		intended_authentication_authority="$($set_prevent_secure_token_on_big_sur_and_newer && echo 'AuthenticationAuthority: ;DisabledTags;SecureToken' || echo 'No such key: AuthenticationAuthority')"
+		intended_authentication_authority="$($set_prevent_first_secure_token && echo 'AuthenticationAuthority: ;DisabledTags;SecureToken' || echo 'No such key: AuthenticationAuthority')"
 
 		if [[ "$(dscl . -read "/Users/${user_account_name}" HeimdalSRPKey KerberosKeys ShadowHashData _writers_passwd Password 2>&1 | sort)" != $'No such key: HeimdalSRPKey\nNo such key: KerberosKeys\nNo such key: ShadowHashData\nNo such key: _writers_passwd\nPassword: *' || "$(dscl . -read "/Users/${user_account_name}" AuthenticationAuthority 2>&1)" != "${intended_authentication_authority}" ]]; then
 			# If there is no system password content policy (such as by default on macOS 10.13 High Sierra) or some custom password content allowing single character passwords, the actual password will have gotten set to "*" instead of not having any password set and "*" being literally set to the "Password" attribute to signify no password (as intended).
@@ -5858,7 +6017,7 @@ Check \"--help\" for detailed information about each available option."
 				if [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" != *'is ENABLED for'* && "$(diskutil apfs listCryptoUsers / 2> /dev/null)" != *$'\n'"+-- ${user_guid}"$'\n'* && $'\n'"$(fdesetup list 2> /dev/null)"$'\n' != *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
 					# Delete all the associated password attributes AS LONG AS this account doesn't have a Secure Token.
 
-					if $set_prevent_secure_token_on_big_sur_and_newer; then
+					if $set_prevent_first_secure_token; then
 						dscl . -create "/Users/${user_account_name}" AuthenticationAuthority ';DisabledTags;SecureToken' # Do not want to delete the entire AuthenticationAuthority because we want to perserve this tag when it was specified by the user
 					else
 						dscl . -delete "/Users/${user_account_name}" AuthenticationAuthority &> /dev/null
@@ -5983,7 +6142,7 @@ function run(argv) {
 
 		# Must verify password BEFORE setting this user to be an administrator (if they are configured to be) so that this authentication DOES NOT grant the first Secure Token on macOS 10.15 Catalina.
 		# But, this authentication WILL grant the first Secure Token on macOS 10.14 Mojave and macOS 10.13 High Sierra, but that is desirable over possible situations where no Secure Token would get granted at all.
-		# See all the "SECURE TOKEN NOTES" sections within the "--prevent-secure-token-on-big-sur-and-newer" help info for more about how macOS grants the first Secure Token on different versions of macOS.
+		# See all the "SECURE TOKEN NOTES" sections within the "--prevent-first-secure-token" help info for more about how macOS grants the first Secure Token on different versions of macOS.
 
 		if ! verify_user_password_result="$(mkuser_verify_password "${user_account_name}" "${user_password}" 2>&1)" || [[ "${verify_user_password_result}" != 'VERIFIED' ]]; then
 			>&2 echo "mkuser ${verify_user_password_result}"
@@ -6457,7 +6616,7 @@ function run(argv) {
 	fi
 	error_code+=1
 
-	if $set_prevent_secure_token_on_big_sur_and_newer && [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* || "$(diskutil apfs listCryptoUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
+	if $set_prevent_first_secure_token && [[ "$(sysadminctl -secureTokenStatus "${user_account_name}" 2>&1)" == *'is ENABLED for'* || "$(diskutil apfs listCryptoUsers / 2> /dev/null)" == *$'\n'"+-- ${user_guid}"$'\n'* || $'\n'"$(fdesetup list 2> /dev/null)"$'\n' == *$'\n'"${user_account_name},${user_guid}"$'\n'* ]]; then
 		>&2 echo "mkuser ERROR ${error_code}-${LINENO}: Created user \"${user_account_name}\", but Secure Token got granted when it should not have."
 		return "${error_code}"
 	fi
@@ -6866,6 +7025,14 @@ expect {
 
 	if ! $suppress_status_messages; then
 		echo "mkuser: Successfully created ${creating_user_type} ${user_full_and_account_name_display} and all ${error_code} verifications passed!"
+	fi
+
+	if $reboot_after_success; then
+		if ! $suppress_status_messages; then
+			echo "mkuser: Rebooting after success ($([[ "${reboot_after_success_delay:-0}" == '0' ]] && echo 'immediately' || echo "in ${reboot_after_success_delay} seconds"))..."
+		fi
+
+		shutdown -r "$([[ "${reboot_after_success_delay:-0}" == '0' ]] && echo 'now' || echo "+${reboot_after_success_delay}s")" &> /dev/null
 	fi
 
 	return 0

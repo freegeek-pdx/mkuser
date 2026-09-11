@@ -245,7 +245,7 @@ When NOT running in an interactive Terminal, such as within an automated script,
 > When the "\*" password is set AND no AuthenticationAuthority exists, the user will not show in the users list in "Users & Groups" section of System Preferences/Settings and will also not show up in the login window.<br/>
 > If you choose to start a user out with no password for some reason, you can always set their password later with `dscl . -passwd`.
 >
-> If you include the `--prevent-secure-token-on-big-sur-and-newer` option with this option, that would create an AuthenticationAuthority attribute with the special tag to prevent a Secure Token from being granted.<br/>
+> If you include the `--prevent-first-secure-token` option with this option, that would create an AuthenticationAuthority attribute with the special tag to prevent the first Secure Token from being granted.<br/>
 > Since that user would no longer have BOTH no AuthenticationAuthority AND the "\*" password, they would show in the users list in "Users & Groups" section of System Preferences/Settings as well as the login window list of users, but could not log in since no meaningful password is set.
 
 <br/>
@@ -367,7 +367,7 @@ When NOT running in an interactive Terminal, such as within an automated script,
 > Make sure to specify a password when creating a "Sharing Only" account, or it will have *a blank/empty password*.
 >
 > Also, when running on macOS 11 Big Sur and newer, "Sharing Only" accounts get a special tag added to the AuthenticationAuthority attribute of the user record to let macOS know not to grant a Secure Token.<br/>
-> See `--prevent-secure-token-on-big-sur-and-newer` help for more information about preventing macOS from granting an account the first Secure Token.
+> See `--prevent-first-secure-token` help for more information about preventing macOS from granting an account the first Secure Token.
 >
 > This is here as a separate option for convenience and information.<br/>
 > When using this option, you CANNOT also specify `--administrator`, since "Sharing Only" accounts should not be administrators.<br/>
@@ -447,14 +447,15 @@ When NOT running in an interactive Terminal, such as within an automated script,
 
 <br/>
 
-#### `--prevent-secure-token-on-big-sur-and-newer, --prevent-secure-token, --no-st` < *no parameter* >
+#### `--prevent-first-secure-token, --prevent-secure-token, --no-st` < *no parameter* >
 
 > Include this option with no parameter to prevent the user from being automatically granted the first Secure Token on macOS 11 Big Sur and newer when and if they are being created when the first Secure Token has not yet been automatically granted by macOS.<br/>
 > This option is helpful when creating scripted users before going through Setup Assistant that you do not want to be granted the first Secure Token, which would prevent the Setup Assistant user from getting a Secure Token.<br/>
 > This option will add a special tag to the AuthenticationAuthority attribute of the user record to let macOS know not to grant a Secure Token.<br/>
 > For more information about this Secure Token prevention tag, visit: <https://support.apple.com/guide/deployment/dep24dbdcf9e><br/>
 > A Secure Token could still be manually granted to this user after specifying this option on macOS 11 Big Sur and newer with `sysadminctl -secureTokenOn`, or by an MDM Bootstrap Token when logging in graphically via login window.<br/>
-> This option has no effect on macOS 10.15 Catalina and older, but there is useful information below about first Secure Token behavior all the way back to macOS 10.13 High Sierra when Secure Tokens were first introduced.
+> This option has no effect on macOS 10.15 Catalina and older, but there is useful information below about first Secure Token behavior all the way back to macOS 10.13 High Sierra when Secure Tokens were first introduced.<br/>
+> **NOTICE:** As of version 2026.9.11-1, the primary name for this option has been changed from `--prevent-secure-token-on-big-sur-and-newer` to `--prevent-first-secure-token`, but the old option name still works for backwards compatibility with existing scripts.
 >
 > #### VOLUME OWNER ON APPLE SILICON NOTES:
 > On Apple Silicon Macs, users that do not have a Secure Token cannot be Volume Owners, which means they will not be able to approve system updates (among other things).<br/>
@@ -540,7 +541,7 @@ When NOT running in an interactive Terminal, such as within an automated script,
 >
 > Once the Bootstrap Token has been created and escrowed, it will only grant Secure Tokens to users logging in graphically via login window (but not when using the `login` or `su` commands) and internet must be available during the macOS login process to communicate with the MDM.<br/>
 > Except if a user has a blank/empty password, then the Bootstrap Token will not grant that user a Secure Token.<br/>
-> Otherwise, there is *NO WAY* to prevent the Bootstrap Token from granting an account a Secure Token when logging in graphically, not even when this `--prevent-secure-token-on-big-sur-and-newer` option is specified as that only applies to macOS granting the *first* Secure Token, not to subsequent Secure Tokens granted by the Bootstrap Token.
+> Otherwise, there is *NO WAY* to prevent the Bootstrap Token from granting an account a Secure Token when logging in graphically, not even when this `--prevent-first-secure-token` option is specified as that only applies to macOS granting the *first* Secure Token, not to subsequent Secure Tokens granted by the Bootstrap Token.
 
 <br/>
 
@@ -696,6 +697,14 @@ When NOT running in an interactive Terminal, such as within an automated script,
 > Include this option with no parameter to not output any status messages that would be sent to "stdout".<br/>
 > Any errors and warning that are sent to "stderr" will still be outputted.<br/>
 > **NOTICE:** Specifying `--suppress-status-messages` also ENABLES `--do-not-confirm`.
+
+<br/>
+
+#### `--reboot-after-success, --reboot, -R` < *integer* || *no parameter* >
+
+> Include this option with no parameter to reboot the computer immediately after the new user has been successfully created.
+>
+> Specify a number of seconds between 1 and 3600 to reboot after a delay.
 
 <br/>
 

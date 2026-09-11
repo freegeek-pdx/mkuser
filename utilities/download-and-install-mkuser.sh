@@ -213,7 +213,7 @@ pkgutil_check_signature_exit_code="$?"
 
 echo "${pkgutil_check_signature_output}"
 
-darwin_major_version="$(uname -r | cut -d '.' -f 1)" # 18 = 10.14, 19 = 10.15, 20 = 11.0, 21 = 12.0, 22 = 13.0, 23 = 14.0, etc.
+darwin_major_version="$(uname -r | cut -d '.' -f 1)" # 19 = 10.15 Catalina, 20 = 11 Big Sur, 21 = 12 Monterey, 22 = 13 Ventura, 23 = 14 Sonoma, 24 = 15 Sequoia, 25 = 26 Tahoe, 26 = SKIPPED, 27 = 27 Golden Gate, etc.
 if (( spctl_assess_exit_code != 0 || pkgutil_check_signature_exit_code != 0 )) || [[ "${spctl_assess_output}" != *$'\nsource='"$( (( darwin_major_version >= 18 )) && echo 'Notarized ' )"$'Developer ID\n'*"(${INTENDED_CODE_SIGNATURE_TEAM_ID})" || "${pkgutil_check_signature_output}" != *$'\n    1. Developer ID Installer: '*" (${INTENDED_CODE_SIGNATURE_TEAM_ID})"$'\n'* || ( darwin_major_version -ge 21 && "${pkgutil_check_signature_output}" != *$'\n   Notarization: trusted by the Apple notary service\n'* ) ]]; then
 	# The "spctl -avv" output on macOS 10.13 High Sierra will only ever include "source=Developer ID" even if it is actually notarized while macOS 10.14 Mojave and newer will include "source=Notarized Developer ID" and the "pkgutil --check-signature" output will only contain the "Notarization" line on macOS 12 Monterey and newer.
 	rm -f "${package_download_path}"
